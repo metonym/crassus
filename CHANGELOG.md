@@ -1,24 +1,44 @@
 # Changelog
 
-## Unreleased
+## 0.1.1 — 2026-10-06
 
 **Features**
 
-- `canonicalSelector(text)` and `canonicalContext(name, prelude)` spell a
-  selector, or one `@name prelude`, as `Rule.selector` and `Rule.context`
-  do. A usage driver of its own can key CDP's matched rules to `parseRules`
-  without another CSS parser.
+- `canonicalSelector(text)` and `canonicalContext(name, prelude)` are
+  exported from `crassus`. They spell a selector, and one `@name prelude`,
+  as `Rule.selector` and `Rule.context` do, whatever spacing the sheet or a
+  browser used. A usage driver of its own can key CDP's matched rules to
+  `parseRules` without a second CSS parser: a selector's
+  `selectorList.selectors[i].text`, `media[].text`, `supports[].text` and a
+  container query's `conditionText`. They are the functions the CDP engine
+  already called, `normalizeSelector` and `contextOf`, renamed.
+  `canonicalSelector` parses the text and serializes it. Quotes stay as
+  written, as CDP reports them. A nested rule's selector in a `Rule` is
+  already resolved against its parent, so the two agree only once the text
+  is resolved the same way. `canonicalContext` returns `@name` plus the
+  prelude. `@media`, `@supports`, `@container` and `@scope` get the one
+  condition spelling below; `@media` is lowercased, as Chrome serializes
+  it, and a container name and `selector()` stay case-sensitive. A rule's
+  own contexts join with `" / "`, outermost first. On the bench corpora,
+  `canonicalSelector` spells every selector css-tree reads, keyframe steps
+  aside, as `Rule.selector` does once both sides use the same quotes.
 
 **Fixes**
 
-- `Rule.context` (and `Rule.scope`) has one spelling per condition. A space
-  separates `)` from a keyword (`(a:b) and (c:d)`, also when the sheet is
-  minified to `(a:b)and (c:d)`), range operators lose theirs
-  (`(width>=42rem)`), and `@media` is lowercased. The CDP usage engine reads
-  Chrome's serialization (`(width >= 42rem)`), so rules under a minified
-  query no longer show as never matched, and `diff` no longer reports a
-  context move when only the spacing of a query changes. Contexts in reports
-  and JSON output change spelling accordingly.
+- `Rule.context` and `Rule.scope` have one spelling per condition. The
+  prelude is collapsed as a value is, then a space is inserted between `)`
+  and a keyword (`(a:b)and (c:d)` and `(a:b) and (c:d)` are both
+  `(a:b) and (c:d)`) and taken out from around a range operator
+  (`(width >= 42rem)` and `(width>=42rem)` are both `(width>=42rem)`).
+  `@media` is lowercased. A string, an escape, a space that separates `>`
+  from `=` (`(width > = 1px)` stays `(width> =1px)`), and a function token
+  such as `and(` keep their spelling. The CDP usage engine reads Chrome's
+  serialization, which spaces both a keyword and a range operator, so a
+  rule under a minified query no longer shows as never matched. `diff` no
+  longer reports a context move when only that spacing changed. Reports and
+  JSON use the new spelling. On the bench corpora this respells 9
+  `@carbon/styles` contexts (`(width <= 11rem)` to `(width<=11rem)`) and 6
+  in Primer (`(min-width:768px)and (...)` to `(min-width:768px) and (...)`).
 
 ## 0.1.0 — 2026-10-06
 
