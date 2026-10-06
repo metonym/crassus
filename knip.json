@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/browser/index.ts",
+    "src/page/usage-dom.ts",
+    "scripts/*.ts",
+    "bench/*.ts",
+    "eval/**/*.ts",
+    "tests/*.ts"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "bench/**/*.ts",
+    "eval/**/*.ts",
+    "tests/**/*.ts"
+  ],
+  "ignoreBinaries": ["tsc", "browser.ts"],
+  "ignoreDependencies": [
+    "@carbon/styles",
+    "@primer/css",
+    "bootstrap",
+    "bulma",
+    "carbon-components-svelte",
+    "open-props",
+    "tailwindcss"
+  ]
+}

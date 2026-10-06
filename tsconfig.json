@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "target": "ESNext",
+    "module": "preserve",
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "paths": {
+      "crassus": ["./src/index.ts"],
+      "crassus/browser": ["./src/browser/index.ts"]
+    },
+    "types": ["bun", "jest"]
+  },
+  "include": ["bench", "eval", "scripts", "src", "tests"]
+}
