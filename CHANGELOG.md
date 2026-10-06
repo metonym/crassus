@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+**Features**
+
+- `canonicalSelector(text)` and `canonicalContext(name, prelude)` spell a
+  selector, or one `@name prelude`, as `Rule.selector` and `Rule.context`
+  do. A usage driver of its own can key CDP's matched rules to `parseRules`
+  without another CSS parser.
+
 **Fixes**
 
 - `Rule.context` (and `Rule.scope`) has one spelling per condition. A space

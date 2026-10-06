@@ -565,7 +565,13 @@ function serializeCompound(c: Compound): string {
   return out;
 }
 
-/** Canonical selector text, to compare a browser's serialization with the sheet's. */
-export function normalizeSelector(text: string): string {
+/**
+ * A selector, or a list, as `Rule.selector` spells it: to key a browser's
+ * selector text (CDP's `selectorList.selectors[i].text`) to `parseRules`.
+ * Quotes stay as written, as CDP reports them. Nested rules' selectors are
+ * resolved against their parents in `Rule`, so they only match once
+ * resolved the same way.
+ */
+export function canonicalSelector(text: string): string {
   return serializeList(parseSelectorList(text));
 }

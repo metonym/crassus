@@ -44,7 +44,13 @@ try {
   await writeFile(
     join(dir, "smoke.js"),
     `import assert from "node:assert/strict";
-import { cascadeDiff, deadDeclarations, parseRules } from "crassus";
+import {
+  canonicalContext,
+  canonicalSelector,
+  cascadeDiff,
+  deadDeclarations,
+  parseRules,
+} from "crassus";
 
 const dead = deadDeclarations(".a{color:red}.a{color:blue}");
 assert.equal(dead.length, 1);
@@ -56,6 +62,10 @@ assert.deepEqual(after.specificity, [0, 1, 1]);
 const base = parseRules(".x.y{color:red}.x{color:blue}");
 const head = parseRules(".x{color:blue}.x.y{color:red}");
 assert.equal(cascadeDiff(base, head).flips.length, 0);
+
+const [media] = parseRules("@media (width>=1px)and (hover:hover){.a > .b{top:0}}");
+assert.equal(media.context, canonicalContext("media", "(width >= 1px) and (hover: hover)"));
+assert.equal(media.selector, canonicalSelector(".a>.b"));
 `,
   );
   await $`node smoke.js`.cwd(dir);

@@ -74,10 +74,14 @@ const KEYFRAMES_RE = /keyframes$/;
 const CONDITIONS = new Set(["media", "supports", "container", "scope"]);
 
 /**
- * `@name prelude`, one spelling per prelude. `@media` is lowercased, as
- * Chrome serializes it; container names and `selector()` are case-sensitive.
+ * `@name prelude` as `Rule.context` (or `Rule.scope`) spells it, one
+ * spelling however the sheet or a browser wrote it: CDP's `media[].text`,
+ * `supports[].text` and `containerQueries[].conditionText` key to
+ * `parseRules`. A rule's contexts join with " / ", outermost first. `@media`
+ * is lowercased, as Chrome serializes it; container names and `selector()`
+ * are case-sensitive.
  */
-export function contextOf(name: string, prelude: string): string {
+export function canonicalContext(name: string, prelude: string): string {
   let text = canonicalText(prelude);
   if (CONDITIONS.has(name)) text = canonicalCondition(text);
   if (name === "media") text = text.toLowerCase();
@@ -252,10 +256,10 @@ export function placeRules(nodes: Node[]): Placed[] {
     conditional++;
     const inner =
       name === "scope"
-        ? { ...w, scope: join(w.scope, contextOf(name, prelude)) }
+        ? { ...w, scope: join(w.scope, canonicalContext(name, prelude)) }
         : {
             ...w,
-            context: join(w.context, contextOf(name, prelude)),
+            context: join(w.context, canonicalContext(name, prelude)),
             keyframes: w.keyframes || KEYFRAMES_RE.test(name),
           };
     block(node.decls ?? [], rules, 0, inner);

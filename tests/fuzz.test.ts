@@ -1,7 +1,7 @@
 import { cascadeDiff, deadDeclarations, parseRules } from "crassus";
 import { type CssNode, generate, parse, walk } from "css-tree";
 import { canonicalText, type Node, parseStylesheet } from "../src/core/parse";
-import { normalizeSelector } from "../src/core/selector";
+import { canonicalSelector } from "../src/core/selector";
 import { generator } from "./fuzz-gen";
 
 // FUZZ_SEED=n FUZZ_RUNS=n for longer runs.
@@ -33,7 +33,7 @@ function ours(css: string): Shape {
       if (node.kind === "rule") {
         let text = node.prelude;
         try {
-          text = normalizeSelector(node.prelude);
+          text = canonicalSelector(node.prelude);
         } catch {}
         preludes.push(loose(text));
       }
