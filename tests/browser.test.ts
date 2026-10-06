@@ -21,6 +21,7 @@ const LIB_CSS = `
 .bx--btn:hover { color: green; }
 button { padding: 0; }
 @media (width >= 1px) { .bx--wrap { margin: 0; } }
+@media (width>=1px)and (min-height:1px) { .bx--wrap { padding: 0; } }
 .bx--unused { top: 0; }
 `;
 const PAGE = `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head>
@@ -155,6 +156,18 @@ it("agrees between the CDP and dom usage engines", async () => {
   expect(cdp[".bx--btn|color"]).toEqual([true, false]);
   // Beaten by `.bx--btn`'s var() shorthand (CDP lists no longhands for it).
   expect(cdp["button|padding"]).toEqual([true, false]);
+  // The minified @media matches too: CDP spells it `(width >= 1px) and
+  // (min-height: 1px)`.
+  const reports = await Promise.all(
+    ["cdp", "dom"].map((m) =>
+      Bun.file(join(dir, `usage-${m}`, "usage.json")).json(),
+    ),
+  );
+  for (const { unmatched } of reports) {
+    expect(unmatched.map((r: { selector: string }) => r.selector)).toEqual([
+      ".bx--unused",
+    ]);
+  }
 }, 60_000);
 
 it("replays @layer and @scope order the same way Chrome does", async () => {

@@ -88,6 +88,76 @@ describe("parser robustness", () => {
     );
   });
 
+  it("gives each condition one context however it's spelled", () => {
+    const contexts = (...preludes: string[]) => [
+      ...new Set(
+        preludes.map((p) => {
+          const [r] = parseRules(`${p} { .a { color: red } }`);
+          return r.scope || r.context;
+        }),
+      ),
+    ];
+    // The minified, source and Chrome (CDP) spellings.
+    expect(
+      contexts(
+        "@media (a:b)and (c:d)",
+        "@media (a:b) and (c:d)",
+        "@media (a: b)  and  (c : d)",
+        "@media (A: B) AND (C: D)",
+      ),
+    ).toEqual(["@media (a:b) and (c:d)"]);
+    expect(
+      contexts("@media (width>=42rem)", "@media (width >= 42rem)"),
+    ).toEqual(["@media (width>=42rem)"]);
+    expect(
+      contexts("@media (1px<=width<42rem)", "@media ( 1px <= width < 42rem )"),
+    ).toEqual(["@media (1px<=width<42rem)"]);
+    expect(
+      contexts(
+        "@media not all and (monochrome),print",
+        "@media not all and (monochrome), print",
+      ),
+    ).toEqual(["@media not all and (monochrome),print"]);
+    expect(
+      contexts(
+        "@supports (display:grid)and (not (display:inline-grid))",
+        "@supports (display: grid) and (not (display: inline-grid))",
+      ),
+    ).toEqual(["@supports (display:grid) and (not (display:inline-grid))"]);
+    expect(
+      contexts(
+        "@supports ((a:b)or (c:d))and (e:f)",
+        "@supports ((a: b) or (c: d)) and (e: f)",
+      ),
+    ).toEqual(["@supports ((a:b) or (c:d)) and (e:f)"]);
+    expect(
+      contexts("@supports selector(a>b)", "@supports selector(a > b)"),
+    ).toEqual(["@supports selector(a>b)"]);
+    expect(
+      contexts(
+        "@container Card (width>=1px)and (not (height>1px))",
+        "@container Card (width >= 1px) and (not (height > 1px))",
+      ),
+    ).toEqual(["@container Card (width>=1px) and (not (height>1px))"]);
+    expect(
+      contexts("@scope (.a>.b)to (.c)", "@scope (.a > .b) to (.c)"),
+    ).toEqual(["@scope (.a>.b) to (.c)"]);
+  });
+
+  it("keeps condition spelling that changes the meaning", () => {
+    const context = (prelude: string) =>
+      parseRules(`${prelude} { .a { color: red } }`)[0].context;
+    // A string, `> =` (not a range operator), an escaped `>`, a function token.
+    expect(context('@supports (content:"a > b")')).toBe(
+      '@supports (content:"a > b")',
+    );
+    expect(context("@media (width > = 1px)")).toBe("@media (width> =1px)");
+    expect(context("@supports selector(.a\\> .b)")).toBe(
+      "@supports selector(.a\\> .b)",
+    );
+    expect(context("@media (a:b) and(c:d)")).toBe("@media (a:b) and(c:d)");
+  });
+
   it("parses declaration at-rules and keyframes without leaking rules", () => {
     const rules = parseRules(
       "@font-face { font-family: X; src: url(x.woff2) } @keyframes k { 0% { opacity: 0 } to { opacity: 1 } } .a { color: red }",

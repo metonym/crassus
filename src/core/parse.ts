@@ -11,17 +11,21 @@ import {
   COMMA,
   DASH,
   DQUOTE,
+  EQ,
+  GT,
   isQuote,
   isWs,
   LBRACE,
   LBRACKET,
   LF,
   LPAREN,
+  LT,
   RBRACE,
   RBRACKET,
   RPAREN,
   SEMI,
   SLASH,
+  SPACE,
   SQUOTE,
   STAR,
   stringEnd,
@@ -440,3 +444,38 @@ export function canonicalText(raw: string): string {
 }
 
 const NO_WS_AFTER = new Set([COMMA, LPAREN]);
+
+const COMPARISON = new Set([LT, GT, EQ]);
+const CONDITION_SPACING_RE = /\)[a-z]|[<>=]/i;
+
+/**
+ * A condition prelude after `canonicalText`, with a space between `)` and a
+ * keyword (`) and (`) and none around a range operator (`(width>=42rem)`),
+ * so a minified sheet and Chrome's serialization agree.
+ */
+export function canonicalCondition(text: string): string {
+  if (!CONDITION_SPACING_RE.test(text)) return text;
+  let out = "";
+  let afterComparison = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (isQuote(c) || c === BACKSLASH) {
+      const end = c === BACKSLASH ? i + 1 : stringEnd(text, i);
+      out += text.slice(i, end + 1);
+      i = end;
+      afterComparison = false;
+      continue;
+    }
+    if (
+      c === SPACE &&
+      afterComparison !== COMPARISON.has(text.charCodeAt(i + 1))
+    )
+      continue;
+    out += text[i];
+    afterComparison = COMPARISON.has(c);
+    if (c === RPAREN && ASCII_LETTER_RE.test(text[i + 1] ?? "")) out += " ";
+  }
+  return out;
+}
+
+const ASCII_LETTER_RE = /^[a-z]$/i;
