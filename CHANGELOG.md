@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- `SHORTHANDS` is exported from `crassus`: each shorthand (or legacy alias)
+  and the longhands it sets, generated from Chrome's CSSOM, the table
+  `deadDeclarations` and the usage engines already use. A usage driver of
+  its own can expand a shorthand CDP matched without `longhandProperties`
+  (`padding: var(--a) 2px`) with `SHORTHANDS[name]?.includes(longhand)`.
+  Compared with carbon-components-svelte's 16-entry table, it adds 103
+  shorthands (`padding-inline`, `gap`, `grid-*`, `font`, `text-decoration`
+  and experimental ones such as `rule-*`) and, among the 16,
+  `transition-behavior`, `background-position-x`/`-y` and `border-image-*`.
+  It also spells `inset-block`, `margin-block` and `padding-block` with
+  logical longhands (`margin-block-start`), as CDP lists them, where that
+  table had physical ones (`margin-top`): it left those shorthands
+  unexpanded, or took another shorthand's longhands in the same rule.
+
 ## 0.1.1 — 2026-10-06
 
 **Features**

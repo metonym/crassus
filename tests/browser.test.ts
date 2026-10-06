@@ -16,10 +16,10 @@ import type { DeclarationStats } from "../src/core/usage";
 import { generator } from "./fuzz-gen";
 
 const LIB_CSS = `
-.bx--btn { color: red; padding: var(--p, 1px) 2px; }
+.bx--btn { color: red; padding: var(--p, 1px) 2px; margin-block: var(--m, 1px) 0; }
 .bx--wrap .bx--btn { color: blue; }
 .bx--btn:hover { color: green; }
-button { padding: 0; }
+button { padding: 0; margin-block-start: 0; }
 @media (width >= 1px) { .bx--wrap { margin: 0; } }
 @media (width>=1px)and (min-height:1px) { .bx--wrap { padding: 0; } }
 .bx--unused { top: 0; }
@@ -156,6 +156,8 @@ it("agrees between the CDP and dom usage engines", async () => {
   expect(cdp[".bx--btn|color"]).toEqual([true, false]);
   // Beaten by `.bx--btn`'s var() shorthand (CDP lists no longhands for it).
   expect(cdp["button|padding"]).toEqual([true, false]);
+  // And by a logical one: CDP lists `margin-block-start`, not `margin-top`.
+  expect(cdp["button|margin-block-start"]).toEqual([true, false]);
   // The minified @media matches too: CDP spells it `(width >= 1px) and
   // (min-height: 1px)`.
   const reports = await Promise.all(

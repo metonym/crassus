@@ -1,4 +1,5 @@
 import { canonicalSelector } from "../src/core/selector";
+import { SHORTHANDS } from "../src/core/shorthands";
 import {
   authoredDeclarations,
   bytesOf,
@@ -399,5 +400,110 @@ describe("authoredDeclarations (CDP quirks)", () => {
       "padding-bottom",
       "padding-left",
     ]);
+  });
+
+  it("expands a logical var() shorthand to the logical longhands CDP lists", () => {
+    // What Chrome returns for `padding-block: var(--a) 2px; padding: var(--a)
+    // 2px`: each shorthand's longhands, text-less, after the authored ones.
+    const out = authoredDeclarations([
+      {
+        name: "padding-block",
+        value: "var(--a) 2px",
+        text: "padding-block: var(--a) 2px;",
+      },
+      {
+        name: "padding",
+        value: "var(--a) 2px",
+        text: "padding: var(--a) 2px;",
+      },
+      { name: "padding-block-start", value: "" },
+      { name: "padding-block-end", value: "" },
+      { name: "padding-top", value: "" },
+      { name: "padding-right", value: "" },
+      { name: "padding-bottom", value: "" },
+      { name: "padding-left", value: "" },
+    ]);
+    expect(out.map((d) => d.longhands)).toEqual([
+      ["padding-block-start", "padding-block-end"],
+      ["padding-top", "padding-right", "padding-bottom", "padding-left"],
+    ]);
+  });
+});
+
+// The fallback table CCS's rung 2 driver (scripts/lib/css-usage.ts)
+// matched against CDP's text-less longhands, before SHORTHANDS was
+// exported. Pins what switching to SHORTHANDS changes for it.
+const CCS_SHORTHANDS: [string, RegExp][] = [
+  ["padding", /^padding-(top|right|bottom|left)$/],
+  ["margin", /^margin-(top|right|bottom|left)$/],
+  ["inset", /^(top|right|bottom|left)$/],
+  ["inset-block", /^(top|bottom)$/],
+  ["margin-block", /^margin-(top|bottom)$/],
+  ["padding-block", /^padding-(top|bottom)$/],
+  ["outline", /^outline-(width|style|color)$/],
+  ["overflow", /^overflow-[xy]$/],
+  ["flex", /^flex-(grow|shrink|basis)$/],
+  ["transition", /^transition-(property|duration|delay|timing-function)$/],
+  [
+    "background",
+    /^background-(color|image|position|size|repeat|attachment|origin|clip)$/,
+  ],
+  [
+    "border",
+    /^border-((top|right|bottom|left)(-(width|style|color))?|width|style|color)$/,
+  ],
+  ["border-width", /^border-(top|right|bottom|left)-width$/],
+  ["border-style", /^border-(top|right|bottom|left)-style$/],
+  ["border-color", /^border-(top|right|bottom|left)-color$/],
+  ["border-radius", /^border-(top|bottom)-(left|right)-radius$/],
+];
+
+describe("SHORTHANDS against carbon-components-svelte's table", () => {
+  // CDP lists longhands only, so a pattern's matches among shorthands
+  // (`border-top`, `background-position`) never mattered.
+  const longhands = [...new Set(Object.values(SHORTHANDS).flat())].filter(
+    (name) => !(name in SHORTHANDS),
+  );
+
+  it("has every shorthand the table has", () => {
+    for (const [name] of CCS_SHORTHANDS) expect(SHORTHANDS[name]).toBeDefined();
+  });
+
+  it("sets every longhand the table did, but the physical block ones", () => {
+    const missing: Record<string, string[]> = {};
+    for (const [name, pattern] of CCS_SHORTHANDS) {
+      const lost = longhands.filter(
+        (l) => pattern.test(l) && !SHORTHANDS[name].includes(l),
+      );
+      if (lost.length > 0) missing[name] = lost;
+    }
+    // CDP lists logical longhands for these, which the table never matched.
+    expect(missing).toEqual({
+      "inset-block": ["top", "bottom"],
+      "margin-block": ["margin-top", "margin-bottom"],
+      "padding-block": ["padding-top", "padding-bottom"],
+    });
+  });
+
+  it("adds these longhands to the table's shorthands", () => {
+    const added: Record<string, string[]> = {};
+    for (const [name, pattern] of CCS_SHORTHANDS) {
+      const extra = SHORTHANDS[name].filter((l) => !pattern.test(l));
+      if (extra.length > 0) added[name] = extra;
+    }
+    expect(added).toEqual({
+      "inset-block": ["inset-block-start", "inset-block-end"],
+      "margin-block": ["margin-block-start", "margin-block-end"],
+      "padding-block": ["padding-block-start", "padding-block-end"],
+      transition: ["transition-behavior"],
+      background: ["background-position-x", "background-position-y"],
+      border: [
+        "border-image-source",
+        "border-image-slice",
+        "border-image-width",
+        "border-image-outset",
+        "border-image-repeat",
+      ],
+    });
   });
 });
