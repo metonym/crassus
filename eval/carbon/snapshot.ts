@@ -14,10 +14,13 @@ import {
   capture,
   type Snapshot,
 } from "../../src/browser/snapshot";
-import { CCS_ROOT, fixturesDir, results } from "./ccs";
+import { CCS_ROOT, fixturesDir, oldTool, results } from "./ccs";
 
 const root = CCS_ROOT;
 const args = process.argv.slice(2);
+const OLD = args.includes("--skip-old")
+  ? undefined
+  : oldTool("e2e/cascade-snapshot.ts", "pass --skip-old");
 const opt = (n: string) => {
   const i = args.indexOf(`--${n}`);
   return i >= 0 ? args[i + 1] : undefined;
@@ -127,12 +130,12 @@ console.log(
     .join(" ")}`,
 );
 
-if (!args.includes("--skip-old")) {
+if (OLD) {
   const t = performance.now();
   const proc = Bun.spawn(
     [
       "bun",
-      "e2e/cascade-snapshot.ts",
+      OLD,
       "capture",
       out("playwright"),
       "--url",
