@@ -9,3 +9,4 @@ export { type CascadeDiff, cascadeDiff, type Flip } from "./core/diff";
 export { type DeadDeclaration, deadDeclarations } from "./core/overrides";
 export { canonicalContext } from "./core/placement";
 export { canonicalSelector } from "./core/selector";
+export { SHORTHANDS } from "./core/shorthands";

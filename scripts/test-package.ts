@@ -50,6 +50,7 @@ import {
   cascadeDiff,
   deadDeclarations,
   parseRules,
+  SHORTHANDS,
 } from "crassus";
 
 const dead = deadDeclarations(".a{color:red}.a{color:blue}");
@@ -66,6 +67,8 @@ assert.equal(cascadeDiff(base, head).flips.length, 0);
 const [media] = parseRules("@media (width>=1px)and (hover:hover){.a > .b{top:0}}");
 assert.equal(media.context, canonicalContext("media", "(width >= 1px) and (hover: hover)"));
 assert.equal(media.selector, canonicalSelector(".a>.b"));
+
+assert.deepEqual(SHORTHANDS["margin-block"], ["margin-block-start", "margin-block-end"]);
 `,
   );
   await $`node smoke.js`.cwd(dir);
