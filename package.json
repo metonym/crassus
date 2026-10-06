@@ -1,6 +1,6 @@
 {
   "name": "crassus",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "license": "MIT",
   "description": "Zero-dependency CSS cascade regression testing: provably dead declarations, cascade-flip diffs between builds, and real-browser usage and computed-style checks.",
   "author": "Eric Liu (https://github.com/metonym)",
