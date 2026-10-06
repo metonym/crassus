@@ -13,7 +13,12 @@
  * rules of their own (CSSNestedDeclarations).
  */
 
-import { canonicalText, type Decl, type Node } from "./parse";
+import {
+  canonicalCondition,
+  canonicalText,
+  type Decl,
+  type Node,
+} from "./parse";
 import {
   type Complex,
   parseComplex,
@@ -66,8 +71,17 @@ const ANONYMOUS = "<anonymous>";
 const IMPORT_LAYER_RE = /(?:^|[\s)])layer(?:\(([^)]*)\)|(?=\s|$))/i;
 const KEYFRAMES_RE = /keyframes$/;
 
+const CONDITIONS = new Set(["media", "supports", "container", "scope"]);
+
+/**
+ * `@name prelude`, one spelling per prelude. `@media` is lowercased, as
+ * Chrome serializes it; container names and `selector()` are case-sensitive.
+ */
 export function contextOf(name: string, prelude: string): string {
-  return `@${name} ${canonicalText(prelude)}`.trim();
+  let text = canonicalText(prelude);
+  if (CONDITIONS.has(name)) text = canonicalCondition(text);
+  if (name === "media") text = text.toLowerCase();
+  return `@${name} ${text}`.trim();
 }
 
 // Group rules some browser applies (`@-moz-document` is Firefox's).

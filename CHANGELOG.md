@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+**Fixes**
+
+- `Rule.context` (and `Rule.scope`) has one spelling per condition. A space
+  separates `)` from a keyword (`(a:b) and (c:d)`, also when the sheet is
+  minified to `(a:b)and (c:d)`), range operators lose theirs
+  (`(width>=42rem)`), and `@media` is lowercased. The CDP usage engine reads
+  Chrome's serialization (`(width >= 42rem)`), so rules under a minified
+  query no longer show as never matched, and `diff` no longer reports a
+  context move when only the spacing of a query changes. Contexts in reports
+  and JSON output change spelling accordingly.
+
 ## 0.1.0 — 2026-10-06
 
 **Features**
