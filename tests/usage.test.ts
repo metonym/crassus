@@ -1,4 +1,4 @@
-import { normalizeSelector } from "../src/core/selector";
+import { canonicalSelector } from "../src/core/selector";
 import {
   authoredDeclarations,
   bytesOf,
@@ -340,14 +340,14 @@ describe("summarize", () => {
   });
 });
 
-describe("normalizeSelector / normalizeContext", () => {
+describe("canonicalSelector / normalizeContext", () => {
   it("collapses insignificant whitespace so differently-formatted selectors compare equal", () => {
-    expect(normalizeSelector(".a   .b")).toBe(normalizeSelector(".a .b"));
-    expect(normalizeSelector("  .a.b  ")).toBe(normalizeSelector(".a.b"));
+    expect(canonicalSelector(".a   .b")).toBe(canonicalSelector(".a .b"));
+    expect(canonicalSelector("  .a.b  ")).toBe(canonicalSelector(".a.b"));
   });
 
   it("keeps text that isn't a selector", () => {
-    expect(normalizeSelector("{{{")).toBe("{{{");
+    expect(canonicalSelector("{{{")).toBe("{{{");
   });
 
   it("collapses whitespace in at-rule context text", () => {

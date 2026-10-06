@@ -16,7 +16,7 @@ import { pushTo } from "./util";
 
 /** One selector of a style rule. */
 export interface Rule {
-  /** `@media`, `@supports`, `@container`, …, outermost first, joined with " / ". */
+  /** `@media`, `@supports`, `@container`, …, outermost first, joined with " / ". See `canonicalContext`. */
   context: string;
   /** Dotted layer name, `""` when unlayered. */
   layer: string;
@@ -24,6 +24,7 @@ export interface Rule {
   layerRank: number;
   /** `@scope` chain. */
   scope: string;
+  /** See `canonicalSelector`. */
   selector: string;
   specificity: Specificity;
   order: number;

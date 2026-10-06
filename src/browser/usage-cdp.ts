@@ -1,8 +1,8 @@
 /** The `cdp` usage engine: Chrome's matched rules per element. */
 import { parseStylesheet } from "../core/parse";
-import { contextOf, layerRanks } from "../core/placement";
+import { canonicalContext, layerRanks } from "../core/placement";
 import {
-  normalizeSelector,
+  canonicalSelector,
   parseComplex,
   parseSelectorList,
   resolveNested,
@@ -90,14 +90,14 @@ function toMatchedRule(
         rule.selectorList.selectors[idx]?.text ?? "&",
         rule.nestingSelectors,
       )
-    : normalizeSelector(
+    : canonicalSelector(
         rule.selectorList.selectors[idx]?.text ?? rule.selectorList.text,
       );
   const context = [
-    ...(rule.media ?? []).map((m) => contextOf("media", m.text)),
-    ...(rule.supports ?? []).map((s) => contextOf("supports", s.text)),
+    ...(rule.media ?? []).map((m) => canonicalContext("media", m.text)),
+    ...(rule.supports ?? []).map((s) => canonicalContext("supports", s.text)),
     ...(rule.containerQueries ?? []).map((c) =>
-      contextOf("container", c.conditionText ?? c.text ?? ""),
+      canonicalContext("container", c.conditionText ?? c.text ?? ""),
     ),
   ].join(" / ");
   const matched: MatchedRule = { context, selector, declarations };

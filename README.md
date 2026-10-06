@@ -147,6 +147,7 @@ In GitHub Actions, `--format github` puts each finding on the PR diff at its sou
 | Export | Description |
 |:---|:---|
 | `parseRules(css, positions?)` | One `Rule` per selector: condition context (`@media` / `@supports` / `@container`), cascade layer and its rank, `@scope`, canonical selector, specificity, subject, declarations, source order, and with `positions` the line and column. |
+| `canonicalSelector(text)`, `canonicalContext(name, prelude)` | A selector, or one `@name prelude`, spelled as `Rule.selector` and `Rule.context` spell it, whatever the source's spacing. Keys a browser's matched rules (CDP's selector, media, supports and container text) to `parseRules`. |
 | `deadDeclarations(css, positions?)` | Declarations that can never win: every selector of the rule is repeated, in the same context and scope, by a rule later in the cascade (importance, then layer, then source order) setting the same property or a covering shorthand (logical/physical twins included). Fallbacks, vendor prefixes and legacy aliases (`grid-gap` before `gap`) aren't reported. |
 | `cascadeDiff(base, head, { componentOf? })` | Between two builds' rules: removed, added, rewritten (same declarations, new selector), dropped and new rules, context and layer moves, moved rules, and **cascade flips**, where the winner between two rules that may match one element changed. `moveFlips` are the order ties of rules that only moved. |
 | `defineConfig(config)` | Types a `crassus.config.ts`. |

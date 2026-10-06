@@ -1,4 +1,4 @@
-import { parseRules } from "crassus";
+import { canonicalSelector, parseRules } from "crassus";
 import { generate, parse, walk } from "css-tree";
 import { CORPORA } from "../bench/corpora";
 
@@ -24,6 +24,18 @@ describe("real-world corpora", () => {
     it(`reads the same selectors as css-tree: ${name}`, () => {
       const ours = parseRules(css).map((r) => loose(r.selector));
       expect(ours).toEqual(referenceSelectors(css).map(loose));
+    });
+
+    // css-tree prints double quotes; both keep the sheet's otherwise.
+    it(`spells css-tree's selectors as Rule does: ${name}`, () => {
+      const reference = referenceSelectors(css);
+      const differ = parseRules(css).filter(
+        (r, i) =>
+          !r.context.includes("@keyframes") &&
+          canonicalSelector(reference[i]).replaceAll("'", '"') !==
+            r.selector.replaceAll("'", '"'),
+      );
+      expect(differ.map((r) => r.selector)).toEqual([]);
     });
   }
 });

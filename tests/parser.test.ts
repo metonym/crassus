@@ -3,7 +3,7 @@ import { coMatchable } from "../src/core/cascade";
 import { canonicalText, MAX_DEPTH, parseStylesheet } from "../src/core/parse";
 import {
   attrConstraint,
-  normalizeSelector,
+  canonicalSelector,
   parseComplex,
   parseSelectorList,
   resolveNested,
@@ -37,14 +37,14 @@ describe("selector specificity (fixes vs css-tree port)", () => {
   it("ignores namespaces and handles escapes in class names", () => {
     expect(spec("svg|rect")).toEqual([0, 0, 1]);
     expect(spec(".md\\:flex")).toEqual([0, 1, 0]);
-    expect(normalizeSelector(".a  >  .b ,  .c   .d")).toBe(".a>.b,.c .d");
+    expect(canonicalSelector(".a  >  .b ,  .c   .d")).toBe(".a>.b,.c .d");
   });
 });
 
 describe("attribute selectors", () => {
   it("keeps the space before a flag on an unquoted value", () => {
-    expect(normalizeSelector("[type = text  i]")).toBe("[type=text i]");
-    expect(normalizeSelector('[a = "x"  s]')).toBe('[a="x"s]');
+    expect(canonicalSelector("[type = text  i]")).toBe("[type=text i]");
+    expect(canonicalSelector('[a = "x"  s]')).toBe('[a="x"s]');
   });
 
   it("reads the name and exact value", () => {
