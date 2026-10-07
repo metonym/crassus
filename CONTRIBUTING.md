@@ -76,6 +76,10 @@ A behavior fix needs a test that fails before the fix and passes after.
 
   A mismatch prints the failing stylesheet. Shrink it by hand, add a case to `tests/parser.test.ts` (or `tests/hostile-inputs.ts` for crashes and slow paths), fix, repeat.
 
+## Releasing
+
+Only the maintainer releases. `feat:`/`fix:` commits land first, each with its `CHANGELOG.md` entry under "Unreleased"; the release is a `vX.Y.Z` commit (version and changelog heading) and its tag. Pushing the tag runs `.github/workflows/release.yml`, which builds, publishes and then waits until the npm tarball itself downloads: npm serves a version's metadata minutes before its tarball. Create the GitHub release (its body is the changelog entry) and bump dependents only once that workflow is green.
+
 ## Evals against carbon-components-svelte
 
 `eval/carbon/` compares crassus with the tooling it replaces in a carbon-components-svelte checkout. Point `CCS_ROOT` at a checkout that has run `bun install` and `bun run build:css`:
