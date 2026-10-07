@@ -35,9 +35,20 @@ export interface Config {
   build?: string;
   /**
    * Instead of `css` and `build`: compile in-process. `root` is the
-   * project, or a temporary checkout of the base for `diff`.
+   * project, or a temporary checkout of the base for `diff`. With
+   * `entries`, compile those (`dead --fix` asks for `fixEntries`).
    */
-  compile?: (root: string) => Stylesheets | Promise<Stylesheets>;
+  compile?: (
+    root: string,
+    options?: { entries?: string[] },
+  ) => Stylesheets | Promise<Stylesheets>;
+  /**
+   * `dead --fix`: more entries to prove fixes against, beside the ones
+   * `compile` builds by default. A source shared with entries you don't
+   * analyze (a Sass partial every theme imports) is only proved dead for
+   * the ones you do, so list every entry that imports it.
+   */
+  fixEntries?: string[];
   /**
    * The component a class belongs to (`bx--btn--primary` -> `btn`). `diff`
    * only pairs a moved rule with rules of its own component. Default: the

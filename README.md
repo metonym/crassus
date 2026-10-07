@@ -97,7 +97,7 @@ The size line is Bun's minifier (the version is printed) with no browser targets
 `crassus dead --fix` deletes declarations that can never win, where it can prove the edit removes nothing else:
 
 - **CSS without a source map** is edited in place. A rule left empty goes too, and so does a comment that ends the declaration's line. Stylesheets the config's `build` writes are output, so they're left alone.
-- **With a source map**, the declaration is deleted in its source (`.scss`, `.less`, `.css`) when every declaration that source line produces, in every stylesheet analyzed, is dead. A mixin or loop line that also produces a live declaration stays, and so do sources outside the project or under `node_modules`. Run it without `--entry`, and configure every entry that shares the sources: the proof only covers the stylesheets crassus compiles.
+- **With a source map**, the declaration is deleted in its source (`.scss`, `.less`, `.css`) when every declaration that source line produces, in every stylesheet analyzed, is dead. A mixin or loop line that also produces a live declaration stays, and so do sources outside the project or under `node_modules`. Run it without `--entry`, and configure every entry that shares the sources: the proof only covers the stylesheets crassus compiles. If your `compile` hook builds only some entries by default, list the rest in `fixEntries`: `--fix` asks the hook for them with `compile(root, { entries })`. When it deletes from a partial (`_*.scss`) without `fixEntries`, it says which entries the proof covered.
 - **Every fix is checked.** crassus rebuilds the stylesheets, and they must have lost exactly the fixed declarations; otherwise it restores the files and exits 2. CSS files given on the command line with a source map can't be rebuilt: crassus says so, and you rebuild and run it again.
 
 Each fixed line names the value that wins instead. A dead declaration never wins, but the winner isn't always the value you meant, so review the diff (`--dry-run` shows it first). The exit code is 0 when everything was fixed and 1 when something was left.
@@ -157,7 +157,8 @@ export default defineConfig({
 |:---|:---|
 | `css` | Built CSS files, relative to the project root: a path, an array, or `{ name: path }`. |
 | `build` | Shell command that writes `css`. Runs before reading, in the project and in the base checkout. |
-| `compile(root)` | Instead of `css` and `build`: returns `{ name: { css, map? } }`. |
+| `compile(root, { entries? })` | Instead of `css` and `build`: returns `{ name: { css, map? } }`. With `entries`, compiles those. |
+| `fixEntries` | `dead --fix`: more entries to prove fixes against (a theme that imports the same partials), compiled with `compile(root, { entries })`. |
 | `componentOf(class)` | The component a class belongs to, to scope order-tie flips. |
 
 #### Fixture pages

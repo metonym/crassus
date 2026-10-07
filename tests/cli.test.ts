@@ -344,6 +344,71 @@ describe("crassus dead --fix", () => {
     expect(b.out).toContain("the config's `build` writes this file");
   }, 30_000);
 
+  it("proves partial fixes against fixEntries too", async () => {
+    const sass = Bun.resolveSync("sass-embedded", import.meta.dir);
+    // `.p { color: red }` in the partial is dead in app (overridden after
+    // the import) and live in theme, which the hook only compiles on request.
+    const config = (
+      fixEntries: string,
+      honor = true,
+    ) => `import path from "node:path";
+      import { compileAsync } from ${JSON.stringify(sass)};
+      export default {
+        ${fixEntries}
+        async compile(root, options) {
+          const names = ${honor ? 'options?.entries ?? ["app"]' : '["app"]'};
+          const out = {};
+          for (const name of names) {
+            const { css, sourceMap } = await compileAsync(path.join(root, "css", name + ".scss"), { style: "expanded", sourceMap: true });
+            out[name] = { css, map: sourceMap };
+          }
+          return out;
+        },
+      };`;
+    const files = {
+      "css/_parts.scss": ".p {\n  color: red;\n}\n",
+      "css/app.scss": '@use "parts";\n.p { color: blue; }\n',
+      "css/theme.scss": '@use "parts";\n',
+    };
+
+    const unproved = await project({
+      "crassus.config.ts": config(""),
+      ...files,
+    });
+    const a = await cli(unproved, "dead", "--fix");
+    expect(a.code).toBe(0);
+    expect(await Bun.file(join(unproved, "css/_parts.scss")).text()).toBe(
+      ".p {\n}\n",
+    );
+    expect(a.err).toContain(
+      "css/_parts.scss is a partial: the fix is proved for app only. If other entries import it, list them in `fixEntries`.",
+    );
+
+    const proved = await project({
+      "crassus.config.ts": config('fixEntries: ["app", "theme"],'),
+      ...files,
+    });
+    const b = await cli(proved, "dead", "--fix");
+    expect(b.code).toBe(1);
+    expect(b.out).toContain(
+      "its source also produces declarations that aren't dead",
+    );
+    expect(b.err).toBe("");
+    expect(await Bun.file(join(proved, "css/_parts.scss")).text()).toBe(
+      files["css/_parts.scss"],
+    );
+
+    const ignored = await project({
+      "crassus.config.ts": config('fixEntries: ["theme"],', false),
+      ...files,
+    });
+    const c = await cli(ignored, "dead", "--fix");
+    expect(c.code).toBe(2);
+    expect(c.err).toContain(
+      "compile(root, { entries }) didn't return theme: compile the entries it's given",
+    );
+  }, 30_000);
+
   it("undoes a fix that changed more than the dead declarations", async () => {
     // The second compile adds a rule: the check after writing must fail.
     const root = await project({

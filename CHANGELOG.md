@@ -44,6 +44,12 @@
 - `diff`'s size line names the Bun version that minified it; the README
   says to budget size on your own build output.
 
+- `fixEntries` in `crassus.config.ts`: entries `dead --fix` proves its
+  edits against beside the ones `compile` builds by default, requested
+  with `compile(root, { entries })`. A source line is only deleted when
+  everything it produces is dead in all of them. Without it, a fix in a
+  Sass partial prints which entries the proof covered.
+
 **Fixes**
 
 - Chrome pages get exactly the requested viewport. Chrome's window size
