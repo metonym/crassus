@@ -13,7 +13,13 @@ import {
 } from "./browser";
 import { runDead, runDiff } from "./commands";
 import { FixCheckError, fix } from "./fix";
-import { filesAsSheets, loadConfig, stylesheets, UsageError } from "./project";
+import {
+  filesAsSheets,
+  fixStylesheets,
+  loadConfig,
+  stylesheets,
+  UsageError,
+} from "./project";
 import {
   FORMATS,
   type Format,
@@ -72,6 +78,9 @@ Browser options (capture, usage; override the config's \`browser\`):
 
 Exit codes: 0 clean, 1 findings (snapshot-diff: any difference; capture: a
 page never matched readySelector), 2 usage error. usage always exits 0.`;
+
+/** A Sass/Less partial: imported by entries, never compiled alone. */
+const PARTIAL_RE = /(?:^|\/)_[^/]+\.(?:scss|sass|less)$/;
 
 export interface Io {
   cwd: string;
@@ -158,7 +167,9 @@ async function run(argv: string[], io: Io): Promise<number> {
     const load = () =>
       files.length > 0
         ? filesAsSheets(cwd, files)
-        : stylesheets(cwd, config, only);
+        : values.fix
+          ? fixStylesheets(cwd, config)
+          : stylesheets(cwd, config, only);
     const sheets = await load();
     const results = runDead(sheets);
     if (!values.fix) {
@@ -181,6 +192,15 @@ async function run(argv: string[], io: Io): Promise<number> {
       reload: files.length > 0 ? null : load,
     });
     io.out(formatFix(report, results, format));
+    const partials = [
+      ...new Set(
+        report.fixed.map((f) => f.file).filter((f) => PARTIAL_RE.test(f)),
+      ),
+    ];
+    if (partials.length > 0 && !config.fixEntries && files.length === 0)
+      io.err(
+        `crassus: ${partials.join(", ")} ${partials.length === 1 ? "is a partial" : "are partials"}: the fix is proved for ${sheets.map((s) => s.name).join(", ")} only. If other entries import it, list them in \`fixEntries\`.`,
+      );
     return report.skipped.length > 0 ? 1 : 0;
   }
   if (values.fix) throw new UsageError("--fix goes with dead");

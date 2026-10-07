@@ -5,7 +5,7 @@
 import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import type { Config } from "../core/config";
+import type { Config, Stylesheets } from "../core/config";
 import { readStylesheet, type Sheet } from "./sources";
 
 /** A mistake in how crassus was called or configured (exit code 2). */
@@ -68,6 +68,47 @@ export function filesAsSheets(cwd: string, files: string[]): Promise<Sheet[]> {
   );
 }
 
+const compiledSheets = (root: string, compiled: Stylesheets): Sheet[] =>
+  Object.entries(compiled).map(([name, s]) => ({
+    name,
+    css: s.css,
+    map: s.map,
+    mapDir: root,
+    root,
+  }));
+
+/**
+ * What `dead --fix` proves against: the configured stylesheets, plus the
+ * `fixEntries` they don't include, compiled on request.
+ */
+export async function fixStylesheets(
+  root: string,
+  config: Config,
+): Promise<Sheet[]> {
+  const sheets = await stylesheets(root, config, []);
+  const extra = (config.fixEntries ?? []).filter(
+    (n) => !sheets.some((s) => s.name === n),
+  );
+  if (extra.length === 0) return sheets;
+  if (!config.compile)
+    throw new UsageError(
+      `fixEntries names ${extra.join(", ")}, which \`css\` doesn't list`,
+    );
+  const compiled = await config.compile(root, { entries: extra });
+  const missing = extra.filter((n) => !compiled[n]);
+  if (missing.length > 0)
+    throw new UsageError(
+      `compile(root, { entries }) didn't return ${missing.join(", ")}: compile the entries it's given`,
+    );
+  return [
+    ...sheets,
+    ...compiledSheets(
+      root,
+      Object.fromEntries(extra.map((n) => [n, compiled[n]])),
+    ),
+  ];
+}
+
 /** The configured stylesheets at `root`, filtered to `only` when given. */
 export async function stylesheets(
   root: string,
@@ -76,14 +117,7 @@ export async function stylesheets(
 ): Promise<Sheet[]> {
   let sheets: Sheet[];
   if (config.compile) {
-    const compiled = await config.compile(root);
-    sheets = Object.entries(compiled).map(([name, s]) => ({
-      name,
-      css: s.css,
-      map: s.map,
-      mapDir: root,
-      root,
-    }));
+    sheets = compiledSheets(root, await config.compile(root));
   } else if (config.css) {
     if (config.build) await build(config.build, root);
     const named: [string, string][] =
