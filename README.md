@@ -47,6 +47,11 @@ crassus dead [file.css...]        # declarations that can never win (proof)
 crassus dead --fix [--dry-run]    # delete them, in the CSS or in its sources
 crassus diff [--base <ref>]       # cascade flips since a git ref (heuristic)
 crassus diff base.css head.css    # or between two files
+
+crassus capture <dir>             # computed styles of every fixture page (rung 3)
+crassus capture --base main <dir> # the same at a git ref, in a worktree
+crassus snapshot-diff <base> <head>  # compare two captures (ground truth)
+crassus usage                     # declarations that match but never win (rung 2, evidence)
 ```
 
 | Option | Description |
@@ -60,9 +65,28 @@ crassus diff base.css head.css    # or between two files
 | `--no-cache` | Rebuild the base. |
 | `--verbose` | List every rule in review sections. |
 
-Exit codes: `0` clean, `1` findings (dead declarations, cascade flips), `2` usage or build error. Review sections, like order-tie flips from moved rules, never fail a run.
+`capture` and `usage` load the fixture pages from the config's [`browser`](#fixture-pages) block, and take:
+
+| Option | Description |
+|:---|:---|
+| `--base <ref>` | `capture`: build and capture the fixtures of a git ref, in a temporary worktree. |
+| `--only <text>` | Only fixtures whose name contains this. |
+| `--themes <a,b>` | Themes to load each page in. |
+| `--viewport <WxH>` | Viewport (repeatable), as `320x640`. |
+| `--no-states` | Skip forced `:hover`/`:focus`/`:active` states. |
+| `--engine <name>` | `chrome` (default) or `webkit`. |
+| `--matcher <name>` | `usage`: `dom` (default, any engine) or `cdp` (Chrome, exact per element). |
+| `--concurrency <n>` | Tabs in parallel (default 8). |
+| `--url <base>` | Use a running server instead of building and serving the fixtures. |
+| `--out <dir>` | `usage`: output directory (default `.crassus/usage`). |
+
+Exit codes: `0` clean, `1` findings (dead declarations, cascade flips; for `snapshot-diff`, any difference; for `capture`, a page that never matched `readySelector`), `2` usage or build error. Review sections, like order-tie flips from moved rules, never fail a run, and `usage` always exits `0`: its findings are evidence, bounded by the fixtures.
 
 Findings point at the authoring source (`css/_button.scss:42`) when the stylesheet has a source map: a sibling `.map`, a `sourceMappingURL` comment, or the map a `compile` hook returns. Without one they point at the CSS.
+
+`capture` writes one JSON file per page (`<fixture>.<theme>.json`, or `<fixture>.<theme>.<W>x<H>.json` with several viewports). `snapshot-diff` compares two such directories: pages on one side only and elements on one side only (DOM or state changes) are listed, and computed-style changes are grouped by `property: before -> after`, so a systematic change reads as one line with its pages and example elements. `--format json` gives the full diff.
+
+`usage` writes `usage.json` (every matched declaration with its counts, never-matched rules, dead declarations and fold candidates) and `report.md`: declarations that matched and never won, with what they lost to, by size (losses only to `prefers-reduced-motion`, `prefers-contrast` or `forced-colors` rules are left out, as alternatives for a user preference); fold candidates, which always lose to the same single rule; and rules that never matched. All of it is bounded by the fixtures, themes, viewports and states the run covered.
 
 `diff` prints what changed between the two builds: the specificity profile, the files carrying the most selectors at three or more classes, the minified size as Bun minifies it (a trend, not a budget), dropped, new, rewritten and moved rules, and two sections of flips: **cascade flips**, where the winner between two rules that may match one element changed (these fail), and **order-tie flips** from rules that only moved (review). Both are rung 1 heuristics: confirm them with a computed-style snapshot (rung 3).
 
@@ -134,6 +158,38 @@ export default defineConfig({
 | `compile(root)` | Instead of `css` and `build`: returns `{ name: { css, map? } }`. |
 | `componentOf(class)` | The component a class belongs to, to scope order-tie flips. |
 
+#### Fixture pages
+
+`capture` and `usage` load every `.html` file in a fixture directory, once per theme and viewport, in Chrome or WebKit through [`Bun.WebView`](https://bun.sh/docs/runtime/webview):
+
+```ts
+export default defineConfig({
+  browser: {
+    // A directory of .html pages, and optionally the command that writes it
+    // (it runs in the base worktree too, for `capture --base`).
+    fixtures: { build: "bun run build:fixtures", dir: ".crassus/fixtures" },
+    themes: ["white", "g100"], // set on <html theme="…"> before first paint
+    sheetMarker: ".bx--", // usage: text only the library stylesheet contains
+    viewports: [
+      { width: 320, height: 640 },
+      { width: 1280, height: 900 },
+    ],
+    readySelector: "#app > *", // wait for the page to mount
+  },
+});
+```
+
+| Option | Description |
+|:---|:---|
+| `fixtures` | The fixture directory, or `{ dir, build? }`. |
+| `themes` | Themes to load each page in (default: one run, no attribute). |
+| `themeAttribute` | The `<html>` attribute a theme is set as (default `theme`). |
+| `sheetMarker` | Text only the library stylesheet contains; `usage` needs it to tell that sheet from the page's others. |
+| `viewports` | `{ width, height }[]` (default 1280 × 900). Cover your breakpoints: at one width, rules for the others read as never matched. |
+| `readySelector`, `readyTimeoutMs` | Wait after load until the selector matches (up to 5 s by default). Pages that never match are reported. |
+| `settleMs` | `capture`: wait after load (default 500). |
+| `engine`, `concurrency`, `chromePath` | Defaults for `--engine` and `--concurrency`, and the Chrome binary. |
+
 In GitHub Actions, `--format github` puts each finding on the PR diff at its source line:
 
 ```yaml
@@ -153,7 +209,7 @@ In GitHub Actions, `--format github` puts each finding on the PR diff at its sou
 | `cascadeDiff(base, head, { componentOf? })` | Between two builds' rules: removed, added, rewritten (same declarations, new selector), dropped and new rules, context and layer moves, moved rules, and **cascade flips**, where the winner between two rules that may match one element changed. `moveFlips` are the order ties of rules that only moved. |
 | `defineConfig(config)` | Types a `crassus.config.ts`. |
 
-Types: `Rule`, `DeadDeclaration`, `CascadeDiff`, `Flip`, `Config`, `Stylesheets`.
+Types: `Rule`, `DeadDeclaration`, `CascadeDiff`, `Flip`, `Config`, `BrowserConfig`, `Stylesheets`.
 
 ### `crassus/browser` (Bun)
 
@@ -171,7 +227,7 @@ Both browser runs take:
 - `viewports: { width, height }[]`: every page at each size (default one, 1280 × 900; `width`/`height` still set a single one). Use enough to cover the stylesheet's `min-width`/`max-width` breakpoints, or rules outside them read as never matched. With several, capture files are named `<name>.<theme>.<W>x<H>.json`.
 - `readySelector` (and `readyTimeoutMs`, default 5000): wait after load until the selector matches, for content that mounts late. A page that never matches is still read, and returned in `notReady`.
 
-Types: `CaptureOptions`, `UsageOptions`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`.
+Types: `CaptureOptions`, `UsageOptions`, `UsageFile`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`.
 
 ## Features
 

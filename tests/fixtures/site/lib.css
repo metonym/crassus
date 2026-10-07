@@ -1,0 +1,30 @@
+.bx--btn {
+  color: red;
+  padding: 1px;
+}
+.bx--wrap .bx--btn {
+  color: blue;
+}
+.bx--btn:hover {
+  color: green;
+}
+[theme="g100"] .bx--tile {
+  color: white;
+}
+.bx--tile {
+  margin: 0;
+}
+@media (min-width: 42rem) {
+  .bx--tile {
+    padding: 2px;
+  }
+}
+.bx--unused {
+  top: 0;
+}
+.bx--tile {
+  left: 0;
+}
+body .bx--tile {
+  left: 1px;
+}

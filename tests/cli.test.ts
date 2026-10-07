@@ -1,4 +1,5 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
@@ -378,5 +379,223 @@ describe("crassus dead --fix", () => {
     expect((await cli(root, "dead", "a.css", "--dry-run")).err).toContain(
       "--dry-run goes with --fix",
     );
+  });
+});
+
+const CAPTURED_RE =
+  /^crassus: captured 8 pages \(2 fixtures × 2 themes × 2 viewports\) into snap\/a in /;
+
+describe("crassus capture, snapshot-diff and usage", () => {
+  const SITE = join(import.meta.dir, "fixtures/site");
+  const CONFIG = `export default {
+    browser: {
+      fixtures: { dir: "out", build: "mkdir -p out && cp site/* out/" },
+      themes: ["white", "g100"],
+      sheetMarker: ".bx--",
+      viewports: [{ width: 320, height: 640 }, { width: 1280, height: 900 }],
+      readySelector: "body > *",
+      settleMs: 0,
+    },
+  };`;
+  const site = async () =>
+    Object.fromEntries(
+      await Promise.all(
+        ["button.html", "tile.html", "lib.css"].map(async (f) => [
+          `site/${f}`,
+          await Bun.file(join(SITE, f)).text(),
+        ]),
+      ),
+    );
+  const recolor = (root: string) =>
+    Bun.write(
+      join(root, "site/lib.css"),
+      readFileSync(join(SITE, "lib.css"), "utf8").replace(
+        "color: blue",
+        "color: purple",
+      ),
+    );
+
+  it("captures every fixture, theme and viewport, and diffs two captures", async () => {
+    const root = await project({
+      "crassus.config.ts": CONFIG,
+      ...(await site()),
+    });
+    const a = await cli(root, "capture", "snap/a");
+    expect(a.err).toBe("");
+    expect(a.code).toBe(0);
+    expect(a.out).toMatch(CAPTURED_RE);
+    expect((await readdir(join(root, "snap/a"))).sort()).toEqual([
+      "button.g100.1280x900.json",
+      "button.g100.320x640.json",
+      "button.white.1280x900.json",
+      "button.white.320x640.json",
+      "tile.g100.1280x900.json",
+      "tile.g100.320x640.json",
+      "tile.white.1280x900.json",
+      "tile.white.320x640.json",
+    ]);
+    // The theme attribute and the viewport both reached the page.
+    const tile = async (file: string) =>
+      (await Bun.file(join(root, "snap/a", file)).json())["body>div.bx--tile"];
+    expect((await tile("tile.g100.320x640.json")).color).toBe(
+      "rgb(255, 255, 255)",
+    );
+    expect((await tile("tile.white.320x640.json")).color).toBe("rgb(0, 0, 0)");
+    expect((await tile("tile.white.320x640.json"))["padding-top"]).toBe("0px");
+    expect((await tile("tile.white.1280x900.json"))["padding-top"]).toBe("2px");
+
+    const same = await cli(root, "snapshot-diff", "snap/a", "snap/a");
+    expect(same.code).toBe(0);
+    expect(same.out).toContain("8 snapshot file(s)");
+    expect(same.out).toContain("No computed-style differences.");
+
+    await recolor(root);
+    const b = await cli(root, "capture", "snap/b", "--only", "button");
+    expect(b.out).toContain("4 pages (1 fixture × 2 themes × 2 viewports)");
+    const diff = await cli(root, "snapshot-diff", "snap/a", "snap/b");
+    expect(diff.code).toBe(1);
+    expect(diff.out).toContain("only in base: tile.white.320x640.json");
+    // One line for the change on every page it's on.
+    expect(diff.out).toContain(
+      "12×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)",
+    );
+    expect(diff.out).toContain("1 distinct change(s), 12 in all, on 4 page(s)");
+    const json = JSON.parse(
+      (await cli(root, "snapshot-diff", "snap/a", "snap/b", "--json")).out,
+    );
+    expect(json).toMatchObject({
+      schema: 1,
+      command: "snapshot-diff",
+      claim: "ground truth",
+      files: 4,
+    });
+    expect(json.groups).toHaveLength(1);
+    expect(json.onlyBase).toHaveLength(4);
+  }, 60_000);
+
+  it("captures a git ref's fixtures in a worktree with --base", async () => {
+    const root = await project({
+      "crassus.config.ts": CONFIG,
+      ...(await site()),
+    });
+    const git = (...args: string[]) =>
+      $`git -c user.email=t@t -c user.name=t ${args}`.cwd(root).quiet();
+    await git("init", "-q");
+    await git("add", ".");
+    await git("commit", "-q", "-m", "base");
+    await recolor(root);
+
+    const flags = [
+      "--only",
+      "button",
+      "--themes",
+      "white",
+      "--viewport",
+      "1280x900",
+    ];
+    const base = await cli(
+      root,
+      "capture",
+      "--base",
+      "HEAD",
+      "snap/base",
+      ...flags,
+    );
+    expect(base.code).toBe(0);
+    expect(base.out).toContain(
+      "1 page (1 fixture × 1 theme × 1 viewport) at HEAD (",
+    );
+    await cli(root, "capture", "snap/head", ...flags);
+    const diff = await cli(root, "snapshot-diff", "snap/base", "snap/head");
+    expect(diff.code).toBe(1);
+    // The button, and its forced :focus and :active (:hover stays green).
+    expect(diff.out).toContain("3×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)");
+    expect(
+      (await $`git worktree list`.cwd(root).text()).trim().split("\n").length,
+    ).toBe(1);
+  }, 60_000);
+
+  it("writes usage.json and report.md, and exits 0", async () => {
+    const root = await project({
+      "crassus.config.ts": CONFIG,
+      ...(await site()),
+    });
+    const r = await cli(root, "usage", "--matcher", "cdp");
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("crassus: usage over 8 pages");
+    expect(r.out).toContain(
+      ".crassus/usage/usage.json, .crassus/usage/report.md",
+    );
+    const usage = await Bun.file(
+      join(root, ".crassus/usage/usage.json"),
+    ).json();
+    expect(usage.dead).toBe(usage.deadInFixtures.length);
+    expect(usage.fold).toBe(usage.foldCandidates.length);
+    // `.bx--btn { color: red }` loses to two rules; `.bx--tile { left: 0 }`
+    // always to one.
+    expect(usage.deadInFixtures).toEqual([
+      expect.objectContaining({
+        selector: ".bx--btn",
+        value: "red",
+        lostTo: { ".bx--wrap .bx--btn": 12, ".bx--btn:hover": 4 },
+      }),
+      expect.objectContaining({ selector: ".bx--tile", property: "left" }),
+    ]);
+    expect(usage.foldCandidates).toEqual([
+      expect.objectContaining({
+        selector: ".bx--tile",
+        property: "left",
+        lostTo: { "body .bx--tile": 4 },
+      }),
+    ]);
+    // Both viewports count: the min-width rule matched at 1280.
+    expect(
+      usage.unmatched.map((u: { selector: string }) => u.selector),
+    ).toEqual([".bx--unused"]);
+    const report = await Bun.file(
+      join(root, ".crassus/usage/report.md"),
+    ).text();
+    expect(report).toContain("**Evidence, not proof**");
+    expect(report).toContain("viewport(s) 320x640, 1280x900");
+    expect(report).toContain("## Dead in fixtures (2)");
+    expect(report).toContain(
+      "| 10 | `color: red` | `.bx--btn` | 16 | `.bx--wrap .bx--btn` ×12, `.bx--btn:hover` ×4 |",
+    );
+    expect(report).toContain("## Fold candidates (1)");
+    expect(report).toContain(
+      "| 7 | `left: 0` | `.bx--tile` | `body .bx--tile` |",
+    );
+    expect(report).toContain("## Never matched (1)");
+    expect(report).toContain("| 6 | `.bx--unused` |  |");
+  }, 60_000);
+
+  it.each([
+    [["capture", "out"], "{}", "add `browser: { fixtures }`"],
+    [["usage"], `{ browser: { fixtures: "site" } }`, "browser.sheetMarker"],
+    [
+      ["capture", "o", "--viewport", "wide"],
+      `{ browser: { fixtures: "site" } }`,
+      "--viewport takes WxH",
+    ],
+    [
+      ["capture", "o", "--only", "nope"],
+      `{ browser: { fixtures: "site" } }`,
+      "no .html fixtures in site matching nope",
+    ],
+    [
+      ["capture"],
+      `{ browser: { fixtures: "site" } }`,
+      "capture takes one output directory",
+    ],
+    [["snapshot-diff", "a"], "{}", "two directories"],
+  ])("%j exits 2", async (argv, config, message) => {
+    const root = await project({
+      "crassus.config.ts": `export default ${config};`,
+      ...(await site()),
+    });
+    const r = await cli(root, ...argv);
+    expect(r.code).toBe(2);
+    expect(r.err).toContain(message);
   });
 });

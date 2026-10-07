@@ -117,6 +117,11 @@ export interface CaptureOptions {
   emulate: "cdp" | "cssom";
   concurrency: number;
   chromePath?: string;
+  /**
+   * The `<html>` attribute each theme is set as, before first paint (with
+   * `serveFixtures`). Default `theme`; `null` sets none.
+   */
+  themeAttribute?: string | null;
   /** One viewport (default 1280 × 900). Prefer `viewports`. */
   width?: number;
   height?: number;
@@ -237,7 +242,13 @@ export async function capture(
 ): Promise<{ pages: number; ms: number; notReady: string[] }> {
   await mkdir(opts.outDir, { recursive: true });
   const viewports = viewportsOf(opts);
-  const jobs = pageJobs(opts.baseUrl, opts.fixtures, opts.themes, viewports);
+  const jobs = pageJobs(
+    opts.baseUrl,
+    opts.fixtures,
+    opts.themes,
+    viewports,
+    opts.themeAttribute,
+  );
   const started = performance.now();
   const ready = await runPool(
     jobs,
