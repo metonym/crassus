@@ -240,7 +240,7 @@ function diffHuman(
     lines.push("", bold(`## ${r.entry}`));
     lines.push(...histogramLines(r.histogram.base, r.histogram.head));
     lines.push(
-      `size (min / gzip / zstd, as Bun minifies it; a trend, not a budget): ${kb(size.base.min)} / ${kb(size.base.gzip)} / ${kb(size.base.zstd)} -> ${kb(size.head.min)} / ${kb(size.head.gzip)} / ${kb(size.head.zstd)}  (${delta(size.base.min, size.head.min)} B min, ${delta(size.base.gzip, size.head.gzip)} B gzip)`,
+      `size (min / gzip / zstd, as Bun ${Bun.version} minifies it; a trend, not a budget): ${kb(size.base.min)} / ${kb(size.base.gzip)} / ${kb(size.base.zstd)} -> ${kb(size.head.min)} / ${kb(size.head.gzip)} / ${kb(size.head.zstd)}  (${delta(size.base.min, size.head.min)} B min, ${delta(size.base.gzip, size.head.gzip)} B gzip)`,
     );
     if (r.files.some((f) => f.base || f.head)) {
       lines.push("top files by selectors at >=3 classes (base -> head):");
