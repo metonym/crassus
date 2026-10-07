@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 import { main } from "../src/cli/main";
+import { appendSummary } from "../src/cli/report";
 
 // The CLI in-process, against throwaway projects.
 let dir = "";
@@ -177,6 +178,9 @@ describe("usage errors exit 2", () => {
   });
 });
 
+const CUT_NOTE_RE =
+  /\n… \d+ more line\(s\) cut to fit GitHub's 1 MiB step summary; run crassus locally for the full report.\n```\n$/;
+
 describe("crassus diff", () => {
   const BASE = ".a .x { color: red }\n.x { color: blue }\n";
   // :where() drops `.a .x` to (0,1,0): `.x` now wins on order.
@@ -198,6 +202,46 @@ describe("crassus diff", () => {
         "::error file=head.css,line=1,col=1,title=crassus%3A cascade flip (heuristic",
       ),
     ).toBe(true);
+  });
+
+  it("appends the human report to --summary, whatever the format", async () => {
+    const root = await project({
+      "base.css": BASE,
+      "head.css": HEAD,
+      "summary.md": "earlier step output\n",
+    });
+    const r = await cli(
+      root,
+      "diff",
+      "base.css",
+      "head.css",
+      "--format",
+      "github",
+      "--summary",
+      "summary.md",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out.startsWith("::error file=head.css")).toBe(true);
+    const md = await Bun.file(join(root, "summary.md")).text();
+    expect(
+      md.startsWith(
+        "earlier step output\n### crassus diff against base.css\n\n```text\n",
+      ),
+    ).toBe(true);
+    expect(md).toContain("1 cascade flip(s)");
+    expect(md.endsWith("\n```\n")).toBe(true);
+    // No color codes, even from a terminal.
+    expect(md).not.toContain("\x1b[");
+  });
+
+  it("cuts --summary to fit GitHub's 1 MiB, with a note", async () => {
+    const root = await project({});
+    const file = join(root, "summary.md");
+    const line = "x".repeat(99);
+    await appendSummary(file, "big", Array(20_000).fill(line).join("\n"));
+    const md = await Bun.file(file).text();
+    expect(Buffer.byteLength(md)).toBeLessThanOrEqual(1024 * 1024);
+    expect(md).toMatch(CUT_NOTE_RE);
   });
 
   it("does not fail on order-tie flips, which are for review", async () => {
