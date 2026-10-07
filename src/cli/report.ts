@@ -1,25 +1,28 @@
-/**
- * Output formats: human (the default), `json` (stable schema), `github`
- * (workflow annotations at the source line) and `sarif` (code scanning).
- * Every finding says how far it can be trusted.
- */
 import { version } from "../../package.json";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { Histogram } from "../core/cascade";
 import type { Specificity } from "../core/selector";
+import { pushTo } from "../core/util";
 import type { DeadResult, DiffResult, FlipFinding, RuleRef } from "./commands";
 import type { FixReport } from "./fix";
 import type { SourceLocation } from "./sources";
 
-export type Format = "human" | "json" | "github" | "sarif";
-export const FORMATS: Format[] = ["human", "json", "github", "sarif"];
+export const FORMATS = ["human", "json", "github", "sarif"] as const;
+type Format = (typeof FORMATS)[number];
 
 /** Bumped on breaking changes to `--json` output. */
 const SCHEMA = 1;
+const json = (body: object) =>
+  JSON.stringify({ schema: SCHEMA, ...body }, null, 2);
 
-// ---------------------------------------------------------------------------
-// Findings: the common shape of github and sarif output
+export type Summary = (title: string, report: () => string) => Promise<void>;
 
+/** A ref, with its commit when the ref doesn't spell it. */
+export const refLabel = (ref: string, sha: string) =>
+  !sha || sha.startsWith(ref) ? ref : `${ref} (${sha.slice(0, 9)})`;
+export const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+
+/** The common shape of github and sarif output. */
 interface Finding {
   rule: keyof typeof RULES;
   entry: string;
@@ -89,9 +92,6 @@ function diffFindings(results: DiffResult[]): Finding[] {
   ]);
 }
 
-// ---------------------------------------------------------------------------
-// GitHub workflow commands
-
 const escapeData = (s: string) =>
   s.replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
 const escapeProperty = (s: string) =>
@@ -111,9 +111,6 @@ function github(findings: Finding[]): string {
     })
     .join("\n");
 }
-
-// ---------------------------------------------------------------------------
-// SARIF 2.1.0
 
 function sarif(findings: Finding[]): string {
   const ids = Object.keys(RULES) as (keyof typeof RULES)[];
@@ -166,9 +163,6 @@ function sarif(findings: Finding[]): string {
   );
 }
 
-// ---------------------------------------------------------------------------
-// Human
-
 let plain = false;
 const color = (code: number) => (s: string) =>
   !plain && process.stdout.isTTY && !process.env.NO_COLOR
@@ -184,6 +178,7 @@ export function uncolored<T>(fn: () => T): T {
     plain = false;
   }
 }
+
 const bold = color(1);
 const dim = color(2);
 const red = color(31);
@@ -192,6 +187,9 @@ const yellow = color(33);
 const delta = (a: number, b: number) =>
   a === b ? `${b}` : `${a} -> ${b} (${b > a ? "+" : ""}${b - a})`;
 const kb = (n: number) => `${(n / 1024).toFixed(1)}kB`;
+/** `file:line` dimmed, and `gap` before what follows when there is one. */
+const located = (s: SourceLocation | undefined, gap: string) =>
+  `${dim(at(s))}${s ? gap : ""}`;
 
 function deadHuman(results: DeadResult[]): string {
   const lines: string[] = [];
@@ -220,8 +218,10 @@ function deadHuman(results: DeadResult[]): string {
   return lines.join("\n").trimEnd();
 }
 
-const ruleLine = (r: RuleRef, sign: string) =>
-  `  ${sign} ${dim(at(r.source))}${r.source ? " " : ""}${where(r) ? `[${where(r)}] ` : ""}${r.selector} { ${r.declarations} }`;
+const ruleLine = (r: RuleRef, sign: string) => {
+  const w = where(r);
+  return `  ${sign} ${located(r.source, " ")}${w ? `[${w}] ` : ""}${r.selector} { ${r.declarations} }`;
+};
 
 function histogramLines(b: Histogram, h: Histogram): string[] {
   return [
@@ -236,15 +236,15 @@ function diffHuman(
   verbose: boolean,
 ): string {
   const lines: string[] = [
-    `base: ${base.sha && !base.sha.startsWith(base.ref) ? `${base.ref} (${base.sha.slice(0, 9)})` : base.ref}  head: ${base.sha ? "working tree" : "the second file"}`,
+    `base: ${refLabel(base.ref, base.sha)}  head: ${base.sha ? "working tree" : "the second file"}`,
   ];
   const section = (title: string, items: string[]) => {
     if (items.length === 0) return;
     lines.push("", bold(`### ${title} (${items.length})`), ...items);
   };
   const flipLines = (f: FlipFinding) =>
-    `  ${dim(at(f.rule.source))}${f.rule.source ? "  " : ""}${f.rule.selector} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' vs\n` +
-    `    ${dim(at(f.other.source))}${f.other.source ? "  " : ""}${f.other.selector} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}\n` +
+    `  ${located(f.rule.source, "  ")}${f.rule.selector} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' vs\n` +
+    `    ${located(f.other.source, "  ")}${f.other.selector} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}\n` +
     `    (before: ${f.before})`;
   for (const r of results) {
     const { size, counts: c } = r;
@@ -291,14 +291,8 @@ function diffHuman(
       ),
       r.flips.map(flipLines),
     );
-    // The review section groups by moved rule.
     const byRule = new Map<RuleRef, FlipFinding[]>();
-    for (const f of r.moveFlips) {
-      const key = f.rule;
-      const list = byRule.get(key);
-      if (list) list.push(f);
-      else byRule.set(key, [f]);
-    }
+    for (const f of r.moveFlips) pushTo(byRule, f.rule, f);
     section(
       yellow(
         "order-tie flips from moved rules (review; confirm with a computed-style snapshot)",
@@ -309,7 +303,7 @@ function diffHuman(
         const props = [...new Set(list.map((f) => f.property))];
         const shown = verbose ? others : others.slice(0, 4);
         return (
-          `  ${dim(at(rule.source))}${rule.source ? "  " : ""}${rule.selector} ${spec(rule.specificity)} now ${after} [${props.join(", ")}] vs\n` +
+          `  ${located(rule.source, "  ")}${rule.selector} ${spec(rule.specificity)} now ${after} [${props.join(", ")}] vs\n` +
           shown.map((o) => `    ${o}`).join("\n") +
           (others.length > shown.length
             ? `\n    (+${others.length - shown.length} more)`
@@ -324,15 +318,8 @@ function diffHuman(
   return lines.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-
 export function formatDead(results: DeadResult[], format: Format): string {
-  if (format === "json")
-    return JSON.stringify(
-      { schema: SCHEMA, command: "dead", results },
-      null,
-      2,
-    );
+  if (format === "json") return json({ command: "dead", results });
   if (format === "github") return github(deadFindings(results));
   if (format === "sarif") return sarif(deadFindings(results));
   return deadHuman(results);
@@ -344,18 +331,12 @@ export function formatDiff(
   format: Format,
   verbose: boolean,
 ): string {
-  if (format === "json")
-    return JSON.stringify(
-      { schema: SCHEMA, command: "diff", base, results },
-      null,
-      2,
-    );
+  if (format === "json") return json({ command: "diff", base, results });
   if (format === "github") return github(diffFindings(results));
   if (format === "sarif") return sarif(diffFindings(results));
   return diffHuman(results, base, verbose);
 }
 
-/** `dead --fix` (human or json). */
 export function formatFix(
   report: FixReport,
   results: DeadResult[],
@@ -363,16 +344,11 @@ export function formatFix(
 ): string {
   if (format === "json") {
     const { patch, ...fix } = report;
-    return JSON.stringify(
-      {
-        schema: SCHEMA,
-        command: "dead",
-        fix: patch ? { ...fix, patch } : fix,
-        results,
-      },
-      null,
-      2,
-    );
+    return json({
+      command: "dead",
+      fix: patch ? { ...fix, patch } : fix,
+      results,
+    });
   }
   const lines: string[] = [];
   if (report.patch) lines.push(report.patch.trimEnd(), "");
@@ -385,14 +361,13 @@ export function formatFix(
     lines.push("", bold(`### left as is (${report.skipped.length})`));
     for (const k of report.skipped)
       lines.push(
-        `  ${dim(at(k.source))}${k.source ? "  " : ""}${k.selector} { ${k.property}: ${k.value} }`,
+        `  ${located(k.source, "  ")}${k.selector} { ${k.property}: ${k.value} }`,
         `    ${yellow(k.reason)}`,
       );
   }
-  const files = report.files.length;
   lines.push(
     "",
-    `${report.fixed.length} dead declaration(s) ${report.written ? "deleted" : "to delete"} in ${files} file(s); ${report.skipped.length} left.`,
+    `${report.fixed.length} dead declaration(s) ${report.written ? "deleted" : "to delete"} in ${report.files.length} file(s); ${report.skipped.length} left.`,
   );
   const wins =
     "Each one never wins: make sure the value that wins is the one you meant.";
@@ -407,28 +382,15 @@ export function formatFix(
   return lines.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// snapshot-diff
-
 const MAX_PAGES = 6;
 const shown = (v: string | null) => v ?? "(not recorded)";
 
-/** `snapshot-diff` (human or json). */
 export function formatSnapshotDiff(
   diff: SnapshotDiff,
   format: "human" | "json",
 ): string {
   if (format === "json")
-    return JSON.stringify(
-      {
-        schema: SCHEMA,
-        command: "snapshot-diff",
-        claim: "ground truth",
-        ...diff,
-      },
-      null,
-      2,
-    );
+    return json({ command: "snapshot-diff", claim: "ground truth", ...diff });
   const lines = [
     `${diff.files} snapshot file(s), ${diff.entries} element entries compared ${dim("(ground truth for the captured fixtures, themes, viewports and states)")}`,
   ];
@@ -468,16 +430,10 @@ export function formatSnapshotDiff(
   return lines.join("\n");
 }
 
-// ---------------------------------------------------------------------------
-// --summary
-
 /** GitHub's cap on a step summary. */
 const SUMMARY_LIMIT = 1024 * 1024;
 
-/**
- * Appends a human report to `file` (a GitHub step summary) as a fenced
- * block, cut at a line, with a note, to fit within 1 MiB with what's there.
- */
+/** Appends a report to a GitHub step summary, cut at a line to fit the cap. */
 export async function appendSummary(
   file: string,
   title: string,

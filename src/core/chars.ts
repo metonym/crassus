@@ -1,5 +1,3 @@
-// Character codes and scanning helpers shared by the parsers.
-
 const TAB = 9;
 export const LF = 10;
 const FF = 12;
@@ -26,6 +24,7 @@ export const AT = 64;
 export const LBRACKET = 91;
 export const BACKSLASH = 92;
 export const RBRACKET = 93;
+export const UNDERSCORE = 95;
 export const LBRACE = 123;
 export const PIPE = 124;
 export const RBRACE = 125;
@@ -36,11 +35,17 @@ export const isWs = (c: number) =>
 
 export const isQuote = (c: number) => c === DQUOTE || c === SQUOTE;
 
-/** Index of the quote closing the string that opens at `i` (past the end if unclosed). */
+/** Index of the quote closing the string at `i`; past the end if unclosed. */
 export function stringEnd(text: string, i: number): number {
   const quote = text.charCodeAt(i);
   let j = i + 1;
   while (j < text.length && text.charCodeAt(j) !== quote)
     j += text.charCodeAt(j) === BACKSLASH ? 2 : 1;
   return j;
+}
+
+// Just past the comment that opens at `i`; the end if unclosed.
+export function commentEnd(text: string, i: number): number {
+  const end = text.indexOf("*/", i + 2);
+  return end < 0 ? text.length : end + 2;
 }

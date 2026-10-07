@@ -167,3 +167,7 @@ export function generator(seed: number, opts: GenOptions) {
   };
   return sheet;
 }
+
+/** Formatting-insensitive: whitespace, quote style, escapes, `::` vs `:`. */
+export const loose = (s: string) =>
+  s.replace(/[\s"'\\]+/g, "").replace(/::/g, ":");

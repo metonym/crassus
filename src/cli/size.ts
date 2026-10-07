@@ -1,8 +1,3 @@
-/**
- * Minified and compressed size of a stylesheet, as Bun minifies it. Close
- * to other minifiers in absolute terms, but without browser targets the
- * base -> head delta can drift: a trend, not a budget.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +8,7 @@ export interface Size {
   zstd: number;
 }
 
+/** As Bun minifies it: without browser targets, a trend, not a budget. */
 export async function sizeOf(css: string): Promise<Size> {
   const dir = await mkdtemp(join(tmpdir(), "crassus-size-"));
   try {

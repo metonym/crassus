@@ -1,8 +1,6 @@
 import { deadDeclarations } from "crassus";
 import { covers } from "../src/core/overrides";
 
-// @vitest-environment node
-
 const dead = (css: string) =>
   deadDeclarations(css).map((d) => `${d.selector} ${d.property}:${d.value}`);
 

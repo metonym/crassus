@@ -1,22 +1,19 @@
 /**
- * Shared setup for the evals that compare crassus against the original
- * tooling in a carbon-components-svelte checkout (`scripts/lib/css-*.ts`,
- * `e2e/cascade-*.ts`, `e2e/selector-stats.ts`).
+ * Shared setup for the evals against a carbon-components-svelte checkout
+ * (after `bun install` and `bun run build:css`); see CONTRIBUTING.
  *
  *   CCS_ROOT=/path/to/carbon-components-svelte bun eval/carbon/parity.ts
- *
- * The checkout needs `bun install` and `bun run build:css`. Fixture pages
- * are built from its `e2e/fixtures` on first use.
- *
- * carbon-components-svelte deleted `scripts/lib/css-{cascade,overrides}.ts`
- * when it moved onto crassus, and will delete `e2e/cascade-*.ts`. Evals that
- * compare against those need a checkout from before the move (see
- * CONTRIBUTING); the rest run against any checkout.
  */
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
+import { loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import { $ } from "bun";
+import {
+  type CompileResult,
+  initAsyncCompiler,
+  type Options,
+} from "sass-embedded";
 import type { Rule } from "../../src/core/cascade";
 import type { CascadeLib } from "../../src/core/diff";
 
@@ -32,28 +29,43 @@ if (
   process.exit(2);
 }
 
-/** The carbon-components-svelte checkout. */
 export const CCS_ROOT = path.resolve(root);
 
-/** Scratch output (gitignored). */
-export const EVAL_DIR = path.resolve(import.meta.dir, "../../.eval");
+/** Scratch output under .eval/ (gitignored). */
+export const results = (...parts: string[]) =>
+  path.join(import.meta.dir, "../../.eval", ...parts);
 
-export const results = (...parts: string[]) => path.join(EVAL_DIR, ...parts);
+/** Playwright's Chromium, so Bun.WebView runs the same build as the old tools. */
+export const PLAYWRIGHT_SHELL = `${process.env.HOME}/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell`;
 
-export interface OldCascade extends CascadeLib {
+export const args = process.argv.slice(2);
+
+export const opt = (name: string): string | undefined => {
+  const i = args.indexOf(`--${name}`);
+  return i >= 0 ? args[i + 1] : undefined;
+};
+
+export const loadAvg = () =>
+  loadavg()
+    .map((x) => x.toFixed(1))
+    .join(" ");
+
+/** Formatting-insensitive: whitespace, quote style and escapes. */
+export const strip = (s: string) => s.replace(/[\s"'\\]+/g, "");
+
+interface OldCascade extends CascadeLib {
   parseRules(css: string, positions?: boolean): Rule[];
 }
 
-export interface OldOverrides {
+interface OldOverrides {
   deadDeclarations(
     css: string,
   ): { context: string; selector: string; property: string }[];
 }
 
 /**
- * Absolute path of a file in the checkout that only exists before the crassus
- * migration; exits with a pointer to CONTRIBUTING when it's gone. `hint`
- * names a way to run the eval without it.
+ * A file carbon-components-svelte removed when it moved onto crassus; exits
+ * with a pointer to CONTRIBUTING when it's gone. `hint` names a way around it.
  */
 export function oldTool(rel: string, hint?: string): string {
   const file = path.join(CCS_ROOT, rel);
@@ -77,10 +89,62 @@ export const loadOldOverrides = async (): Promise<OldOverrides> =>
 export const loadOldTargets = async (): Promise<{ targets: object }> =>
   import(path.join(CCS_ROOT, "scripts/lib/css-targets.ts"));
 
+/** Compiles `<cssDir>/<entry>.scss` as the checkout's build does. */
+export async function withSass<T>(
+  fn: (
+    compile: (
+      cssDir: string,
+      entry: string,
+      opts: Options<"async">,
+    ) => Promise<CompileResult>,
+  ) => Promise<T>,
+): Promise<T> {
+  const compiler = await initAsyncCompiler();
+  try {
+    return await fn((cssDir, entry, opts) =>
+      compiler.compileAsync(path.join(cssDir, `${entry}.scss`), {
+        ...opts,
+        loadPaths: [path.join(cssDir, "vendor")],
+        quietDeps: true,
+        silenceDeprecations: [
+          "import",
+          "global-builtin",
+          "color-functions",
+          "if-function",
+        ],
+      }),
+    );
+  } finally {
+    await compiler.dispose();
+  }
+}
+
+/** Runs `fn` on the checkout's `css/` as of `ref`, extracted to a temp dir. */
+export async function atRef<T>(
+  ref: string,
+  fn: (cssDir: string) => Promise<T>,
+): Promise<T> {
+  const dir = await mkdtemp(path.join(tmpdir(), "ccs-ref-"));
+  try {
+    const tar = await $`git -C ${CCS_ROOT} archive ${ref} css`.arrayBuffer();
+    await new Bun.Archive(tar).extract(dir);
+    return await fn(path.join(dir, "css"));
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+export const fixtureNames = async (only?: string) =>
+  (await readdir(path.join(CCS_ROOT, "e2e/fixtures")))
+    .filter((f) => f.endsWith(".html"))
+    .map((f) => f.slice(0, -".html".length))
+    .filter((f) => !only || f.includes(only))
+    .sort();
+
 /**
- * Static build of the checkout's e2e fixtures, built once per checkout (evals
- * may switch between a pre- and post-migration one). Delete it after
- * `build:css` to pick up new CSS.
+ * Static build of the checkout's e2e fixtures, keyed by checkout (evals may
+ * switch between a pre- and post-migration one). Delete it after `build:css`
+ * to pick up new CSS.
  */
 export async function fixturesDir(): Promise<string> {
   const dir = results(

@@ -1,16 +1,11 @@
 /**
- * Provably dead declarations. A declaration is dead when every selector of
- * its rule is repeated, in the same context and scope, by a rule later in
- * the cascade (importance, then layer, then order) that sets the property or
- * a shorthand covering it. Both match the same elements at equal
- * specificity, so the first never wins. Layers whose order depends on a
- * condition aren't compared.
- *
- * A property repeated in one rule is dead too, unless the pair is a
- * fallback (FALLBACK_VALUE_RE).
+ * A declaration is dead when every selector of its rule is repeated (same
+ * context and scope: same elements, equal specificity) by a rule later in the
+ * cascade that sets it or a covering shorthand. Conditionally ordered layers
+ * aren't compared. A repeat within one rule is dead unless it's a fallback.
  */
 
-import { canonicalValue } from "./cascade";
+import { canonicalValue, propertyName } from "./cascade";
 import { locator, parseStylesheet } from "./parse";
 import { type Layer, placeRules } from "./placement";
 import { serialize } from "./selector";
@@ -35,9 +30,8 @@ export interface DeadDeclaration {
 const FALLBACK_VALUE_RE =
   /(^|[\s(,])-(webkit|moz|ms)-|fit-content|\d[dsl]v[hw]\b|color-mix\(|\bstretch\b|^clip$/;
 
-// In horizontal writing modes, block-axis logical properties share a slot
-// with their physical twin (`inset-block-start` is `top`). The inline axis
-// depends on `dir`, so it's left alone.
+// In horizontal writing modes a block-axis logical property is its physical
+// twin (`inset-block-start` is `top`). The inline axis depends on `dir`.
 const PHYSICAL_TWIN: [RegExp, string][] = [
   [/^inset-block-start$/, "top"],
   [/^inset-block-end$/, "bottom"],
@@ -55,7 +49,6 @@ function physical(property: string): string {
   return property;
 }
 
-// Property -> the physical longhands it sets.
 const longhandCache = new Map<string, ReadonlySet<string>>();
 function longhandsOf(property: string): ReadonlySet<string> {
   let set = longhandCache.get(property);
@@ -132,12 +125,10 @@ function blocksOf(css: string, positions: boolean): Block[] {
       scope,
       selectors: selectors.map((s) => serialize(s.complex)),
       decls: decls.map((d) => ({
-        property: d.property.startsWith("--")
-          ? d.property
-          : d.property.toLowerCase(),
+        property: propertyName(d.property),
         value: canonicalValue(d.raw, false, d.property),
         important: d.important,
-        loc: loc ? loc(d.start) : undefined,
+        loc: loc?.(d.start),
         span: [d.start, d.end],
       })),
     });
@@ -145,10 +136,7 @@ function blocksOf(css: string, positions: boolean): Block[] {
   return blocks;
 }
 
-/**
- * Whether `y` (in block `j`) beats `x` (in block `i`) wherever both match.
- * Within one block the caller ensures `y` comes after `x`.
- */
+/** Whether `y` (in block `j`) beats `x` (in block `i`); within a block, `y` must come after `x`. */
 function beats(
   y: Decl,
   j: Block,
@@ -168,8 +156,7 @@ function beats(
   return jIndex >= iIndex;
 }
 
-// Property -> the physical names of everything that can cover it: itself,
-// its twins, the shorthands that reset it.
+// Property -> the physical names of everything that can cover it.
 const coverKeyCache = new Map<string, string[]>();
 function coverKeys(property: string): string[] {
   let keys = coverKeyCache.get(property);
@@ -196,11 +183,11 @@ interface Ref {
 interface Entries {
   list: Ref[];
   important: boolean;
-  /** Their layer if they share one. */
+  /** Their shared layer, or null. */
   layer: Layer | null;
 }
 
-/** The blocks listing one selector, and their declarations by property (built on first use). */
+/** The blocks listing one selector; `index` is built on first use. */
 interface Group {
   blocks: number[];
   index?: Map<string, Entries>;
@@ -305,6 +292,30 @@ export function deadDeclarations(
   };
 
   const dead: DeadDeclaration[] = [];
+  const report = (
+    block: Block,
+    decl: Decl,
+    by: Decl,
+    byBlock: Block,
+    sameRule: boolean,
+  ) =>
+    dead.push({
+      context: block.context,
+      layer: block.layer.name,
+      scope: block.scope,
+      selector: block.selectors.join(","),
+      property: decl.property,
+      value: decl.value,
+      by: {
+        property: by.property,
+        value: by.value,
+        layer: byBlock.layer.name,
+        sameRule,
+      },
+      loc: decl.loc,
+      span: decl.span,
+    });
+
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
     const own: Group[] = [];
@@ -314,24 +325,6 @@ export function deadDeclarations(
     }
     for (let d = 0; d < block.decls.length; d++) {
       const decl = block.decls[d];
-      const report = (by: Decl, byBlock: Block, sameRule: boolean) =>
-        dead.push({
-          context: block.context,
-          layer: block.layer.name,
-          scope: block.scope,
-          selector: block.selectors.join(","),
-          property: decl.property,
-          value: decl.value,
-          by: {
-            property: by.property,
-            value: by.value,
-            layer: byBlock.layer.name,
-            sameRule,
-          },
-          loc: decl.loc,
-          span: decl.span,
-        });
-
       const siblingAt =
         own.length > 0 && block.decls.length > SCAN_LIMIT
           ? (firstBeating(own[0], decl, i, true, d)?.decl ?? -1)
@@ -344,7 +337,7 @@ export function deadDeclarations(
           sibling.property === decl.property &&
           (FALLBACK_VALUE_RE.test(sibling.value) ||
             FALLBACK_VALUE_RE.test(decl.value));
-        if (!fallback) report(sibling, block, true);
+        if (!fallback) report(block, decl, sibling, block, true);
         continue;
       }
 
@@ -355,6 +348,8 @@ export function deadDeclarations(
         own.slice(1).every((g) => firstBeating(g, decl, i, false, -1))
       )
         report(
+          block,
+          decl,
           blocks[winner.block].decls[winner.decl],
           blocks[winner.block],
           false,

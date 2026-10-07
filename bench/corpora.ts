@@ -5,10 +5,8 @@ const require = createRequire(import.meta.url);
 const read = (specifier: string) =>
   readFileSync(require.resolve(specifier), "utf8");
 
-export type Corpus = { name: string; css: string };
-
 /** Real-world stylesheets, from devDependencies. */
-export const CORPORA: Corpus[] = [
+export const CORPORA: { name: string; css: string }[] = [
   {
     name: "carbon-components-svelte all.css",
     css: read("carbon-components-svelte/css/all.css"),

@@ -5,57 +5,26 @@
  *
  *   CCS_ROOT=… bun eval/carbon/diff-parity.ts
  */
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import path from "node:path";
 import { $ } from "bun";
-import { initAsyncCompiler } from "sass-embedded";
 // biome-ignore lint/performance/noNamespaceImport: comparing two libraries with identical export names
 import * as newLib from "../../src/core/cascade";
 import { diffWith, type Flip } from "../../src/core/diff";
-import { CCS_ROOT, loadOldCascade, results } from "./ccs";
+import {
+  atRef,
+  CCS_ROOT,
+  loadOldCascade,
+  results,
+  strip,
+  withSass,
+} from "./ccs";
 
 const oldLib = await loadOldCascade();
 
-const root = CCS_ROOT;
-const strip = (s: string) => s.replace(/[\s"'\\]+/g, "");
+const compile = (cssDir: string) =>
+  withSass(async (c) => (await c(cssDir, "all", { style: "expanded" })).css);
 
-const SASS = {
-  style: "expanded" as const,
-  quietDeps: true,
-  silenceDeprecations: [
-    "import",
-    "global-builtin",
-    "color-functions",
-    "if-function",
-  ] as ("import" | "global-builtin" | "color-functions" | "if-function")[],
-};
-
-async function compile(cssDir: string): Promise<string> {
-  const compiler = await initAsyncCompiler();
-  try {
-    const { css } = await compiler.compileAsync(path.join(cssDir, "all.scss"), {
-      ...SASS,
-      loadPaths: [path.join(cssDir, "vendor")],
-    });
-    return css;
-  } finally {
-    await compiler.dispose();
-  }
-}
-
-async function compileRef(ref: string): Promise<string> {
-  const dir = await mkdtemp(path.join(tmpdir(), "spike-diff-"));
-  try {
-    const tar = await $`git -C ${root} archive ${ref} css`.arrayBuffer();
-    await new Bun.Archive(tar).extract(dir);
-    return await compile(path.join(dir, "css"));
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
-}
-
-const cssCommits = (await $`git -C ${root} log --format=%h -- css`.text())
+const cssCommits = (await $`git -C ${CCS_ROOT} log --format=%h -- css`.text())
   .trim()
   .split("\n");
 const refs = [
@@ -66,14 +35,14 @@ const refs = [
   { label: "before cascade tooling (31a6ebd6b^)", ref: "31a6ebd6b^" },
 ].filter((r) => r.ref);
 
-const head = await compile(path.join(root, "css"));
+const head = await compile(path.join(CCS_ROOT, "css"));
 const flipKey = (f: Flip) =>
   `${strip(f.rule.selector)}|${strip(f.other.selector)}|${f.prop}|${f.before}>${f.after}`;
 
 const summary: unknown[] = [];
 for (const { label, ref } of refs) {
-  // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
-  const base = await compileRef(ref);
+  // biome-ignore lint/performance/noAwaitInLoops: one ref at a time, in order
+  const base = await atRef(ref, compile);
   const t0 = Bun.nanoseconds();
   const oldBase = oldLib.parseRules(base, true);
   const oldHead = oldLib.parseRules(head, true);
@@ -99,12 +68,10 @@ for (const { label, ref } of refs) {
   });
   const co = counts(oldDiff);
   const cn = counts(newDiff);
-  const oldFlips = new Set(
-    [...oldDiff.flips, ...oldDiff.moveFlips].map(flipKey),
-  );
-  const newFlips = new Set(
-    [...newDiff.flips, ...newDiff.moveFlips].map(flipKey),
-  );
+  const flipKeys = (d: typeof oldDiff) =>
+    new Set([...d.flips, ...d.moveFlips].map(flipKey));
+  const oldFlips = flipKeys(oldDiff);
+  const newFlips = flipKeys(newDiff);
   const onlyOld = [...oldFlips].filter((k) => !newFlips.has(k));
   const onlyNew = [...newFlips].filter((k) => !oldFlips.has(k));
   const ms = (a: number, b: number) => ((b - a) / 1e6).toFixed(0);

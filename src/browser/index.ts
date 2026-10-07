@@ -1,7 +1,5 @@
-/**
- * crassus/browser: real-browser rungs on Bun.WebView (Chrome via CDP, or the
- * system WebKit on macOS). Bun-only, experimental.
- */
+// Bun-only, experimental: real-browser checks on Bun.WebView (Chrome via CDP,
+// or the system WebKit on macOS).
 
 export type {
   ChangeGroup,

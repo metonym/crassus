@@ -1,5 +1,3 @@
-/** The rule model (`parseRules`) and the cascade relations `cascadeDiff` uses. */
-
 import { canonicalText, locator, parseStylesheet } from "./parse";
 import { placeRules } from "./placement";
 import {
@@ -12,7 +10,7 @@ import {
   serialize,
   specificity,
 } from "./selector";
-import { pushTo } from "./util";
+import { intersects, pushTo } from "./util";
 
 /** One selector of a style rule. */
 export interface Rule {
@@ -52,7 +50,6 @@ interface Subject {
   qualified: boolean;
 }
 
-// Most selectors negate nothing and have no attributes: they share these.
 const NONE: ReadonlySet<string> = new Set();
 const NO_ATTRS: ReadonlyMap<string, string | null> = new Map();
 
@@ -179,6 +176,9 @@ const UNUSUAL_WS_RE = /\s\s|[\t\n\r\f]/;
 const collapseWs = (s: string) =>
   UNUSUAL_WS_RE.test(s) ? s.replace(WS_RUN_RE, " ") : s;
 
+export const propertyName = (property: string): string =>
+  property.startsWith("--") ? property : property.toLowerCase();
+
 export function canonicalValue(
   raw: string,
   important: boolean,
@@ -237,7 +237,6 @@ export function parseRules(css: string, positions = false): Rule[] {
   return rules;
 }
 
-/** Context, layer and scope as one string. */
 function placementKey(context: string, layer: string, scope: string): string {
   let key = context;
   if (layer) key = key ? `${key} / @layer ${layer}` : `@layer ${layer}`;
@@ -247,9 +246,6 @@ function placementKey(context: string, layer: string, scope: string): string {
 
 export const samePlacement = (a: Rule, b: Rule): boolean =>
   a.context === b.context && a.layer === b.layer && a.scope === b.scope;
-
-// ---------------------------------------------------------------------------
-// Cascade relations
 
 /** No element can meet both subjects' attribute constraints. */
 function attrsExclude(x: Subject, y: Subject): boolean {
@@ -265,49 +261,37 @@ function attrsExclude(x: Subject, y: Subject): boolean {
   return false;
 }
 
-function shareAttr(x: Subject, y: Subject): boolean {
-  for (const name of x.attrs.keys()) if (y.attrs.has(name)) return true;
-  return false;
-}
-
 export function coMatchable(a: Rule, b: Rule): boolean {
-  if (a.context !== b.context) return false;
-  if (a.subject.pseudoElement !== b.subject.pseudoElement) return false;
-  for (const c of a.subject.classes) if (b.subject.negated.has(c)) return false;
-  for (const c of b.subject.classes) if (a.subject.negated.has(c)) return false;
-  if (attrsExclude(a.subject, b.subject) || attrsExclude(b.subject, a.subject))
+  const x = a.subject;
+  const y = b.subject;
+  if (a.context !== b.context || x.pseudoElement !== y.pseudoElement)
     return false;
+  if (intersects(x.classes, y.negated) || intersects(y.classes, x.negated))
+    return false;
+  if (attrsExclude(x, y) || attrsExclude(y, x)) return false;
   // `.x:not(.d) ~ .y` and `.x.d ~ .y` can't both match. Coarse: it ignores
   // which compound the class is in.
-  for (const c of a.subject.allClasses) {
-    if (b.subject.allNegated.has(c)) return false;
-  }
-  for (const c of b.subject.allClasses) {
-    if (a.subject.allNegated.has(c)) return false;
-  }
+  if (
+    intersects(x.allClasses, y.allNegated) ||
+    intersects(y.allClasses, x.allNegated)
+  )
+    return false;
+  if (x.classes.size > 0 && y.classes.size > 0)
+    return intersects(x.classes, y.classes);
   // Without classes, a subject pairs through a shared attribute (headless
   // libraries style `[data-state=open]`), or as a type-only subject.
-  if (a.subject.classes.size === 0 || b.subject.classes.size === 0) {
-    const attrs = a.subject.attrs.size > 0 || b.subject.attrs.size > 0;
-    if (a.subject.classes.size !== 0 || b.subject.classes.size !== 0) {
-      return attrs && shareAttr(a.subject, b.subject);
-    }
-    if (a.subject.type && b.subject.type && a.subject.type !== b.subject.type) {
-      return false;
-    }
-    if (attrs) return shareAttr(a.subject, b.subject);
-    // Type-only subjects (`svg`, `tbody`) pair with each other: same type,
-    // and a class shared somewhere, so `.x svg` and `.y > svg` don't.
-    if (a.subject.allClasses.size === 0 || b.subject.allClasses.size === 0) {
-      return true;
-    }
-    for (const c of a.subject.allClasses) {
-      if (b.subject.allClasses.has(c)) return true;
-    }
-    return false;
-  }
-  for (const c of a.subject.classes) if (b.subject.classes.has(c)) return true;
-  return false;
+  if (x.classes.size > 0 || y.classes.size > 0)
+    return intersects(x.attrs.keys(), y.attrs);
+  if (x.type && y.type && x.type !== y.type) return false;
+  if (x.attrs.size > 0 || y.attrs.size > 0)
+    return intersects(x.attrs.keys(), y.attrs);
+  // Type-only subjects pair if a class is shared somewhere, so `.x svg` and
+  // `.y > svg` don't.
+  return (
+    x.allClasses.size === 0 ||
+    y.allClasses.size === 0 ||
+    intersects(x.allClasses, y.allClasses)
+  );
 }
 
 function propertiesConflict(a: string, b: string): boolean {
@@ -325,16 +309,13 @@ export function conflictingProps(a: Rule, b: Rule): string[] {
   return out;
 }
 
-function important(rule: Rule, prop: string): boolean {
-  const v = rule.decls.get(prop);
-  return v ? v.endsWith("!important") : false;
-}
+const important = (rule: Rule, prop: string): boolean =>
+  rule.decls.get(prop)?.endsWith("!important") ?? false;
 
 /**
- * Whether `a` beats `b` for a shared property on an element both match:
- * importance, layer (reversed for `!important`), specificity, scope
- * proximity, order. Scoped beats unscoped at equal specificity; between two
- * scopes proximity depends on the DOM, so order decides.
+ * Whether `a` beats `b` for a shared property on an element both match.
+ * Scoped beats unscoped; between two scopes proximity depends on the DOM,
+ * so order decides.
  */
 export function wins(a: Rule, b: Rule, prop: string): boolean {
   const base = prop.split("~")[0];
@@ -349,36 +330,39 @@ export function wins(a: Rule, b: Rule, prop: string): boolean {
   return a.order > b.order;
 }
 
-/**
- * Head rule -> base rule, for a dropped and a new rule with the same selector
- * and declarations in another context, layer or scope: a rule that moved
- * and gained or lost an `@media` (or layer) around it. The key differs, so
- * without this the pair reads as unrelated. Pairs are spliced out of
- * `removed` and `added`.
- */
+/** Head rule -> the first `removed` rule `match` accepts; pairs are spliced out of both lists. */
+export function pairOff(
+  removed: Rule[],
+  added: Rule[],
+  match: (removed: Rule, added: Rule) => boolean,
+): Map<Rule, Rule> {
+  const pairs = new Map<Rule, Rule>();
+  let kept = 0;
+  for (const a of added) {
+    const i = removed.findIndex((r) => match(r, a));
+    if (i >= 0) {
+      pairs.set(a, removed[i]);
+      removed.splice(i, 1);
+    } else added[kept++] = a;
+  }
+  added.length = kept;
+  return pairs;
+}
+
+// Same selector and declarations, new `@media`, layer or scope: the key
+// differs, so unpaired they'd read as unrelated.
 export function matchContextMoves(
   removed: Rule[],
   added: Rule[],
 ): Map<Rule, Rule> {
-  const moves = new Map<Rule, Rule>();
-  const stillAdded: Rule[] = [];
-  for (const a of added) {
-    const i = removed.findIndex(
-      (r) =>
-        r.selector === a.selector &&
-        r.declBlock === a.declBlock &&
-        !samePlacement(r, a),
-    );
-    if (i >= 0) {
-      moves.set(a, removed[i]);
-      removed.splice(i, 1);
-    } else {
-      stillAdded.push(a);
-    }
-  }
-  added.length = 0;
-  added.push(...stillAdded);
-  return moves;
+  return pairOff(
+    removed,
+    added,
+    (r, a) =>
+      r.selector === a.selector &&
+      r.declBlock === a.declBlock &&
+      !samePlacement(r, a),
+  );
 }
 
 export function indexBySubject(rules: Rule[]): {
@@ -406,18 +390,13 @@ export function candidates(
   if (classes.size === 0 && attrs.size === 0)
     return index.noClass.filter((r) => r !== rule);
   const seen = new Set<Rule>();
-  for (const c of classes) {
+  for (const c of classes)
     for (const r of index.byClass.get(c) ?? []) seen.add(r);
-  }
-  for (const a of attrs.keys()) {
+  for (const a of attrs.keys())
     for (const r of index.byAttr.get(a) ?? []) seen.add(r);
-  }
   seen.delete(rule);
   return [...seen];
 }
-
-// ---------------------------------------------------------------------------
-// Specificity profile
 
 export interface Histogram {
   selectors: number;

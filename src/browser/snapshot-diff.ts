@@ -1,7 +1,3 @@
-/**
- * Diffs two `capture` output directories, page by page. A file on one side
- * only (a fixture, theme or viewport added or dropped) is listed, not diffed.
- */
 import { readdir } from "node:fs/promises";
 import path from "node:path";
 import {
@@ -31,7 +27,7 @@ export interface SnapshotDiff {
   onlyHead: string[];
   /** Pages with any change, by file name. */
   pages: SnapshotPageDiff[];
-  /** Every style change grouped by `(property, before -> after)`, most frequent first. */
+  /** Style changes grouped by `(property, before -> after)`, most frequent first. */
   groups: ChangeGroup[];
 }
 
@@ -43,6 +39,7 @@ export interface SnapshotDiffOptions {
 const snapshotFiles = async (dir: string) =>
   (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
 
+/** Diffs two `capture` output directories; a file on one side only is listed, not diffed. */
 export async function diffSnapshots(
   baseDir: string,
   headDir: string,

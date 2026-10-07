@@ -1,9 +1,7 @@
 import { canonicalSelector, parseRules } from "crassus";
 import { generate, parse, walk } from "css-tree";
 import { CORPORA } from "../bench/corpora";
-
-// Formatting-insensitive: whitespace, quote style, escapes, `::` vs `:`.
-const loose = (s: string) => s.replace(/[\s"'\\]+/g, "").replace(/::/g, ":");
+import { loose } from "./fuzz-gen";
 
 /** Selectors css-tree reads from style rules, keyframe steps included. */
 function referenceSelectors(css: string): string[] {

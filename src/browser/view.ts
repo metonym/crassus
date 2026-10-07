@@ -1,8 +1,3 @@
-/**
- * Bun.WebView wrapper. WebView throws instead of queueing when a slot is
- * busy, so each View serializes its calls.
- */
-
 export type EngineName = "chrome" | "webkit";
 
 export interface ViewOptions {
@@ -18,43 +13,32 @@ export interface Viewport {
   height: number;
 }
 
-const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 900 };
+const viewportOf = (o: { width?: number; height?: number }): Viewport => ({
+  width: o.width ?? 1280,
+  height: o.height ?? 900,
+});
 
 export const viewportName = (v: Viewport) => `${v.width}x${v.height}`;
 
-/** `viewports`, else the single `width` × `height` (1280 × 900 when unset). */
 export const viewportsOf = (opts: {
   viewports?: Viewport[];
   width?: number;
   height?: number;
 }): Viewport[] =>
-  opts.viewports?.length
-    ? opts.viewports
-    : [
-        {
-          width: opts.width ?? DEFAULT_VIEWPORT.width,
-          height: opts.height ?? DEFAULT_VIEWPORT.height,
-        },
-      ];
+  opts.viewports?.length ? opts.viewports : [viewportOf(opts)];
 
 export class View {
   readonly engine: EngineName;
   #view: Bun.WebView;
-  /**
-   * The viewport, when known. Chrome's window size includes its own UI
-   * (1280 × 900 is a 1280 × 813 page in new headless), so a Chrome view's
-   * size is unknown until `resize` sets it over CDP.
-   */
+  // Null on Chrome until `resize`: its window size includes its own UI (1280 ×
+  // 900 is a 1280 × 813 page in new headless).
   #size: Viewport | null;
   #queue: Promise<unknown> = Promise.resolve();
   #navigated = false;
 
   constructor(opts: ViewOptions) {
     this.engine = opts.engine;
-    const size = {
-      width: opts.width ?? DEFAULT_VIEWPORT.width,
-      height: opts.height ?? DEFAULT_VIEWPORT.height,
-    };
+    const size = viewportOf(opts);
     this.#size = opts.engine === "webkit" ? size : null;
     this.#view = new Bun.WebView({
       ...size,
@@ -65,18 +49,25 @@ export class View {
               type: "chrome",
               url: false,
               path: opts.chromePath,
-              // As Playwright: scrollbars take no width (otherwise 100% is
-              // 15px narrower). One Chrome per process: the first view's
-              // options win.
+              // As Playwright: scrollbars take no width. One Chrome per
+              // process: the first view's options win.
               argv: ["--hide-scrollbars"],
             },
     });
   }
 
+  /** WebView throws instead of queueing when busy, so calls are serialized. */
   #run<T>(fn: () => Promise<T>): Promise<T> {
     const p = this.#queue.then(fn);
     this.#queue = p.catch(() => {});
     return p;
+  }
+
+  /** CDP needs a page. */
+  async #ensurePage(): Promise<void> {
+    if (this.#navigated) return;
+    await this.#view.navigate("about:blank");
+    this.#navigated = true;
   }
 
   navigate(url: string): Promise<void> {
@@ -86,15 +77,11 @@ export class View {
     });
   }
 
-  /** Sets the page's viewport when it differs; takes effect for the next page. */
+  /** Takes effect for the next page. */
   resize({ width, height }: Viewport): Promise<void> {
     return this.#run(async () => {
       if (width === this.#size?.width && height === this.#size?.height) return;
-      // Chrome resizes over CDP, which needs a page.
-      if (!this.#navigated) {
-        await this.#view.navigate("about:blank");
-        this.#navigated = true;
-      }
+      await this.#ensurePage();
       await this.#view.resize(width, height);
       this.#size = { width, height };
     });
@@ -112,10 +99,7 @@ export class View {
       return Promise.reject(new Error(`cdp() requires chrome (${method})`));
     }
     return this.#run(async () => {
-      if (!this.#navigated) {
-        await this.#view.navigate("about:blank");
-        this.#navigated = true;
-      }
+      await this.#ensurePage();
       return this.#view.cdp<T>(method, params);
     });
   }
@@ -132,17 +116,12 @@ export class View {
   }
 }
 
-/** Emulates `prefers-reduced-motion: reduce` through CDP. */
-export const reduceMotion = (view: View) =>
+const reduceMotion = (view: View) =>
   view.cdp("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-motion", value: "reduce" }],
   });
 
-/**
- * Polls until `selector` matches in the page, up to `timeoutMs`; false on
- * timeout.
- */
-export async function waitReady(
+async function waitReady(
   view: View,
   selector: string,
   timeoutMs = 5000,
@@ -157,23 +136,22 @@ export async function waitReady(
   }
 }
 
-/** Runs `jobs` over `size` views, each view one job at a time. */
-export async function runPool<J, R>(
+async function runPool<J, R>(
   jobs: J[],
   size: number,
   makeView: () => View,
-  work: (view: View, job: J) => Promise<R>,
+  work: (view: View, job: J, slot: number) => Promise<R>,
 ): Promise<R[]> {
   const results: R[] = new Array(jobs.length);
   let next = 0;
   const views = Array.from({ length: Math.min(size, jobs.length) }, makeView);
   try {
     await Promise.all(
-      views.map(async (view) => {
+      views.map(async (view, slot) => {
         while (next < jobs.length) {
           const i = next++;
           // biome-ignore lint/performance/noAwaitInLoops: one job at a time per view
-          results[i] = await work(view, jobs[i]);
+          results[i] = await work(view, jobs[i], slot);
         }
       }),
     );
@@ -181,4 +159,97 @@ export async function runPool<J, R>(
     for (const v of views) v.close();
   }
   return results;
+}
+
+export interface PageJob {
+  name: string;
+  theme: string;
+  viewport: Viewport;
+  url: string;
+  /** `name theme`, plus `WxH` when there are several viewports. */
+  label: string;
+}
+
+// Viewport first, so a pooled view rarely resizes.
+function pageJobs(
+  baseUrl: string,
+  fixtures: string[],
+  themes: string[],
+  viewports: Viewport[],
+  attribute: string | null = "theme",
+): PageJob[] {
+  return viewports.flatMap((viewport) =>
+    fixtures.flatMap((name) =>
+      themes.map((theme) => ({
+        name,
+        theme,
+        viewport,
+        url:
+          `${baseUrl}/${name}.html` +
+          (attribute === null
+            ? ""
+            : `?cr-attr=${encodeURIComponent(attribute)}&cr-value=${encodeURIComponent(theme)}`),
+        label:
+          `${name} ${theme}` +
+          (viewports.length > 1 ? ` ${viewportName(viewport)}` : ""),
+      })),
+    ),
+  );
+}
+
+interface VisitOptions {
+  baseUrl: string;
+  fixtures: string[];
+  themes: string[];
+  themeAttribute?: string | null;
+  width?: number;
+  height?: number;
+  viewports?: Viewport[];
+  engine: EngineName;
+  chromePath?: string;
+  concurrency: number;
+  emulate: "cdp" | "cssom";
+  readySelector?: string;
+  readyTimeoutMs?: number;
+}
+
+export async function visitPages(
+  opts: VisitOptions,
+  /** `slot` is the view's index in the pool. */
+  work: (view: View, job: PageJob, slot: number) => Promise<void>,
+): Promise<{ pages: number; ms: number; notReady: string[] }> {
+  const viewports = viewportsOf(opts);
+  const jobs = pageJobs(
+    opts.baseUrl,
+    opts.fixtures,
+    opts.themes,
+    viewports,
+    opts.themeAttribute,
+  );
+  const started = performance.now();
+  const ready = await runPool(
+    jobs,
+    opts.concurrency,
+    () =>
+      new View({
+        engine: opts.engine,
+        chromePath: opts.chromePath,
+        ...viewports[0],
+      }),
+    async (view, job, slot) => {
+      await view.resize(job.viewport);
+      if (opts.emulate === "cdp") await reduceMotion(view);
+      await view.navigate(job.url);
+      const ready = opts.readySelector
+        ? await waitReady(view, opts.readySelector, opts.readyTimeoutMs)
+        : true;
+      await work(view, job, slot);
+      return ready;
+    },
+  );
+  return {
+    pages: jobs.length,
+    ms: performance.now() - started,
+    notReady: jobs.filter((_, i) => !ready[i]).map((j) => j.label),
+  };
 }

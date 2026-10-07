@@ -1,63 +1,50 @@
 /**
  * Parity + perf: carbon-components-svelte's css-tree-based scripts/lib vs
- * the crassus core.
+ * the crassus core, on sass-expanded css/{all,white}.scss (what its CLIs
+ * feed the libs), the minified css/all.css build, and bench/corpora.ts.
  *
  *   CCS_ROOT=… bun eval/carbon/parity.ts [--runs 7]
- *
- * Inputs: sass-expanded css/all.scss + css/white.scss (what the CLIs feed
- * the libs), the minified css/all.css build, and the public corpora in
- * bench/corpora.ts.
  */
 import path from "node:path";
-import { initAsyncCompiler } from "sass-embedded";
 import { CORPORA } from "../../bench/corpora";
 import type { Rule } from "../../src/core/cascade";
 // biome-ignore lint/performance/noNamespaceImport: comparing two libraries with identical export names
 import * as newCascade from "../../src/core/cascade";
 // biome-ignore lint/performance/noNamespaceImport: comparing two libraries with identical export names
 import * as newOverrides from "../../src/core/overrides";
-import { CCS_ROOT, loadOldCascade, loadOldOverrides, results } from "./ccs";
+import {
+  CCS_ROOT,
+  loadOldCascade,
+  loadOldOverrides,
+  opt,
+  results,
+  strip,
+  withSass,
+} from "./ccs";
 
 const oldCascade = await loadOldCascade();
 const oldOverrides = await loadOldOverrides();
 
-const args = process.argv.slice(2);
-const RUNS = Number(args[args.indexOf("--runs") + 1] || 7);
-const root = CCS_ROOT;
-
-// Formatting-insensitive: whitespace, quote style and escapes.
-const strip = (s: string) => s.replace(/[\s"'\\]+/g, "");
+const RUNS = Number(opt("runs") || 7);
 
 async function inputs(): Promise<{ name: string; css: string }[]> {
-  const out: { name: string; css: string }[] = [];
-  const compiler = await initAsyncCompiler();
-  try {
+  const cssDir = path.join(CCS_ROOT, "css");
+  const out = await withSass(async (compile) => {
+    const compiled: { name: string; css: string }[] = [];
     for (const entry of ["all", "white"]) {
-      // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
-      const { css } = await compiler.compileAsync(
-        path.join(root, `css/${entry}.scss`),
-        {
-          style: "expanded",
-          loadPaths: [path.join(root, "css/vendor")],
-          quietDeps: true,
-          silenceDeprecations: [
-            "import",
-            "global-builtin",
-            "color-functions",
-            "if-function",
-          ],
-        },
-      );
-      out.push({ name: `${entry}.scss (expanded)`, css });
+      // biome-ignore lint/performance/noAwaitInLoops: one compiler, in order
+      const { css } = await compile(cssDir, entry, { style: "expanded" });
+      compiled.push({ name: `${entry}.scss (expanded)`, css });
     }
-  } finally {
-    await compiler.dispose();
-  }
-  out.push({
-    name: "all.css (minified build)",
-    css: await Bun.file(path.join(root, "css/all.css")).text(),
+    return compiled;
   });
-  for (const { name, css } of CORPORA) out.push({ name, css });
+  out.push(
+    {
+      name: "all.css (minified build)",
+      css: await Bun.file(path.join(cssDir, "all.css")).text(),
+    },
+    ...CORPORA,
+  );
   return out;
 }
 
@@ -77,11 +64,10 @@ function time(fn: () => unknown): number {
   return median(xs);
 }
 
-type Example = string;
 class Tally {
   counts = new Map<string, number>();
-  examples = new Map<string, Example[]>();
-  add(cat: string, ex: Example) {
+  examples = new Map<string, string[]>();
+  add(cat: string, ex: string) {
     this.counts.set(cat, (this.counts.get(cat) ?? 0) + 1);
     const list = this.examples.get(cat) ?? [];
     if (list.length < 3) list.push(ex);
@@ -92,12 +78,12 @@ class Tally {
 const setEq = (a: ReadonlySet<string>, b: ReadonlySet<string>) =>
   a.size === b.size && [...a].every((x) => b.has(x));
 
-function compareRules(a: Rule[], b: newCascade.Rule[], tally: Tally): void {
+function compareRules(a: Rule[], b: Rule[], tally: Tally): void {
   const n = Math.min(a.length, b.length);
   for (let i = 0; i < n; i++) {
     const o = a[i];
     const x = b[i];
-    const where = `${x.selector.slice(0, 80)}`;
+    const where = x.selector.slice(0, 80);
     if (strip(o.selector) !== strip(x.selector))
       tally.add(
         "selector",
@@ -128,7 +114,6 @@ function compareRules(a: Rule[], b: newCascade.Rule[], tally: Tally): void {
         `${where} old=${so.pseudoElement} new=${sx.pseudoElement}`,
       );
     if (strip(o.declBlock) !== strip(x.declBlock)) {
-      // Find the first differing declaration for the example.
       const od = [...o.decls];
       const nd = [...x.decls];
       const k = od.findIndex(
@@ -153,22 +138,19 @@ function compareRules(a: Rule[], b: newCascade.Rule[], tally: Tally): void {
     tally.add("count", `old=${a.length} new=${b.length}`);
 }
 
-function deadKey(d: { context: string; selector: string; property: string }) {
-  return `${strip(d.context)}|${strip(d.selector)}|${d.property}`;
-}
+const deadKey = (d: { context: string; selector: string; property: string }) =>
+  `${strip(d.context)}|${strip(d.selector)}|${d.property}`;
 
 const summary: unknown[] = [];
 for (const { name, css } of await inputs()) {
   const tally = new Tally();
-  let oldRules: Rule[] = [];
+  const newRules = newCascade.parseRules(css, true);
   let oldError: string | undefined;
   try {
-    oldRules = oldCascade.parseRules(css, true);
+    compareRules(oldCascade.parseRules(css, true), newRules, tally);
   } catch (e) {
     oldError = (e as Error).message;
   }
-  const newRules = newCascade.parseRules(css, true);
-  if (!oldError) compareRules(oldRules, newRules, tally);
 
   const oldDead = new Set(oldOverrides.deadDeclarations(css).map(deadKey));
   const newDead = new Set(newOverrides.deadDeclarations(css).map(deadKey));

@@ -1,8 +1,8 @@
 /**
- * Regenerates src/core/shorthands.ts from Chrome's CSSOM: for every
- * property Chrome knows, `style.setProperty(p, "initial")` and read back
- * the longhands it set. Vendor-prefixed names are left out: a prefixed
- * declaration before its standard one is a fallback, not an override.
+ * Regenerates src/core/shorthands.ts: sets every property Chrome's CSSOM
+ * knows to `initial` and reads back the longhands it set. Vendor-prefixed
+ * names are left out: a prefixed declaration before its standard one is a
+ * fallback, not an override.
  *
  *   bun run gen:shorthands
  */
@@ -12,7 +12,6 @@ import { View } from "../src/browser/view";
 
 const out = resolve(import.meta.dir, "../src/core/shorthands.ts");
 
-// Runs in the page.
 const PAGE = `(() => {
   const el = document.createElement("div");
   const names = new Set();

@@ -1,62 +1,112 @@
 /**
- * CDP harness for CSS selector matching cost during a full-document recalc.
- * Spike port of e2e/selector-stats.ts onto Bun.WebView via Playwright-shaped
- * shims (Page.evaluate(fn, arg) -> evaluate(`(${fn})(${json})`)). A
- * measurement spike kept for comparison; it won't move into src/ (selector
- * cost isn't a cascade claim).
+ * Selector matching cost during a full-document recalc: a Bun.WebView port of
+ * carbon-components-svelte's e2e/selector-stats.ts, run by ./selector-stats.ts
+ * from the checkout. A measurement spike, not headed for src/.
  *
- * Clones a fixture's rendered markup to scale, then repeatedly changes an
- * inherited custom property on `<html>` that no rule reads. Every element
- * inherits it, so Blink re-resolves style (selector matching included) for
- * the whole document, while computed values stay put and no transitions
- * start. `--trigger theme` toggles `theme="white"` / `"g100"` instead: the
- * real theme-switch cost, but color transitions on every element add work
- * that has nothing to do with selectors.
+ * Toggles an inherited custom property no rule reads (or, with `--trigger
+ * theme`, the Carbon theme), so every element re-resolves style while
+ * computed values stay put. Traced `SelectorStats` read the clock per match
+ * attempt and inflate recalc ~10x: rank with them, don't size a saving; the
+ * untraced `RecalcStyleDuration` variants do that.
  *
- * Two passes per scenario:
- *
- * 1. Traced: each toggle is recorded with the category behind DevTools'
- *    "Enable CSS selector stats" (`disabled-by-default-blink.debug`). Chromium
- *    emits `SelectorStats` trace events whose
- *    `args.selector_stats.selector_timings[]` hold per-selector
- *    `"elapsed (us)"`, `match_attempts`, `match_count`, `fast_reject_count`,
- *    `selector` and `style_sheet_id` (checked against Playwright's bundled
- *    Chromium 153). Blink times every match attempt, so the clock read adds
- *    a fixed cost per attempt: `elapsed` overweights selectors that are
- *    attempted often but rejected cheaply, and tracing inflates recalc ~10x.
- *    Use these numbers to rank, not to size a saving.
- * 2. Untraced: `Performance.getMetrics()` `RecalcStyleDuration` per toggle
- *    with the library sheet swapped for variants that delete selector
- *    families (see `runScenario`). Variants are interleaved per run and
- *    diffed against the same run's baseline. Only selectors that matched
- *    nothing are deleted, so the paired diff is pure matching cost: the most
- *    a rewrite of them to class tails could save.
- *
- * Reports the top selectors by median elapsed time, overall and restricted
- * to selectors whose rightmost compound has no id / class / attribute (i.e.
- * a type or `*` tail, bucketed by tag or universal, so tested against every
- * matching element in the page).
- *
- * Usage:
- *   BUILD_CSS_MINIFY=1 bun scripts/build-css
- *   bun e2e/selector-stats.ts <scenario|all> [--runs 15] [--recalc-runs 40]
+ *   bun …/selector-stats-harness.ts <scenario|all> [--runs 15] [--recalc-runs 40]
  *     [--inner 5] [--top 25] [--scale N] [--trigger var|theme] [--json out.json]
  *     [--url <base>]
- *
- * `--runs` is the traced sample count, `--recalc-runs` the untraced one;
- * each untraced sample is the min of `--inner` back-to-back toggles.
  */
 import { readdir, writeFile } from "node:fs/promises";
 import { View } from "../../src/browser/view";
+import { splitList } from "../../src/core/selector";
 
-// Runs with cwd = the carbon-components-svelte checkout (see
-// ./selector-stats.ts): fixtures come from its e2e/fixtures, served by its
-// e2e Vite config, because the variant builder edits the <style> tag the
-// dev server injects.
-async function fixtures(): Promise<string[]> {
-  return (await readdir("e2e/fixtures"))
-    .filter((f) => f.endsWith(".html"))
-    .map((f) => f.slice(0, -".html".length));
+const PORT = 4177;
+const [scenarioKey, ...rest] = process.argv.slice(2);
+const opt = (name: string): string | undefined => {
+  const i = rest.indexOf(`--${name}`);
+  return i >= 0 ? rest[i + 1] : undefined;
+};
+const RUNS = Number(opt("runs") ?? 15);
+const RECALC_RUNS = Number(opt("recalc-runs") ?? 40);
+const INNER = Number(opt("inner") ?? 5);
+const TOP = Number(opt("top") ?? 25);
+const SCALE = opt("scale");
+const JSON_OUT = opt("json");
+const URL = opt("url");
+const TRIGGER = opt("trigger") ?? "var";
+
+const scenarios: Record<string, { fixture: string; scale: number }> = {
+  "data-table": { fixture: "data-table", scale: 12 },
+  "data-table-overflow": { fixture: "data-table-overflow-menu", scale: 10 },
+  "tree-view": { fixture: "tree-view-virtualize", scale: 40 },
+  // `.bx--link__icon svg`, `path`
+  "link-icons": { fixture: "link", scale: 200 },
+  // `.bx--btn__icon path:not(...)`
+  "button-icons": { fixture: "menu-button", scale: 300 },
+};
+
+interface Timing {
+  elapsed: number;
+  attempts: number;
+  matches: number;
+  fastRejects: number;
+}
+
+interface TraceEvent {
+  name: string;
+  ph: string;
+  dur?: number;
+  args?: {
+    elementCount?: number;
+    selector_stats?: {
+      selector_timings?: {
+        "elapsed (us)": number;
+        match_attempts: number;
+        match_count: number;
+        fast_reject_count: number;
+        selector: string;
+        style_sheet_id: string;
+      }[];
+    };
+  };
+}
+
+interface SelectorRow extends Timing {
+  selector: string;
+  sheet: string;
+  share: number;
+  typeTail: boolean;
+}
+
+interface Stats {
+  median: number;
+  iqr: number;
+  min: number;
+  max: number;
+}
+
+interface Report {
+  scenario: string;
+  fixture: string;
+  scale: number;
+  elements: number;
+  recalc: {
+    variant: string;
+    removedSelectors: number;
+    ms: Stats;
+    /** Paired difference from baseline in the same run. */
+    diffMs: Stats;
+  }[];
+  traced: {
+    runs: number;
+    updateLayoutTreeMs: Stats;
+    elementCount: Stats;
+    selectorTotalMs: Stats;
+    attempts: Stats;
+    typeTailShare: Stats;
+    universalShare: Stats;
+    typeTailAttemptShare: Stats;
+    floorNsPerAttempt: number;
+  };
+  top: SelectorRow[];
+  topTypeTail: SelectorRow[];
 }
 
 async function startServer(
@@ -87,162 +137,9 @@ async function startServer(
   throw new Error(`server at ${base} did not start`);
 }
 
-// --- Playwright-shaped shims over Bun.WebView (spike port) ----------------
-
-const SHELL = process.env.CR_CHROME_PATH;
-
-class Page {
-  readonly view: View;
-  constructor(view: View) {
-    this.view = view;
-  }
-  goto(url: string, _opts?: unknown): Promise<void> {
-    return this.view.navigate(url);
-  }
-  waitForTimeout(ms: number): Promise<void> {
-    return Bun.sleep(ms);
-  }
-  // biome-ignore lint/suspicious/noExplicitAny: mirrors Playwright's signature
-  evaluate<T = any>(fn: string | ((arg: any) => T), arg?: unknown): Promise<T> {
-    if (typeof fn === "string") return this.view.evaluate<T>(fn);
-    const a = arg === undefined ? "" : JSON.stringify(arg);
-    return this.view.evaluate<T>(`(${fn.toString()})(${a})`);
-  }
-}
-
-class CDPSession {
-  #subs = new Map<unknown, () => void>();
-  readonly view: View;
-  constructor(view: View) {
-    this.view = view;
-  }
-  // biome-ignore lint/suspicious/noExplicitAny: CDP results are untyped here
-  send(method: string, params?: Record<string, unknown>): Promise<any> {
-    return this.view.cdp(method, params);
-  }
-  // biome-ignore lint/suspicious/noExplicitAny: CDP events are untyped here
-  on(event: string, fn: (e: any) => void): void {
-    this.#subs.set(fn, this.view.on(event, fn));
-  }
-  // biome-ignore lint/suspicious/noExplicitAny: CDP events are untyped here
-  once(event: string, fn: (e: any) => void): void {
-    const off = this.view.on(event, (e) => {
-      off();
-      fn(e);
-    });
-  }
-  off(_event: string, fn: unknown): void {
-    this.#subs.get(fn)?.();
-    this.#subs.delete(fn);
-  }
-}
-
-type Browser = { version(): string };
-
-const PORT = 4177;
-const [scenarioKey, ...rest] = process.argv.slice(2);
-const opt = (name: string): string | undefined => {
-  const i = rest.indexOf(`--${name}`);
-  return i >= 0 ? rest[i + 1] : undefined;
-};
-const RUNS = Number(opt("runs") ?? 15);
-const RECALC_RUNS = Number(opt("recalc-runs") ?? 40);
-const INNER = Number(opt("inner") ?? 5);
-const TOP = Number(opt("top") ?? 25);
-const SCALE = opt("scale");
-const JSON_OUT = opt("json");
-const URL = opt("url");
-const TRIGGER = opt("trigger") ?? "var";
-
-const TRACE_CATEGORIES = [
-  "disabled-by-default-blink.debug",
-  "devtools.timeline",
-];
-
-interface Scenario {
-  fixture: string;
-  /** Copies of the fixture's `#app` content in the page, original included. */
-  scale: number;
-}
-
-const scenarios: Record<string, Scenario> = {
-  // Plain, sortable, expandable, batch and radio tables with header icons.
-  "data-table": { fixture: "data-table", scale: 12 },
-  // 50 rows, each with an OverflowMenu icon button.
-  "data-table-overflow": { fixture: "data-table-overflow-menu", scale: 10 },
-  "tree-view": { fixture: "tree-view-virtualize", scale: 40 },
-  // Links with trailing icons (`.bx--link__icon svg`, `path`).
-  "link-icons": { fixture: "link", scale: 200 },
-  // Buttons with `.bx--btn__icon` (`.bx--btn__icon path:not(...)`).
-  "button-icons": { fixture: "menu-button", scale: 300 },
-};
-
-interface Timing {
-  elapsed: number;
-  attempts: number;
-  matches: number;
-  fastRejects: number;
-}
-
-interface TraceEvent {
-  name: string;
-  ph: string;
-  dur?: number;
-  args?: {
-    elementCount?: number;
-    selector_stats?: {
-      selector_timings?: Array<{
-        "elapsed (us)": number;
-        match_attempts: number;
-        match_count: number;
-        fast_reject_count: number;
-        selector: string;
-        style_sheet_id: string;
-      }>;
-    };
-  };
-}
-
-interface SelectorRow extends Timing {
-  selector: string;
-  sheet: string;
-  share: number;
-  typeTail: boolean;
-}
-
-interface Report {
-  scenario: string;
-  fixture: string;
-  scale: number;
-  elements: number;
-  recalc: Array<{
-    variant: string;
-    removedSelectors: number;
-    ms: Stats;
-    /** Paired difference from baseline in the same run. */
-    diffMs: Stats;
-  }>;
-  traced: {
-    runs: number;
-    updateLayoutTreeMs: Stats;
-    elementCount: Stats;
-    selectorTotalMs: Stats;
-    attempts: Stats;
-    typeTailShare: Stats;
-    universalShare: Stats;
-    typeTailAttemptShare: Stats;
-    floorNsPerAttempt: number;
-  };
-  top: SelectorRow[];
-  topTypeTail: SelectorRow[];
-}
-
-interface Stats {
-  median: number;
-  iqr: number;
-  min: number;
-  max: number;
-}
+/** Runs `fn(arg)` in the page; `fn` must be self-contained. */
+const inPage = <A, T>(view: View, fn: (arg: A) => T, arg?: A) =>
+  view.evaluate<T>(`(${fn})(${arg === undefined ? "" : JSON.stringify(arg)})`);
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -256,33 +153,19 @@ function iqr(xs: number[]): number {
   return q(0.75) - q(0.25);
 }
 
-function stats(xs: number[]): Stats {
-  return {
-    median: median(xs),
-    iqr: iqr(xs),
-    min: Math.min(...xs),
-    max: Math.max(...xs),
-  };
-}
+const stats = (xs: number[]): Stats => ({
+  median: median(xs),
+  iqr: iqr(xs),
+  min: Math.min(...xs),
+  max: Math.max(...xs),
+});
 
 const COMBINATOR = /[\s>+~]/;
 /** Id, class or attribute: what Blink buckets a rule by before its tag. */
 const BUCKETABLE = /[.#[]/;
 const TYPE_SELECTOR = /^[a-z]/i;
 
-/**
- * Rightmost compound of a complex selector, with functional pseudo-class
- * arguments removed: `.a > b:not(.c):hover` -> `b:not:hover`.
- */
-function rightmostCompound(selector: string): string {
-  return splitRightmost(selector).compound;
-}
-
-/** True when the selector has more than one compound (`.a svg`, not `svg`). */
-function hasCombinator(selector: string): boolean {
-  return splitRightmost(selector).start > 0;
-}
-
+/** `.a > b:not(.c):hover` -> `b:not:hover`, and where it starts. */
 function splitRightmost(selector: string): {
   start: number;
   compound: string;
@@ -296,7 +179,6 @@ function splitRightmost(selector: string): {
     else if (depth === 0 && COMBINATOR.test(ch)) start = i + 1;
   }
   let compound = selector.slice(start);
-  // Drop `(...)` groups, innermost first.
   let prev: string;
   do {
     prev = compound;
@@ -305,17 +187,17 @@ function splitRightmost(selector: string): {
   return { start, compound };
 }
 
-/**
- * True when Blink can only bucket the rule by tag or universal: no id,
- * class or attribute in the rightmost compound.
- */
-export function isTypeTail(selector: string): boolean {
-  return !BUCKETABLE.test(rightmostCompound(selector));
-}
+const rightmostCompound = (selector: string) =>
+  splitRightmost(selector).compound;
+
+const hasCombinator = (selector: string) => splitRightmost(selector).start > 0;
+
+const isTypeTail = (selector: string) =>
+  !BUCKETABLE.test(rightmostCompound(selector));
 
 function isUniversalTail(selector: string): boolean {
   const c = rightmostCompound(selector);
-  return isTypeTail(selector) && !TYPE_SELECTOR.test(c);
+  return !BUCKETABLE.test(c) && !TYPE_SELECTOR.test(c);
 }
 
 function sheetLabel(id: string, libSheets: Set<string>): string {
@@ -323,9 +205,9 @@ function sheetLabel(id: string, libSheets: Set<string>): string {
   return libSheets.has(id) ? "lib" : "other";
 }
 
-/** Flips the trigger on (`true`) or off and forces the recalc. */
-async function toggle(page: Page, on: boolean): Promise<void> {
-  await page.evaluate(
+const toggle = (view: View, on: boolean) =>
+  inPage(
+    view,
     ({ on, trigger }) => {
       const root = document.documentElement;
       if (trigger === "theme")
@@ -335,67 +217,79 @@ async function toggle(page: Page, on: boolean): Promise<void> {
     },
     { on, trigger: TRIGGER },
   );
-}
 
-async function trace(cdp: CDPSession, fn: () => Promise<void>) {
+async function trace(
+  view: View,
+  fn: () => Promise<unknown>,
+): Promise<TraceEvent[]> {
   const events: TraceEvent[] = [];
-  const onData = (e: { value: object[] }) => {
-    events.push(...(e.value as TraceEvent[]));
-  };
-  cdp.on("Tracing.dataCollected", onData);
-  const complete = new Promise<void>((r) =>
-    cdp.once("Tracing.tracingComplete", () => r()),
+  const offData = view.on<{ value: TraceEvent[] }>(
+    "Tracing.dataCollected",
+    (e) => {
+      events.push(...e.value);
+    },
   );
-  await cdp.send("Tracing.start", {
-    traceConfig: { includedCategories: TRACE_CATEGORIES },
+  const complete = new Promise<void>((resolve) => {
+    const off = view.on("Tracing.tracingComplete", () => {
+      off();
+      resolve();
+    });
+  });
+  await view.cdp("Tracing.start", {
+    traceConfig: {
+      includedCategories: [
+        "disabled-by-default-blink.debug",
+        "devtools.timeline",
+      ],
+    },
     transferMode: "ReportEvents",
   });
   await fn();
-  await cdp.send("Tracing.end");
+  await view.cdp("Tracing.end");
   await complete;
-  cdp.off("Tracing.dataCollected", onData);
+  offData();
   return events;
 }
 
 async function loadScenario(
-  page: Page,
+  view: View,
   base: string,
   fixture: string,
   scale: number,
 ): Promise<number> {
-  await page.goto(`${base}/${fixture}.html`, { waitUntil: "networkidle" });
-  await page.waitForTimeout(300);
-  return page.evaluate((n) => {
-    const app = document.getElementById("app");
-    if (!app) throw new Error("#app not found");
-    // Each copy gets its own wrapper: appending all copies as siblings
-    // would give `~` / `+` selectors thousands of siblings to walk, which
-    // no real page has.
-    const originals = Array.from(app.children);
-    for (let i = 0; i < n - 1; i++) {
-      const copy = document.createElement("div");
-      for (const el of originals) copy.appendChild(el.cloneNode(true));
-      app.appendChild(copy);
-    }
-    document.documentElement.setAttribute("theme", "white");
-    void document.body.offsetHeight;
-    return document.getElementsByTagName("*").length;
-  }, scale);
+  await view.navigate(`${base}/${fixture}.html`);
+  await Bun.sleep(300);
+  return inPage(
+    view,
+    (n) => {
+      const app = document.getElementById("app");
+      if (!app) throw new Error("#app not found");
+      // A wrapper per copy: thousands of siblings would make `~` / `+`
+      // selectors walk more than any real page.
+      const originals = Array.from(app.children);
+      for (let i = 0; i < n - 1; i++) {
+        const copy = document.createElement("div");
+        for (const el of originals) copy.appendChild(el.cloneNode(true));
+        app.appendChild(copy);
+      }
+      document.documentElement.setAttribute("theme", "white");
+      void document.body.offsetHeight;
+      return document.getElementsByTagName("*").length;
+    },
+    scale,
+  );
 }
 
 /**
- * Serialises a copy of the library stylesheet with `drop`ped selectors
- * removed (a rule whose whole selector list goes is deleted) and stores it
- * as `window.__ccsVariants[name]`. Baseline runs through the same CSSOM
- * round-trip with nothing dropped, so every variant is parsed the same way.
- * Returns the number of selectors removed.
+ * Stores the library sheet minus `drop`ped selectors in the page. Baseline
+ * takes the same CSSOM round-trip, so every variant is parsed the same way.
  */
 async function buildVariant(
-  page: Page,
+  view: View,
   name: string,
   drop: (selector: string) => boolean,
 ): Promise<number> {
-  const rules = await page.evaluate(() => {
+  const rules = await inPage(view, () => {
     const w = window as unknown as { __ccsSource: string };
     if (!w.__ccsSource) {
       const style = Array.from(document.querySelectorAll("style")).sort(
@@ -406,7 +300,7 @@ async function buildVariant(
     }
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(w.__ccsSource);
-    const out: Array<{ path: number[]; selectorText: string }> = [];
+    const out: { path: number[]; selectorText: string }[] = [];
     const visit = (list: CSSRuleList, path: number[]) => {
       Array.from(list).forEach((rule, i) => {
         if (rule instanceof CSSStyleRule) {
@@ -421,16 +315,17 @@ async function buildVariant(
   });
 
   let removed = 0;
-  const edits: Array<{ path: number[]; selectorText: string | null }> = [];
+  const edits: { path: number[]; selectorText: string | null }[] = [];
   for (const { path, selectorText } of rules) {
-    const parts = splitSelectorList(selectorText);
+    const parts = splitList(selectorText).map((s) => s.text);
     const keep = parts.filter((p) => !drop(p));
     if (keep.length === parts.length) continue;
     removed += parts.length - keep.length;
     edits.push({ path, selectorText: keep.length ? keep.join(", ") : null });
   }
 
-  await page.evaluate(
+  await inPage(
+    view,
     ({ name, edits }) => {
       const w = window as unknown as {
         __ccsSource: string;
@@ -460,63 +355,39 @@ async function buildVariant(
   return removed;
 }
 
-async function useVariant(page: Page, name: string): Promise<void> {
-  await page.evaluate((n) => {
-    const w = window as unknown as { __ccsVariants: Record<string, string> };
-    const style = document.querySelector("style[data-ccs-lib]");
-    if (!style) throw new Error("library <style> not found");
-    style.textContent = w.__ccsVariants[n];
-    void document.body.offsetHeight;
-  }, name);
-}
+const useVariant = (view: View, name: string) =>
+  inPage(
+    view,
+    (n) => {
+      const w = window as unknown as { __ccsVariants: Record<string, string> };
+      const style = document.querySelector("style[data-ccs-lib]");
+      if (!style) throw new Error("library <style> not found");
+      style.textContent = w.__ccsVariants[n];
+      void document.body.offsetHeight;
+    },
+    name,
+  );
 
-/** Splits a selector list at top-level commas. */
-function splitSelectorList(list: string): string[] {
-  const out: string[] = [];
-  let depth = 0;
-  let start = 0;
-  for (let i = 0; i < list.length; i++) {
-    const ch = list[i];
-    if (ch === "(" || ch === "[") depth++;
-    else if (ch === ")" || ch === "]") depth--;
-    else if (ch === "," && depth === 0) {
-      out.push(list.slice(start, i).trim());
-      start = i + 1;
-    }
-  }
-  out.push(list.slice(start).trim());
-  return out;
-}
-
-/**
- * Untraced `RecalcStyleDuration` per variant. Variants are interleaved
- * within each run (rotating the order), so machine load drifting over the
- * measurement hits all of them alike; each sample is also paired with the
- * baseline sample from the same run.
- */
+/** Variants interleave within each run, so load drift hits all alike. */
 async function measureRecalc(
-  page: Page,
-  cdp: CDPSession,
+  view: View,
   names: string[],
 ): Promise<Record<string, { ms: number[]; diff: number[] }>> {
   const read = async () => {
-    const { metrics } = await cdp.send("Performance.getMetrics");
-    return (
-      (metrics as { name: string; value: number }[]).find(
-        (m) => m.name === "RecalcStyleDuration",
-      )?.value ?? 0
-    );
+    const { metrics } = await view.cdp<{
+      metrics: { name: string; value: number }[];
+    }>("Performance.getMetrics");
+    return metrics.find((m) => m.name === "RecalcStyleDuration")?.value ?? 0;
   };
-  // Min of a few back-to-back toggles: other processes can only add time,
-  // so the min tracks the uncontended cost far more tightly than one toggle.
+  // Min of a few toggles: other processes can only add time.
   async function recalcMs(): Promise<number> {
     let best = Number.POSITIVE_INFINITY;
     for (let i = 0; i < INNER; i++) {
       // biome-ignore lint/performance/noAwaitInLoops: sequential by design
       const before = await read();
-      await toggle(page, true);
+      await toggle(view, true);
       const after = await read();
-      await toggle(page, false);
+      await toggle(view, false);
       best = Math.min(best, (after - before) * 1000);
     }
     return best;
@@ -530,12 +401,12 @@ async function measureRecalc(
     for (let j = 0; j < names.length; j++) {
       const name = names[(run + j) % names.length];
       // biome-ignore lint/performance/noAwaitInLoops: sequential by design
-      await useVariant(page, name);
+      await useVariant(view, name);
       // Warmup: let selector/style caches settle on the new sheet.
       for (let i = 0; i < 3; i++) {
         // biome-ignore lint/performance/noAwaitInLoops: sequential by design
-        await toggle(page, true);
-        await toggle(page, false);
+        await toggle(view, true);
+        await toggle(view, false);
       }
       sample[name] = await recalcMs();
     }
@@ -547,42 +418,35 @@ async function measureRecalc(
   return out;
 }
 
-async function runScenario(
-  key: string,
-  base: string,
-  browser: Browser,
-): Promise<Report> {
+async function runScenario(key: string, base: string): Promise<Report> {
   const scenario = scenarios[key];
   const scale = SCALE ? Number(SCALE) : scenario.scale;
 
   const view = new View({
     engine: "chrome",
-    chromePath: SHELL,
+    chromePath: process.env.CR_CHROME_PATH,
     width: 1280,
     height: 900,
   });
-  const page = new Page(view);
-  const cdp = new CDPSession(view);
-  await cdp.send("Emulation.setEmulatedMedia", {
+  await view.cdp("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-motion", value: "reduce" }],
   });
-  void browser;
-  const elements = await loadScenario(page, base, scenario.fixture, scale);
-  await cdp.send("Performance.enable");
+  const elements = await loadScenario(view, base, scenario.fixture, scale);
+  await view.cdp("Performance.enable");
 
-  // Traced selector stats on the page as shipped.
-
-  // The library stylesheet is the one large sheet vite injects for the
-  // fixture's `carbon-components-svelte/css/all.css` import; component
-  // `<style>` blocks and anything else are labelled "other".
-  await cdp.send("DOM.enable");
+  // The library sheet is the one large sheet vite injects for the fixture's
+  // `carbon-components-svelte/css/all.css` import.
+  await view.cdp("DOM.enable");
   const libSheets = new Set<string>();
-  cdp.on("CSS.styleSheetAdded", ({ header }) => {
-    if (header.length > 100_000) libSheets.add(header.styleSheetId);
-  });
-  await cdp.send("CSS.enable");
-  await toggle(page, true);
-  await toggle(page, false);
+  view.on<{ header: { length: number; styleSheetId: string } }>(
+    "CSS.styleSheetAdded",
+    ({ header }) => {
+      if (header.length > 100_000) libSheets.add(header.styleSheetId);
+    },
+  );
+  await view.cdp("CSS.enable");
+  await toggle(view, true);
+  await toggle(view, false);
 
   const perSelector = new Map<string, Timing[]>();
   const ultMs: number[] = [];
@@ -595,8 +459,8 @@ async function runScenario(
 
   for (let run = 0; run < RUNS; run++) {
     // biome-ignore lint/performance/noAwaitInLoops: sequential by design
-    const events = await trace(cdp, () => toggle(page, true));
-    await toggle(page, false);
+    const events = await trace(view, () => toggle(view, true));
+    await toggle(view, false);
 
     let ult = 0;
     let ultCount = 0;
@@ -659,11 +523,11 @@ async function runScenario(
   }
 
   const totalMedianUs = median(selectorTotalMs) * 1000;
+  // Selectors absent from a run contributed 0 to it.
+  const pad = (xs: number[]) => [...xs, ...Array(RUNS - xs.length).fill(0)];
   const rows: SelectorRow[] = [];
   for (const [id, list] of perSelector) {
     const [sheet, selector] = id.split("\u0000");
-    // Selectors absent from a run contributed 0 to it.
-    const pad = (xs: number[]) => [...xs, ...Array(RUNS - xs.length).fill(0)];
     const elapsed = median(pad(list.map((t) => t.elapsed)));
     rows.push({
       selector,
@@ -677,23 +541,17 @@ async function runScenario(
     });
   }
   rows.sort((a, b) => b.elapsed - a.elapsed || b.attempts - a.attempts);
-  // Cheapest per-attempt cost among frequently attempted selectors: roughly
-  // the tracing clock overhead, since a bloom-filter reject is a few ns.
+  // Cheapest per-attempt cost among often-attempted selectors: roughly the
+  // tracing clock overhead, since a bloom-filter reject is a few ns.
   const floorNs = Math.min(
     ...rows
       .filter((r) => r.attempts >= 1000)
       .map((r) => (r.elapsed * 1000) / r.attempts),
   );
 
-  // Untraced recalc with selector families deleted. Variants delete only
-  // selectors that matched nothing in any traced run, so computed style is
-  // unchanged and any delta is matching cost alone:
-  // - combinator-qualified type/`*` tails (`.a svg`, `.a > *`), the rewrite
-  //   candidates;
-  // - control: as many qualified class-tail selectors whose rightmost
-  //   classes are absent from the page (never attempted; expect ~0).
-  // Deleting matched rules too would also skip their declarations, which
-  // is not a saving a selector rewrite can deliver.
+  // Variants delete only selectors that never matched, so computed style is
+  // unchanged and any delta is matching cost. The control deletes as many
+  // class tails absent from the page (never attempted; expect ~0).
   const unmatched = new Set(
     [...perSelector]
       .filter(
@@ -705,14 +563,13 @@ async function runScenario(
   const isQualifiedTypeTail = (sel: string) =>
     isTypeTail(sel) && hasCombinator(sel);
   const pageClasses = new Set(
-    await page.evaluate(() =>
+    await inPage(view, () =>
       Array.from(document.querySelectorAll("[class]")).flatMap((el) =>
         Array.from(el.classList),
       ),
     ),
   );
-  const unmatchedTypeTails = [...unmatched].filter(isQualifiedTypeTail);
-  let controlLeft = unmatchedTypeTails.length;
+  let controlLeft = [...unmatched].filter(isQualifiedTypeTail).length;
   const isAbsentClassTail = (sel: string) => {
     if (controlLeft <= 0 || !hasCombinator(sel)) return false;
     const classes = [...rightmostCompound(sel).matchAll(/\.([\w-]+)/g)];
@@ -734,28 +591,25 @@ async function runScenario(
   const removed: Record<string, number> = {};
   for (const v of variants) {
     // biome-ignore lint/performance/noAwaitInLoops: sequential by design
-    removed[v.name] = await buildVariant(page, v.name, v.drop);
+    removed[v.name] = await buildVariant(view, v.name, v.drop);
   }
   const samples = await measureRecalc(
-    page,
-    cdp,
+    view,
     variants.map((v) => v.name),
   );
   view.close();
-
-  const recalc: Report["recalc"] = variants.map((v) => ({
-    variant: v.name,
-    removedSelectors: removed[v.name],
-    ms: stats(samples[v.name].ms),
-    diffMs: stats(samples[v.name].diff),
-  }));
 
   return {
     scenario: key,
     fixture: scenario.fixture,
     scale,
     elements,
-    recalc,
+    recalc: variants.map((v) => ({
+      variant: v.name,
+      removedSelectors: removed[v.name],
+      ms: stats(samples[v.name].ms),
+      diffMs: stats(samples[v.name].diff),
+    })),
     traced: {
       runs: RUNS,
       updateLayoutTreeMs: stats(ultMs),
@@ -796,11 +650,11 @@ function print(r: Report): void {
     `  untraced RecalcStyleDuration ms (${RECALC_RUNS} runs, min of ${INNER}):`,
   );
   for (const v of r.recalc) {
-    const delta = (v.diffMs.median / base) * 100;
     console.log(
       `    ${v.variant.padEnd(24)} removed=${String(v.removedSelectors).padStart(4)}  ${fmt(v.ms)}`,
     );
     if (v !== r.recalc[0]) {
+      const delta = (v.diffMs.median / base) * 100;
       console.log(
         `    ${"".padEnd(24)} paired diff: ${fmt(v.diffMs)}  (${delta.toFixed(1)}% of baseline)`,
       );
@@ -822,44 +676,38 @@ function print(r: Report): void {
   printTable(`top ${TOP} type/* tail selectors`, r.topTypeTail);
 }
 
-async function main(): Promise<void> {
-  const keys = scenarioKey === "all" ? Object.keys(scenarios) : [scenarioKey];
-  if (!keys.every((k) => k in scenarios)) {
-    console.error(
-      `usage: selector-stats.ts <${Object.keys(scenarios).join("|")}|all> [--runs N] [--recalc-runs N] [--inner N] [--top N] [--scale N] [--trigger var|theme] [--json out.json]`,
-    );
-    process.exit(2);
-  }
+const keys = scenarioKey === "all" ? Object.keys(scenarios) : [scenarioKey];
+if (!keys.every((k) => k in scenarios)) {
+  console.error(
+    `usage: selector-stats.ts <${Object.keys(scenarios).join("|")}|all> [--runs N] [--recalc-runs N] [--inner N] [--top N] [--scale N] [--trigger var|theme] [--json out.json]`,
+  );
+  process.exit(2);
+}
 
-  const names = await fixtures();
-  for (const k of keys) {
-    if (!names.includes(scenarios[k].fixture)) {
-      throw new Error(`fixture not found: ${scenarios[k].fixture}`);
-    }
-  }
-
-  const { base, server } = await startServer(PORT, URL);
-  const browser: Browser = { version: () => "Bun.WebView" };
-  const reports: Report[] = [];
-
-  try {
-    console.log(`chromium ${browser.version()}`);
-    for (const key of keys) {
-      // biome-ignore lint/performance/noAwaitInLoops: sequential by design
-      const report = await runScenario(key, base, browser);
-      print(report);
-      reports.push(report);
-    }
-    if (JSON_OUT) {
-      await writeFile(JSON_OUT, JSON.stringify(reports, null, 2));
-      console.log(`\nwrote ${JSON_OUT}`);
-    }
-  } finally {
-    Bun.WebView.closeAll();
-    server?.kill();
+// Fixtures come from the checkout's e2e/fixtures, served by its e2e Vite
+// config: the variant builder edits the <style> tag the dev server injects.
+const fixtures = await readdir("e2e/fixtures");
+for (const k of keys) {
+  if (!fixtures.includes(`${scenarios[k].fixture}.html`)) {
+    throw new Error(`fixture not found: ${scenarios[k].fixture}`);
   }
 }
 
-if (import.meta.main) {
-  await main();
+const { base, server } = await startServer(PORT, URL);
+const reports: Report[] = [];
+try {
+  console.log("chromium Bun.WebView");
+  for (const key of keys) {
+    // biome-ignore lint/performance/noAwaitInLoops: sequential by design
+    const report = await runScenario(key, base);
+    print(report);
+    reports.push(report);
+  }
+  if (JSON_OUT) {
+    await writeFile(JSON_OUT, JSON.stringify(reports, null, 2));
+    console.log(`\nwrote ${JSON_OUT}`);
+  }
+} finally {
+  Bun.WebView.closeAll();
+  server?.kill();
 }

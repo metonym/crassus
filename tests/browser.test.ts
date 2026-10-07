@@ -1,6 +1,5 @@
-// Real-browser smoke test for crassus/browser: one fixture page through
-// both snapshot state modes and both usage engines, on Chrome (auto-detected
-// by Bun.WebView; GitHub's ubuntu runners ship it).
+// Needs Chrome, which Bun.WebView auto-detects (GitHub's ubuntu runners
+// ship it).
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +8,9 @@ import {
   capture,
   diffSnapshots,
   runUsage,
+  type Snapshot,
   serveFixtures,
+  type UsageFile,
 } from "crassus/browser";
 import { View } from "../src/browser/view";
 import {
@@ -18,7 +19,7 @@ import {
   serializeList,
 } from "../src/core/selector";
 import type { DeclarationStats } from "../src/core/usage";
-import { generator } from "./fuzz-gen";
+import { generator, loose } from "./fuzz-gen";
 
 const LIB_CSS = `
 .bx--btn { color: red; padding: var(--p, 1px) 2px; margin-block: var(--m, 1px) 0; }
@@ -70,7 +71,6 @@ const VIEWPORT_CSS = `
 const VIEWPORT_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="viewport.css"></head>
 <body><p class="bx--v">x</p></body></html>`;
 
-// Content that arrives after load.
 const LATE_PAGE = `<!doctype html><html><head><style>.bx--late { color: red; }</style></head>
 <body><script>setTimeout(() => { const p = document.createElement("p"); p.className = "bx--late"; document.body.append(p); }, 200);</script></body></html>`;
 
@@ -79,20 +79,28 @@ const DIFF_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="diff.
 const diffCss = (color: string) =>
   `.bx--d { color: ${color}; margin: 0; } .bx--e { color: green; }`;
 
+const SITE = {
+  "lib.css": LIB_CSS,
+  "page.html": PAGE,
+  "layers.css": LAYERS_CSS,
+  "layers.html": LAYERS_PAGE,
+  "nesting.css": NESTING_CSS,
+  "nesting.html": NESTING_PAGE,
+  "viewport.css": VIEWPORT_CSS,
+  "viewport.html": VIEWPORT_PAGE,
+  "late.html": LATE_PAGE,
+};
+
 let dir = "";
 let server: ReturnType<typeof serveFixtures>;
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), "crassus-browser-"));
-  await Bun.write(join(dir, "site/lib.css"), LIB_CSS);
-  await Bun.write(join(dir, "site/page.html"), PAGE);
-  await Bun.write(join(dir, "site/layers.css"), LAYERS_CSS);
-  await Bun.write(join(dir, "site/layers.html"), LAYERS_PAGE);
-  await Bun.write(join(dir, "site/nesting.css"), NESTING_CSS);
-  await Bun.write(join(dir, "site/nesting.html"), NESTING_PAGE);
-  await Bun.write(join(dir, "site/viewport.css"), VIEWPORT_CSS);
-  await Bun.write(join(dir, "site/viewport.html"), VIEWPORT_PAGE);
-  await Bun.write(join(dir, "site/late.html"), LATE_PAGE);
+  await Promise.all(
+    Object.entries(SITE).map(([file, text]) =>
+      Bun.write(join(dir, "site", file), text),
+    ),
+  );
   server = serveFixtures(join(dir, "site"));
 });
 
@@ -101,6 +109,9 @@ afterAll(async () => {
   Bun.WebView.closeAll();
   await rm(dir, { recursive: true, force: true });
 });
+
+const readJson = <T>(...path: string[]): Promise<T> =>
+  Bun.file(join(...path)).json();
 
 const base = () => ({
   baseUrl: server.url,
@@ -123,16 +134,14 @@ it("captures the same forced states via CDP and via selector rewrite", async () 
     });
   }
   const [file] = await readdir(join(dir, "cdp"));
-  const cdp = await Bun.file(join(dir, "cdp", file)).json();
-  const rewrite = await Bun.file(join(dir, "rewrite", file)).json();
+  const cdp = await readJson<Snapshot>(dir, "cdp", file);
+  const rewrite = await readJson<Snapshot>(dir, "rewrite", file);
   expect(rewrite).toEqual(cdp);
   const hovered = Object.entries(cdp).find(([key]) =>
     key.endsWith("button.bx--btn@hover"),
   );
   expect(hovered).toBeDefined();
-  expect((hovered?.[1] as Record<string, string> | undefined)?.color).toBe(
-    "rgb(0, 128, 0)",
-  );
+  expect(hovered?.[1].color).toBe("rgb(0, 128, 0)");
 }, 60_000);
 
 it("diffSnapshots groups a seeded color change once and lists one-sided pages", async () => {
@@ -219,15 +228,15 @@ it("captures each viewport into its own file, and usage aggregates them", async 
     "viewport.white.1280x900.json",
     "viewport.white.320x640.json",
   ]);
-  const color = async (file: string) =>
-    (await Bun.file(join(outDir, file)).json())["body>p.bx--v"].color;
-  expect(await color("viewport.white.320x640.json")).toBe("rgb(0, 0, 255)");
-  expect(await color("viewport.white.1280x900.json")).toBe("rgb(255, 0, 0)");
+  const style = async (file: string, out = outDir) =>
+    (await readJson<Snapshot>(out, file))["body>p.bx--v"];
+  const narrow = await style("viewport.white.320x640.json");
+  const wide = await style("viewport.white.1280x900.json");
+  expect(narrow.color).toBe("rgb(0, 0, 255)");
+  expect(wide.color).toBe("rgb(255, 0, 0)");
   // The page gets the whole viewport: Chrome's window size includes its UI.
-  const height = async (dir: string, file: string) =>
-    (await Bun.file(join(dir, file)).json())["body>p.bx--v"].height;
-  expect(await height(outDir, "viewport.white.320x640.json")).toBe("640px");
-  expect(await height(outDir, "viewport.white.1280x900.json")).toBe("900px");
+  expect(narrow.height).toBe("640px");
+  expect(wide.height).toBe("900px");
   await capture({
     ...base(),
     fixtures: ["viewport"],
@@ -237,7 +246,8 @@ it("captures each viewport into its own file, and usage aggregates them", async 
     settleMs: 0,
   });
   expect(
-    await height(join(dir, "snap-default-viewport"), "viewport.white.json"),
+    (await style("viewport.white.json", join(dir, "snap-default-viewport")))
+      .height,
   ).toBe("900px");
 
   const unmatched = async (vs?: typeof viewports) => {
@@ -252,8 +262,8 @@ it("captures each viewport into its own file, and usage aggregates them", async 
       viewports: vs,
     });
     expect(notReady).toEqual([]);
-    const report = await Bun.file(join(out, "usage.json")).json();
-    return report.unmatched.map((r: { context: string }) => r.context);
+    const { unmatched } = await readJson<UsageFile>(out, "usage.json");
+    return unmatched.map((r) => r.context);
   };
   // One viewport (1280): the max-width rule never matches.
   expect(await unmatched()).toEqual(["@media (max-width:41.98rem)"]);
@@ -271,7 +281,7 @@ it("waits for readySelector, and lists pages that never get there", async () => 
   const outDir = join(dir, "snap-late");
   const ready = await capture({ ...opts, outDir, readySelector: ".bx--late" });
   expect(ready.notReady).toEqual([]);
-  const snap = await Bun.file(join(outDir, "late.white.json")).json();
+  const snap = await readJson<Snapshot>(outDir, "late.white.json");
   expect(snap["body>p.bx--late"]?.color).toBe("rgb(255, 0, 0)");
 
   const never = await capture({
@@ -292,7 +302,7 @@ it("waits for readySelector, and lists pages that never get there", async () => 
   expect(usage.notReady).toEqual(["late white"]);
 }, 60_000);
 
-const usageStats = async (matcher: "cdp" | "dom", page = "page") => {
+const usageReport = async (matcher: "cdp" | "dom", page = "page") => {
   const outDir = join(dir, `usage-${page}-${matcher}`);
   await runUsage({
     ...base(),
@@ -303,37 +313,34 @@ const usageStats = async (matcher: "cdp" | "dom", page = "page") => {
     states: true,
     settleMs: 50,
   });
-  const { declarations } = await Bun.file(join(outDir, "usage.json")).json();
-  // CDP's value text keeps `!important`; the dom engine's doesn't.
-  return Object.fromEntries(
-    (declarations as DeclarationStats[]).map((d) => [
-      `${d.selector}|${d.property}|${d.value.replace(IMPORTANT_RE, "")}`,
-      [d.matched > 0, d.won > 0],
-    ]),
+  return readJson<UsageFile>(outDir, "usage.json");
+};
+
+/** [matched, won] per declaration. */
+const outcomes = (
+  { declarations }: UsageFile,
+  key: (d: DeclarationStats) => string,
+) =>
+  Object.fromEntries(
+    declarations.map((d) => [key(d), [d.matched > 0, d.won > 0]]),
   );
+
+/** Outcomes by selector, property and value, checked equal across engines. */
+const agreedOutcomes = async (page: string) => {
+  // CDP's value text keeps `!important`; the dom engine's doesn't.
+  const key = (d: DeclarationStats) =>
+    `${d.selector}|${d.property}|${d.value.replace(IMPORTANT_RE, "")}`;
+  const cdp = outcomes(await usageReport("cdp", page), key);
+  const dom = outcomes(await usageReport("dom", page), key);
+  expect(dom).toEqual(cdp);
+  return cdp;
 };
 
 it("agrees between the CDP and dom usage engines", async () => {
-  const stats = async (matcher: "cdp" | "dom") => {
-    const outDir = join(dir, `usage-${matcher}`);
-    await runUsage({
-      ...base(),
-      outDir,
-      matcher,
-      emulate: "cdp",
-      states: true,
-      settleMs: 50,
-    });
-    const { declarations } = await Bun.file(join(outDir, "usage.json")).json();
-    return Object.fromEntries(
-      (declarations as DeclarationStats[]).map((d) => [
-        `${d.selector}|${d.property}`,
-        [d.matched > 0, d.won > 0],
-      ]),
-    );
-  };
-  const cdp = await stats("cdp");
-  const dom = await stats("dom");
+  const reports = [await usageReport("cdp"), await usageReport("dom")];
+  const [cdp, dom] = reports.map((r) =>
+    outcomes(r, (d) => `${d.selector}|${d.property}`),
+  );
   expect(dom).toEqual(cdp);
   // Beaten by the more specific `.bx--wrap .bx--btn`.
   expect(cdp[".bx--btn|color"]).toEqual([true, false]);
@@ -343,23 +350,13 @@ it("agrees between the CDP and dom usage engines", async () => {
   expect(cdp["button|margin-block-start"]).toEqual([true, false]);
   // The minified @media matches too: CDP spells it `(width >= 1px) and
   // (min-height: 1px)`.
-  const reports = await Promise.all(
-    ["cdp", "dom"].map((m) =>
-      Bun.file(join(dir, `usage-${m}`, "usage.json")).json(),
-    ),
-  );
   for (const { unmatched } of reports) {
-    expect(unmatched.map((r: { selector: string }) => r.selector)).toEqual([
-      ".bx--unused",
-    ]);
+    expect(unmatched.map((r) => r.selector)).toEqual([".bx--unused"]);
   }
 }, 60_000);
 
 it("replays @layer and @scope order the same way Chrome does", async () => {
-  const cdp = await usageStats("cdp", "layers");
-  const dom = await usageStats("dom", "layers");
-  expect(dom).toEqual(cdp);
-  expect(cdp).toEqual({
+  expect(await agreedOutcomes("layers")).toEqual({
     ".bx--x|color|red": [true, true],
     ".bx--x|color|blue": [true, false],
     "#a.bx--x|color|green": [true, false],
@@ -371,10 +368,7 @@ it("replays @layer and @scope order the same way Chrome does", async () => {
 }, 60_000);
 
 it("resolves CSS nesting the same way Chrome does", async () => {
-  const cdp = await usageStats("cdp", "nesting");
-  const dom = await usageStats("dom", "nesting");
-  expect(dom).toEqual(cdp);
-  expect(cdp).toEqual({
+  expect(await agreedOutcomes("nesting")).toEqual({
     ".bx--p|color|red": [true, false],
     ":is(.bx--p,#b) .bx--x|color|blue": [true, true],
     // :is(.bx--p,#b) .bx--x outweighs .bx--p .bx--x.
@@ -435,8 +429,6 @@ it("reads stylesheets the way Chrome's CSSOM does (fuzz)", async () => {
     const cssom = await view.evaluate<
       [string, string, string, string, number][][]
     >(`(${CSSOM_RULES})(${JSON.stringify(sheets)})`);
-    const loose = (s: string) =>
-      s.replace(/[\s"'\\]+/g, "").replace(/::/g, ":");
     for (let i = 0; i < runs; i++) {
       // Chrome's selectors are relative to their parent: resolve them the
       // way parseRules does.

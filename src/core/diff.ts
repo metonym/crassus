@@ -1,18 +1,15 @@
-/**
- * Cascade diff between two builds' rules: what was removed, added,
- * rewritten or moved, and which winner relationships flipped.
- */
 import {
   candidates,
   coMatchable,
   conflictingProps,
   indexBySubject,
   matchContextMoves,
+  pairOff,
   type Rule,
   samePlacement,
   wins,
 } from "./cascade";
-import { pushTo } from "./util";
+import { intersects, pushTo } from "./util";
 
 /** The relations `diffWith` uses: swapped to compare implementations. */
 export interface CascadeLib {
@@ -63,7 +60,6 @@ export interface CascadeDiff {
 const PREFIX_RE = /^[a-z]+--/;
 const ROOT_SPLIT_RE = /__|--/;
 
-/** `bx--slider__thumb--lower` -> `slider`. */
 const defaultComponentOf = (cls: string) =>
   cls.replace(PREFIX_RE, "").split(ROOT_SPLIT_RE)[0];
 
@@ -96,9 +92,8 @@ function longestIncreasing(values: number[]): Set<number> {
 
 export interface DiffOptions {
   /**
-   * The component a class belongs to. A rule that only moved is compared
-   * with rules of its own component. Default: `bx--slider__thumb--lower` ->
-   * `slider`.
+   * The component a class belongs to: a rule that only moved is compared
+   * with its own component's rules. Default: `bx--slider__thumb--lower` -> `slider`.
    */
   componentOf?: (className: string) => string;
 }
@@ -145,29 +140,17 @@ export function diffWith(
 
   // Rewrites: same declarations and placement, new selector, a class (or a
   // subject attribute) in common. Rules from another `lib` may lack `attrs`.
-  const rewrites = new Map<Rule, Rule>();
-  const newRules: Rule[] = [];
+  const related = ({ subject: x }: Rule, { subject: y }: Rule): boolean =>
+    intersects(x.allClasses, y.allClasses) ||
+    (Boolean(x.attrs && y.attrs) && intersects(x.attrs.keys(), y.attrs));
   const dropped = [...removed];
-  const related = (a: Rule, b: Rule): boolean => {
-    for (const c of a.subject.allClasses)
-      if (b.subject.allClasses.has(c)) return true;
-    if (!(a.subject.attrs && b.subject.attrs)) return false;
-    for (const name of a.subject.attrs.keys())
-      if (b.subject.attrs.has(name)) return true;
-    return false;
-  };
-  for (const a of added) {
-    const i = dropped.findIndex(
-      (r) =>
-        r.declBlock === a.declBlock && samePlacement(r, a) && related(r, a),
-    );
-    if (i >= 0) {
-      rewrites.set(a, dropped[i]);
-      dropped.splice(i, 1);
-    } else {
-      newRules.push(a);
-    }
-  }
+  const newRules = [...added];
+  const rewrites = pairOff(
+    dropped,
+    newRules,
+    (r, a) =>
+      r.declBlock === a.declBlock && samePlacement(r, a) && related(r, a),
+  );
   const contextMoves = matchContextMoves(dropped, newRules);
 
   // Base rule <-> head rule: equal keys pair up in order, rewrites and
@@ -200,7 +183,6 @@ export function diffWith(
       if (!stable.has(i)) movedHead.add(pairedHead[i]);
   }
 
-  // A rule that only moved is compared with rules of its own component.
   const components = new Map<Rule, Set<string>>();
   const componentsOf = (r: Rule) => {
     let set = components.get(r);
@@ -210,33 +192,28 @@ export function diffWith(
     }
     return set;
   };
-  const sameComponent = (a: Rule, b: Rule): boolean => {
-    const ca = componentsOf(a);
-    for (const c of componentsOf(b)) if (ca.has(c)) return true;
-    return false;
-  };
+  const sameComponent = (a: Rule, b: Rule): boolean =>
+    intersects(componentsOf(b), componentsOf(a));
 
   const headIndex = indexBySubject(head);
   const flips: Flip[] = [];
   const moveFlips: Flip[] = [];
+  // New rules have no base to flip from.
   const changed = new Set<Rule>([
     ...rewrites.keys(),
-    ...newRules,
     ...movedHead,
     ...contextMoves.keys(),
   ]);
   for (const rule of changed) {
     const ruleBase = headToBase.get(rule);
+    if (!ruleBase) continue;
     const moveOnly =
       (movedHead.has(rule) || contextMoves.has(rule)) && !rewrites.has(rule);
     for (const other of candidates(rule, headIndex)) {
-      if (!coMatchable(rule, other)) continue;
-      const props = conflictingProps(rule, other);
-      if (props.length === 0) continue;
       const otherBase = headToBase.get(other);
-      if (!ruleBase || !otherBase) continue;
-      if (moveOnly && !sameComponent(rule, other)) continue;
-      for (const prop of props) {
+      if (!otherBase || (moveOnly && !sameComponent(rule, other))) continue;
+      if (!coMatchable(rule, other)) continue;
+      for (const prop of conflictingProps(rule, other)) {
         const after = wins(rule, other, prop) ? "wins" : "loses";
         const before = wins(ruleBase, otherBase, prop) ? "wins" : "loses";
         if (before !== after)

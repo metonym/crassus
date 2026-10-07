@@ -5,51 +5,46 @@
  *
  *   CCS_ROOT=… bun eval/carbon/usage.ts [--only button] [--skip-old] [--runs cdp,dom]
  */
-import { readdir } from "node:fs/promises";
 import { loadavg } from "node:os";
 import path from "node:path";
 import { serveFixtures } from "../../src/browser/serve";
-import { runUsage, type UsageOptions } from "../../src/browser/usage";
-import type {
-  DeclarationStats,
-  InventoryRule,
-  Summary,
-} from "../../src/core/usage";
-import { CCS_ROOT, fixturesDir, oldTool, results } from "./ccs";
+import {
+  runUsage,
+  type UsageFile,
+  type UsageOptions,
+} from "../../src/browser/usage";
+import type { DeclarationStats, Summary } from "../../src/core/usage";
+import {
+  args,
+  CCS_ROOT,
+  fixtureNames,
+  fixturesDir,
+  loadAvg,
+  oldTool,
+  opt,
+  PLAYWRIGHT_SHELL,
+  results,
+  strip,
+} from "./ccs";
 
-const root = CCS_ROOT;
-const args = process.argv.slice(2);
 const OLD = args.includes("--skip-old")
   ? undefined
   : oldTool("e2e/cascade-usage.ts", "pass --skip-old");
-const opt = (n: string) => {
-  const i = args.indexOf(`--${n}`);
-  return i >= 0 ? args[i + 1] : undefined;
-};
 const ONLY = opt("only");
 const K = Number(opt("concurrency") ?? 8);
 const RUNS = opt("runs")?.split(",");
 const out = (n: string) => results("usage", n);
-const SHELL = `${process.env.HOME}/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell`;
 
-const fixtures = (await readdir(path.join(root, "e2e/fixtures")))
-  .filter((f) => f.endsWith(".html"))
-  .map((f) => f.slice(0, -5))
-  .filter((f) => !ONLY || f.includes(ONLY))
-  .sort();
+const fixtures = await fixtureNames(ONLY);
 const themes = ["white", "g100"];
 const server = serveFixtures(await fixturesDir());
 
-interface UsageFile {
-  summary: Summary;
-  declarations: DeclarationStats[];
-  unmatched: InventoryRule[];
-}
-
-const norm = (s: string) => s.replace(/[\s"'\\]+/g, "").replace(/::/g, ":");
+const norm = (s: string) => strip(s).replace(/::/g, ":");
 const ctxNorm = (c: string) => c.split(" / ").map(norm).sort().join("/");
 const declKey = (d: DeclarationStats) =>
   `${ctxNorm(d.context)}|${norm(d.selector)}|${d.property}|${norm(d.value)}|${d.important}`;
+const unmatchedKeys = (f: UsageFile) =>
+  new Set(f.unmatched.map((r) => `${ctxNorm(r.context)}|${norm(r.selector)}`));
 
 async function compare(aDir: string, bDir: string) {
   const a: UsageFile = await Bun.file(path.join(aDir, "usage.json")).json();
@@ -61,7 +56,7 @@ async function compare(aDir: string, bDir: string) {
   let wonDiff = 0;
   let onlyA = 0;
   let onlyB = 0;
-  let verdictDiff = 0; // "never won" classification differs
+  let verdictDiff = 0;
   const ex: string[] = [];
   for (const [k, da] of ma) {
     const db = mb.get(k);
@@ -86,12 +81,8 @@ async function compare(aDir: string, bDir: string) {
       onlyB++;
       if (ex.length < 6) ex.push(`only ${path.basename(bDir)}: ${k}`);
     }
-  const ua = new Set(
-    a.unmatched.map((r) => `${ctxNorm(r.context)}|${norm(r.selector)}`),
-  );
-  const ub = new Set(
-    b.unmatched.map((r) => `${ctxNorm(r.context)}|${norm(r.selector)}`),
-  );
+  const ua = unmatchedKeys(a);
+  const ub = unmatchedKeys(b);
   const unmatchedOnlyA = [...ua].filter((k) => !ub.has(k));
   const unmatchedOnlyB = [...ub].filter((k) => !ua.has(k));
   console.log(
@@ -111,9 +102,7 @@ const fmt = (s: Summary) =>
   `obs ${s.observations}, rules ${s.rulesMatched}/${s.rulesTotal}, decls ${s.declarationsTotal} (won ${s.declarationsEverWon}, never ${s.declarationsNeverWon})`;
 
 console.log(
-  `fixtures: ${fixtures.length} × ${themes.length}; load avg ${loadavg()
-    .map((x) => x.toFixed(1))
-    .join(" ")}`,
+  `fixtures: ${fixtures.length} × ${themes.length}; load avg ${loadAvg()}`,
 );
 const timings: Record<string, number> = {};
 
@@ -130,7 +119,7 @@ if (OLD) {
       ...(ONLY ? ["--only", ONLY] : []),
     ],
     {
-      cwd: root,
+      cwd: CCS_ROOT,
       stdout: Bun.file(results("usage-playwright-stdout.log")),
       stderr: "inherit",
     },
@@ -145,38 +134,25 @@ if (OLD) {
   );
 }
 
-const runs: { name: string; opts: Partial<UsageOptions>; vs: string[] }[] = [
+type RunOptions = Pick<
+  UsageOptions,
+  "engine" | "chromePath" | "matcher" | "emulate" | "concurrency"
+>;
+const chrome = { engine: "chrome", chromePath: PLAYWRIGHT_SHELL } as const;
+const runs: { name: string; opts: RunOptions; vs: string[] }[] = [
   {
     name: "cdp-x1",
-    opts: {
-      engine: "chrome",
-      chromePath: SHELL,
-      matcher: "cdp",
-      emulate: "cdp",
-      concurrency: 1,
-    },
+    opts: { ...chrome, matcher: "cdp", emulate: "cdp", concurrency: 1 },
     vs: ["playwright"],
   },
   {
     name: `cdp-x${K}`,
-    opts: {
-      engine: "chrome",
-      chromePath: SHELL,
-      matcher: "cdp",
-      emulate: "cdp",
-      concurrency: K,
-    },
+    opts: { ...chrome, matcher: "cdp", emulate: "cdp", concurrency: K },
     vs: ["playwright"],
   },
   {
     name: `dom-chrome-x${K}`,
-    opts: {
-      engine: "chrome",
-      chromePath: SHELL,
-      matcher: "dom",
-      emulate: "cdp",
-      concurrency: K,
-    },
+    opts: { ...chrome, matcher: "dom", emulate: "cdp", concurrency: K },
     vs: ["playwright", `cdp-x${K}`],
   },
   {
@@ -193,9 +169,9 @@ const runs: { name: string; opts: Partial<UsageOptions>; vs: string[] }[] = [
 
 for (const run of runs) {
   if (RUNS && !RUNS.some((r) => run.name.startsWith(r))) continue;
-  // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
+  // biome-ignore lint/performance/noAwaitInLoops: one run at a time, so timings don't contend
   const res = await runUsage({
-    ...(run.opts as UsageOptions),
+    ...run.opts,
     baseUrl: server.url,
     fixtures,
     themes,
@@ -208,15 +184,15 @@ for (const run of runs) {
     `\n${run.name}: ${(res.ms / 1000).toFixed(1)}s  ${fmt(res.summary)}`,
   );
   if (res.domStats.length) {
-    const sum = (k: keyof (typeof res.domStats)[0]) =>
-      res.domStats.reduce((n, s) => n + (s[k] as number), 0);
+    const sum = (k: keyof (typeof res.domStats)[number]) =>
+      res.domStats.reduce((n, s) => n + s[k], 0);
     console.log(
       `  dom: ${sum("elements")} elements, ${sum("matchCalls")} matches() calls, in-page prep ${sum("prepMs").toFixed(0)} ms + match ${sum("matchMs").toFixed(0)} ms; ` +
         `CSSOM↔source alignment ${sum("aligned")} ok / ${sum("unaligned")} unaligned; ${sum("skippedSelectors")} other-pseudo-element selectors skipped`,
     );
   }
   for (const v of run.vs) {
-    // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
+    // biome-ignore lint/performance/noAwaitInLoops: ordered output
     if (await Bun.file(path.join(out(v), "usage.json")).exists())
       await compare(out(v), out(run.name));
   }

@@ -1,8 +1,5 @@
-/**
- * Bun side of the `dom` usage engine: injects the bundled page script and
- * drives it. Aligning CSSOM rules with the parsed sheet and putting matches
- * in cascade order is `src/core/align.ts`.
- */
+// Drives src/page/usage-dom.ts; rule alignment and cascade order are in
+// src/core/align.ts.
 import {
   alignRules,
   cascadeOrder,
@@ -11,6 +8,7 @@ import {
   libraryRules,
 } from "../core/align";
 import { recordObservation, type UsageAggregate } from "../core/usage";
+import type { UsageDomApi } from "../page/usage-dom";
 import { librarySheet } from "./library";
 import { usageDomScript } from "./page-script" with { type: "macro" };
 import type { View } from "./view";
@@ -27,18 +25,24 @@ export interface DomPageStats {
   skippedSelectors: number;
 }
 
+export interface PageUsage {
+  observed: number;
+  libraryCss?: string;
+  stats?: DomPageStats;
+}
+
 export async function processPageDom(
   view: View,
   agg: UsageAggregate,
   sheetMarker: string,
   states: boolean,
   emulateCssom: boolean,
-): Promise<{ observed: number; libraryCss?: string; stats?: DomPageStats }> {
+): Promise<PageUsage> {
   await view.evaluate(PAGE_SCRIPT);
   if (emulateCssom) await view.evaluate("window.__crDom.reducedMotion()");
-  const sheets = await view.evaluate<
-    { i: number; href: string | null; inline: string | null }[]
-  >(`window.__crDom.sheets(${JSON.stringify(sheetMarker)})`);
+  const sheets = await view.evaluate<ReturnType<UsageDomApi["sheets"]>>(
+    `window.__crDom.sheets(${JSON.stringify(sheetMarker)})`,
+  );
   const library = librarySheet(
     await Promise.all(
       sheets.map(async (s) => ({
@@ -50,15 +54,14 @@ export async function processPageDom(
   );
   if (!library) return { observed: 0 };
 
-  const inventory = await view.evaluate<
-    { ctx: string[]; sel: string; active: boolean }[]
-  >(`window.__crDom.inventory(${library.i})`);
+  const inventory = await view.evaluate<ReturnType<UsageDomApi["inventory"]>>(
+    `window.__crDom.inventory(${library.i})`,
+  );
   const aligned = alignRules(
     inventory.map((r) => r.sel),
     libraryRules(library.text),
   );
 
-  // Engine-side validity and shorthand expansion for every authored decl.
   const { pairs, resolve } = engineDeclarations(aligned);
   const declarations = resolve(
     await view.evaluate<EngineDeclInfo>(
@@ -66,10 +69,9 @@ export async function processPageDom(
     ),
   );
 
-  const res = await view.evaluate<{
-    observations: [number, number[][]][];
-    stats: Omit<DomPageStats, "aligned" | "unaligned">;
-  }>(`window.__crDom.run(${states})`);
+  const res = await view.evaluate<ReturnType<UsageDomApi["run"]>>(
+    `window.__crDom.run(${states})`,
+  );
 
   let observed = 0;
   for (const [, matches] of res.observations) {

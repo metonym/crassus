@@ -1,7 +1,3 @@
-/**
- * The base of a `diff`: the project's stylesheets at a git ref, built in a
- * temporary worktree with the project's own build, and cached by commit.
- */
 import { existsSync, realpathSync, symlinkSync } from "node:fs";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +7,9 @@ import type { Config } from "../core/config";
 import { stylesheets, UsageError } from "./project";
 import type { Sheet } from "./sources";
 
-/** The commit a ref names, and the repository's top directory. */
+// Bump when the cached shape changes.
+const CACHE_VERSION = 1;
+
 async function resolveRef(
   cwd: string,
   ref: string,
@@ -40,7 +38,7 @@ async function inCheckout<T>(
     const at = relative(realpathSync(top), realpathSync(cwd));
     if (at.startsWith("..")) throw new UsageError(`${cwd} is outside ${top}`);
     const root = resolve(dir, at);
-    // The project's build runs with its installed dependencies.
+    // The build needs the project's installed dependencies.
     for (const [from, to] of [
       [join(cwd, "node_modules"), join(root, "node_modules")],
       [join(top, "node_modules"), join(dir, "node_modules")],
@@ -53,7 +51,6 @@ async function inCheckout<T>(
   }
 }
 
-/** Runs `fn` in a temporary checkout of `ref`; returns its commit too. */
 export async function atRef<T>(
   cwd: string,
   ref: string,
@@ -63,10 +60,6 @@ export async function atRef<T>(
   return { sha, result: await inCheckout(cwd, top, sha, fn) };
 }
 
-/**
- * The stylesheets at `ref`. Cached under node_modules/.cache/crassus by
- * commit, config and entries; `cache: false` rebuilds.
- */
 export async function baseStylesheets(opts: {
   cwd: string;
   ref: string;
@@ -93,6 +86,3 @@ export async function baseStylesheets(opts: {
   await Bun.write(file, JSON.stringify(sheets));
   return { sha, sheets, cached: false };
 }
-
-// Bump when the cached shape changes.
-const CACHE_VERSION = 1;

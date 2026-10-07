@@ -1,12 +1,11 @@
-import { readFileSync } from "node:fs";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
+import type { Snapshot, UsageFile } from "crassus/browser";
 import { main } from "../src/cli/main";
 import { appendSummary } from "../src/cli/report";
 
-// The CLI in-process, against throwaway projects.
 let dir = "";
 
 beforeAll(async () => {
@@ -34,6 +33,19 @@ async function cli(cwd: string, ...argv: string[]) {
   });
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
+
+const read = (root: string, file: string) => Bun.file(join(root, file)).text();
+
+async function commitAll(root: string) {
+  const git = (...args: string[]) =>
+    $`git -c user.email=t@t -c user.name=t ${args}`.cwd(root).quiet();
+  await git("init", "-q");
+  await git("add", ".");
+  await git("commit", "-q", "-m", "base");
+}
+
+const worktrees = async (root: string) =>
+  (await $`git worktree list`.cwd(root).text()).trim().split("\n").length;
 
 // `.a { color: red }` at line 1 of a.scss, `.a { color: blue }` at line 3.
 const MAPPED_CSS = ".a {\n  color: red;\n}\n.a {\n  color: blue;\n}\n";
@@ -222,7 +234,7 @@ describe("crassus diff", () => {
     );
     expect(r.code).toBe(1);
     expect(r.out.startsWith("::error file=head.css")).toBe(true);
-    const md = await Bun.file(join(root, "summary.md")).text();
+    const md = await read(root, "summary.md");
     expect(
       md.startsWith(
         "earlier step output\n### crassus diff against base.css\n\n```text\n",
@@ -239,7 +251,7 @@ describe("crassus diff", () => {
     const file = join(root, "summary.md");
     const line = "x".repeat(99);
     await appendSummary(file, "big", Array(20_000).fill(line).join("\n"));
-    const md = await Bun.file(file).text();
+    const md = await read(root, "summary.md");
     expect(Buffer.byteLength(md)).toBeLessThanOrEqual(1024 * 1024);
     expect(md).toMatch(CUT_NOTE_RE);
   });
@@ -264,11 +276,7 @@ describe("crassus diff", () => {
       "crassus.config.ts": `export default { css: "out/app.css", build: "mkdir -p out && cp src/app.css out/app.css" };`,
       "src/app.css": BASE,
     });
-    const git = (...args: string[]) =>
-      $`git -c user.email=t@t -c user.name=t ${args}`.cwd(root).quiet();
-    await git("init", "-q");
-    await git("add", ".");
-    await git("commit", "-q", "-m", "base");
+    await commitAll(root);
     await Bun.write(join(root, "src/app.css"), HEAD);
 
     // --no-cache: an identical commit made within the same second has the
@@ -280,10 +288,7 @@ describe("crassus diff", () => {
     const second = await cli(root, "diff");
     expect(second.err).toContain("from cache");
     expect(second.out).toBe(first.out);
-    // The worktree is gone.
-    expect(
-      (await $`git worktree list`.cwd(root).text()).trim().split("\n").length,
-    ).toBe(1);
+    expect(await worktrees(root)).toBe(1);
 
     const unknown = await cli(root, "diff", "--base", "nope");
     expect(unknown.code).toBe(2);
@@ -292,6 +297,8 @@ describe("crassus diff", () => {
 });
 
 describe("crassus dead --fix", () => {
+  const SASS = Bun.resolveSync("sass-embedded", import.meta.dir);
+
   it("previews a patch with --dry-run, then edits CSS in place", async () => {
     const css =
       ".a {\n  color: red; /* old */\n  padding: 0;\n}\n.b { top: 1px; }\n.a {\n  color: blue;\n}\n.b { top: 2px }\n";
@@ -303,7 +310,7 @@ describe("crassus dead --fix", () => {
     expect(dry.out).toContain(
       "would delete .a { color: red }  (color: blue wins)",
     );
-    expect(await Bun.file(join(root, "x.css")).text()).toBe(css);
+    expect(await read(root, "x.css")).toBe(css);
 
     const r = await cli(root, "dead", "x.css", "--fix");
     expect(r.code).toBe(0);
@@ -311,7 +318,7 @@ describe("crassus dead --fix", () => {
       "2 dead declaration(s) deleted in 1 file(s); 0 left.",
     );
     // The emptied `.b` rule goes whole; the comment goes with its line.
-    expect(await Bun.file(join(root, "x.css")).text()).toBe(
+    expect(await read(root, "x.css")).toBe(
       ".a {\n  padding: 0;\n}\n.a {\n  color: blue;\n}\n.b { top: 2px }\n",
     );
     expect((await cli(root, "dead", "x.css")).code).toBe(0);
@@ -329,16 +336,15 @@ describe("crassus dead --fix", () => {
     expect(fix.files).toEqual(["src/a.scss"]);
     // CSS files given on the command line can't be rebuilt.
     expect(fix.check).toBe("unverified");
-    expect(await Bun.file(join(root, "src/a.scss")).text()).toBe(
+    expect(await read(root, "src/a.scss")).toBe(
       ".a {\n}\n.a {\n  color: blue;\n}\n",
     );
   });
 
   it("leaves build output and shared mixins alone, and checks Sass edits", async () => {
-    const sass = Bun.resolveSync("sass-embedded", import.meta.dir);
     const root = await project({
       "crassus.config.ts": `import path from "node:path";
-        import { compileAsync } from ${JSON.stringify(sass)};
+        import { compileAsync } from ${JSON.stringify(SASS)};
         export default {
           async compile(root) {
             const { css, sourceMap } = await compileAsync(path.join(root, "css/app.scss"), { style: "expanded", sourceMap: true });
@@ -364,9 +370,7 @@ describe("crassus dead --fix", () => {
     expect(r.out).toContain(
       "its source also produces declarations that aren't dead",
     );
-    expect(
-      await Bun.file(join(root, "css/app.scss")).text(),
-    ).toBe(`@use "parts";
+    expect(await read(root, "css/app.scss")).toBe(`@use "parts";
 .a {
   @include parts.shared;
 }
@@ -376,7 +380,7 @@ describe("crassus dead --fix", () => {
 .d-1 { top: 1px; }
 .d-2 { top: 2px; }
 `);
-    expect(await Bun.file(join(root, "css/_parts.scss")).text()).toBe(
+    expect(await read(root, "css/_parts.scss")).toBe(
       "@mixin shared { color: red; }\n",
     );
 
@@ -389,14 +393,13 @@ describe("crassus dead --fix", () => {
   }, 30_000);
 
   it("proves partial fixes against fixEntries too", async () => {
-    const sass = Bun.resolveSync("sass-embedded", import.meta.dir);
     // `.p { color: red }` in the partial is dead in app (overridden after
     // the import) and live in theme, which the hook only compiles on request.
     const config = (
       fixEntries: string,
       honor = true,
     ) => `import path from "node:path";
-      import { compileAsync } from ${JSON.stringify(sass)};
+      import { compileAsync } from ${JSON.stringify(SASS)};
       export default {
         ${fixEntries}
         async compile(root, options) {
@@ -421,9 +424,7 @@ describe("crassus dead --fix", () => {
     });
     const a = await cli(unproved, "dead", "--fix");
     expect(a.code).toBe(0);
-    expect(await Bun.file(join(unproved, "css/_parts.scss")).text()).toBe(
-      ".p {\n}\n",
-    );
+    expect(await read(unproved, "css/_parts.scss")).toBe(".p {\n}\n");
     expect(a.err).toContain(
       "css/_parts.scss is a partial: the fix is proved for app only. If other entries import it, list them in `fixEntries`.",
     );
@@ -438,7 +439,7 @@ describe("crassus dead --fix", () => {
       "its source also produces declarations that aren't dead",
     );
     expect(b.err).toBe("");
-    expect(await Bun.file(join(proved, "css/_parts.scss")).text()).toBe(
+    expect(await read(proved, "css/_parts.scss")).toBe(
       files["css/_parts.scss"],
     );
 
@@ -475,7 +476,7 @@ describe("crassus dead --fix", () => {
     expect(r.err).toContain(
       "changed more than its dead declarations, so the fix was undone",
     );
-    expect(await Bun.file(join(root, "src/a.css")).text()).toBe(MAPPED_CSS);
+    expect(await read(root, "src/a.css")).toBe(MAPPED_CSS);
   });
 
   it("rejects --fix with --entry, other formats or diff", async () => {
@@ -512,17 +513,14 @@ describe("crassus capture, snapshot-diff and usage", () => {
       await Promise.all(
         ["button.html", "tile.html", "lib.css"].map(async (f) => [
           `site/${f}`,
-          await Bun.file(join(SITE, f)).text(),
+          await read(SITE, f),
         ]),
       ),
     );
-  const recolor = (root: string) =>
+  const recolor = async (root: string) =>
     Bun.write(
       join(root, "site/lib.css"),
-      readFileSync(join(SITE, "lib.css"), "utf8").replace(
-        "color: blue",
-        "color: purple",
-      ),
+      (await read(SITE, "lib.css")).replace("color: blue", "color: purple"),
     );
 
   it("captures every fixture, theme and viewport, and diffs two captures", async () => {
@@ -545,13 +543,16 @@ describe("crassus capture, snapshot-diff and usage", () => {
       "tile.white.320x640.json",
     ]);
     // The theme attribute and the viewport both reached the page.
-    const tile = async (file: string) =>
-      (await Bun.file(join(root, "snap/a", file)).json())["body>div.bx--tile"];
+    const tile = async (file: string) => {
+      const snap: Snapshot = JSON.parse(await read(root, `snap/a/${file}`));
+      return snap["body>div.bx--tile"];
+    };
+    const narrow = await tile("tile.white.320x640.json");
     expect((await tile("tile.g100.320x640.json")).color).toBe(
       "rgb(255, 255, 255)",
     );
-    expect((await tile("tile.white.320x640.json")).color).toBe("rgb(0, 0, 0)");
-    expect((await tile("tile.white.320x640.json"))["padding-top"]).toBe("0px");
+    expect(narrow.color).toBe("rgb(0, 0, 0)");
+    expect(narrow["padding-top"]).toBe("0px");
     expect((await tile("tile.white.1280x900.json"))["padding-top"]).toBe("2px");
 
     const same = await cli(root, "snapshot-diff", "snap/a", "snap/a");
@@ -588,11 +589,7 @@ describe("crassus capture, snapshot-diff and usage", () => {
       "crassus.config.ts": CONFIG,
       ...(await site()),
     });
-    const git = (...args: string[]) =>
-      $`git -c user.email=t@t -c user.name=t ${args}`.cwd(root).quiet();
-    await git("init", "-q");
-    await git("add", ".");
-    await git("commit", "-q", "-m", "base");
+    await commitAll(root);
     await recolor(root);
 
     const flags = [
@@ -620,9 +617,7 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(diff.code).toBe(1);
     // The button, and its forced :focus and :active (:hover stays green).
     expect(diff.out).toContain("3×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)");
-    expect(
-      (await $`git worktree list`.cwd(root).text()).trim().split("\n").length,
-    ).toBe(1);
+    expect(await worktrees(root)).toBe(1);
   }, 60_000);
 
   it("writes usage.json and report.md, and exits 0", async () => {
@@ -637,9 +632,9 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(r.out).toContain(
       ".crassus/usage/usage.json, .crassus/usage/report.md",
     );
-    const usage = await Bun.file(
-      join(root, ".crassus/usage/usage.json"),
-    ).json();
+    const usage: UsageFile = JSON.parse(
+      await read(root, ".crassus/usage/usage.json"),
+    );
     expect(usage.dead).toBe(usage.deadInFixtures.length);
     expect(usage.fold).toBe(usage.foldCandidates.length);
     // `.bx--btn { color: red }` loses to two rules; `.bx--tile { left: 0 }`
@@ -660,12 +655,8 @@ describe("crassus capture, snapshot-diff and usage", () => {
       }),
     ]);
     // Both viewports count: the min-width rule matched at 1280.
-    expect(
-      usage.unmatched.map((u: { selector: string }) => u.selector),
-    ).toEqual([".bx--unused"]);
-    const report = await Bun.file(
-      join(root, ".crassus/usage/report.md"),
-    ).text();
+    expect(usage.unmatched.map((u) => u.selector)).toEqual([".bx--unused"]);
+    const report = await read(root, ".crassus/usage/report.md");
     expect(report).toContain("**Evidence, not proof**");
     expect(report).toContain("viewport(s) 320x640, 1280x900");
     expect(report).toContain("## Dead in fixtures (2)");

@@ -1,7 +1,3 @@
-/**
- * `crassus` CLI. Exit codes: 0 clean, 1 findings, 2 usage or environment
- * error. Review sections (order-tie flips) never fail a run.
- */
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { version } from "../../package.json";
@@ -17,6 +13,7 @@ import { FixCheckError, fix } from "./fix";
 import {
   filesAsSheets,
   fixStylesheets,
+  isOneOf,
   loadConfig,
   stylesheets,
   UsageError,
@@ -24,10 +21,12 @@ import {
 import {
   appendSummary,
   FORMATS,
-  type Format,
   formatDead,
   formatDiff,
   formatFix,
+  refLabel,
+  type Summary,
+  seconds,
   uncolored,
 } from "./report";
 import type { Sheet } from "./sources";
@@ -106,15 +105,12 @@ export async function main(
   try {
     return await run(argv, io);
   } catch (e) {
-    if (
+    const err = e as Error & { code?: string };
+    const expected =
       e instanceof UsageError ||
       e instanceof FixCheckError ||
-      (e as { code?: string }).code?.startsWith("ERR_PARSE_ARGS")
-    ) {
-      io.err(`crassus: ${(e as Error).message}`);
-      return 2;
-    }
-    io.err(`crassus: ${(e as Error).stack ?? e}`);
+      err.code?.startsWith("ERR_PARSE_ARGS");
+    io.err(`crassus: ${expected ? err.message : (err.stack ?? e)}`);
     return 2;
   }
 }
@@ -157,25 +153,22 @@ async function run(argv: string[], io: Io): Promise<number> {
     io.out(HELP);
     return values.help ? 0 : 2;
   }
-  const format = (values.json ? "json" : (values.format ?? "human")) as Format;
-  if (!FORMATS.includes(format))
+  const format = values.json ? "json" : (values.format ?? "human");
+  if (!isOneOf(FORMATS, format))
     throw new UsageError(
       `unknown format ${format} (one of ${FORMATS.join(", ")})`,
     );
   const only = values.entry ?? [];
+  const verbose = values.verbose ?? false;
   const { cwd } = io;
-  const human = format === "human";
 
   if (values["dry-run"] && !values.fix)
     throw new UsageError("--dry-run goes with --fix");
-  const summary = values.summary
-    ? (title: string, report: () => string) =>
-        appendSummary(
-          resolve(cwd, values.summary as string),
-          title,
-          uncolored(report),
-        )
-    : null;
+  const summaryFile = values.summary;
+  const summary: Summary | undefined = summaryFile
+    ? (title, report) =>
+        appendSummary(resolve(cwd, summaryFile), title, uncolored(report))
+    : undefined;
   if (summary && (values.fix || command === "capture" || command === "usage"))
     throw new UsageError("--summary goes with dead, diff and snapshot-diff");
   if (command === "dead") {
@@ -253,9 +246,9 @@ async function run(argv: string[], io: Io): Promise<number> {
         }),
         stylesheets(cwd, config, only),
       ]);
-      if (human)
+      if (format === "human")
         io.err(
-          `crassus: base ${b.sha.startsWith(ref) ? ref : `${ref} (${b.sha.slice(0, 9)})`} ${b.cached ? "from cache" : `built in ${((performance.now() - started) / 1000).toFixed(1)} s`}`,
+          `crassus: base ${refLabel(ref, b.sha)} ${b.cached ? "from cache" : `built in ${seconds(performance.now() - started)}`}`,
         );
       base = { ref, sha: b.sha };
       baseSheets = b.sheets;
@@ -271,9 +264,9 @@ async function run(argv: string[], io: Io): Promise<number> {
     for (const name of onlyHead)
       io.err(`crassus: ${name} is only in the head; skipped`);
     await summary?.(`crassus diff against ${base.ref}`, () =>
-      formatDiff(results, base, "human", values.verbose ?? false),
+      formatDiff(results, base, "human", verbose),
     );
-    io.out(formatDiff(results, base, format, values.verbose ?? false));
+    io.out(formatDiff(results, base, format, verbose));
     return results.some((r) => r.flips.length > 0) ? 1 : 0;
   }
 
@@ -290,7 +283,7 @@ async function run(argv: string[], io: Io): Promise<number> {
   if (command === "snapshot-diff") {
     if (format !== "human" && format !== "json")
       throw new UsageError("snapshot-diff reports as human or json");
-    return snapshotDiffCommand({ cwd, dirs: files, format, io, summary });
+    return snapshotDiffCommand({ dirs: files, format, io, summary });
   }
   if (command === "capture" || command === "usage") {
     if (format !== "human")
@@ -301,19 +294,12 @@ async function run(argv: string[], io: Io): Promise<number> {
         throw new UsageError(
           "usage takes no files (fixtures come from the config)",
         );
-      return usageCommand({ cwd, config, flags, outDir: values.out, io });
+      return usageCommand({ config, flags, outDir: values.out, io });
     }
     const outDir = files[0] ?? values.out;
     if (!outDir || files.length > 1 || (files[0] && values.out))
       throw new UsageError("capture takes one output directory");
-    return captureCommand({
-      cwd,
-      config,
-      flags,
-      outDir,
-      base: values.base,
-      io,
-    });
+    return captureCommand({ config, flags, outDir, base: values.base, io });
   }
 
   throw new UsageError(`unknown command ${command} (run crassus --help)`);

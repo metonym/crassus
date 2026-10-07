@@ -1,23 +1,14 @@
-/**
- * Where each style rule sits in the cascade: conditions (`@media`,
- * `@supports`, `@container`, …), layer and `@scope`. Every walk over a sheet
- * goes through here, so they all agree.
- *
- * Layers order by first declaration (`@layer a, b;`, `@layer a { … }`,
- * `@import … layer(a)`), sublayers before their parent's own rules,
- * unlayered last. A layer first declared under a condition only gets that
- * position if the condition holds, so it's marked uncertain.
- *
- * Nesting is flattened: `&` resolves against the parent, and declarations
- * after a nested rule, or in a group rule nested in a style rule, become
- * rules of their own (CSSNestedDeclarations).
- */
+// Layers order by first declaration, sublayers before their parent's own
+// rules, unlayered last; a layer first declared under a condition is
+// uncertain. Nesting is flattened: declarations after a nested rule, or in a
+// group rule nested in a style rule, become `&` rules (CSSNestedDeclarations).
 
 import {
   canonicalCondition,
   canonicalText,
   type Decl,
   type Node,
+  unprefixed,
 } from "./parse";
 import {
   type Complex,
@@ -32,7 +23,7 @@ export interface Layer {
   name: string;
   /** For normal declarations, higher wins; unlayered is highest. Set when the walk ends. */
   rank: number;
-  /** false when the position depends on a condition. */
+  /** False when the position depends on a condition. */
   certain: boolean;
   children: Layer[];
   named: Map<string, Layer>;
@@ -74,12 +65,11 @@ const KEYFRAMES_RE = /keyframes$/;
 const CONDITIONS = new Set(["media", "supports", "container", "scope"]);
 
 /**
- * `@name prelude` as `Rule.context` (or `Rule.scope`) spells it, one
- * spelling however the sheet or a browser wrote it: CDP's `media[].text`,
- * `supports[].text` and `containerQueries[].conditionText` key to
- * `parseRules`. A rule's contexts join with " / ", outermost first. `@media`
- * is lowercased, as Chrome serializes it; container names and `selector()`
- * are case-sensitive.
+ * `@name prelude` as `Rule.context` (or `Rule.scope`) spells it, however the
+ * sheet or browser wrote it: keys CDP's `media[].text`, `supports[].text` and
+ * `containerQueries[].conditionText` to `parseRules`. A rule's contexts join
+ * with " / ", outermost first. `@media` is lowercased, as Chrome serializes
+ * it; container names and `selector()` are case-sensitive.
  */
 export function canonicalContext(name: string, prelude: string): string {
   let text = canonicalText(prelude);
@@ -99,14 +89,13 @@ const GROUP_RULES = new Set([
   "starting-style",
   "keyframes",
 ]);
-const VENDOR_RE = /^-[a-z]+-/;
 
-/** Browsers keep it: a style rule, a known group rule, or `@layer`. */
+// What browsers keep: a style rule, a known group rule, or `@layer`.
 function producesRules(node: Node): boolean {
-  if (node.kind === "rule") return true;
-  if (node.name === "layer") return true;
   return (
-    node.rules !== null && GROUP_RULES.has(node.name.replace(VENDOR_RE, ""))
+    node.kind === "rule" ||
+    node.name === "layer" ||
+    (node.rules !== null && GROUP_RULES.has(unprefixed(node.name)))
   );
 }
 
@@ -120,7 +109,6 @@ function layer(name: string, certain: boolean): Layer {
   return { name, rank: 0, certain, children: [], named: new Map() };
 }
 
-/** Every style rule in source order, with its placement. */
 export function placeRules(nodes: Node[]): Placed[] {
   const root = layer("", true);
   const out: Placed[] = [];
@@ -135,8 +123,7 @@ export function placeRules(nodes: Node[]): Placed[] {
     return l;
   };
 
-  // A dotted layer name inside `parent`, declared if new; null declares an
-  // anonymous layer.
+  // Declares a dotted layer name inside `parent` if new; null is anonymous.
   const declare = (parent: Layer, name: string | null): Layer => {
     if (name === null) return child(parent, ANONYMOUS);
     let l = parent;
@@ -192,10 +179,10 @@ export function placeRules(nodes: Node[]): Placed[] {
           w,
         );
     };
-    for (const child of children) {
-      if (!producesRules(child)) continue;
-      run(startOf(child));
-      visit(child, w);
+    for (const node of children) {
+      if (!producesRules(node)) continue;
+      run(startOf(node));
+      visit(node, w);
     }
     run(Number.POSITIVE_INFINITY);
   };
