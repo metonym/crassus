@@ -25,6 +25,13 @@
   `notReady` (also in `usage.json`) instead of throwing.
 - `usage.json`'s `summary` has a `viewports` count.
 
+**Fixes**
+
+- Chrome pages get exactly the requested viewport. Chrome's window size
+  includes its own UI, so with the system Chrome (new headless) a 1280 × 900
+  capture or usage run saw a 1280 × 813 page; only Playwright's
+  `chrome-headless-shell` was exact.
+
 ## 0.1.2 — 2026-10-06
 
 **Features**
