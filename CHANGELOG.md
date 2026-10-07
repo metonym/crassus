@@ -23,7 +23,23 @@
   `runUsage`: waits after load until the selector matches, before
   `settleMs`. A page that never matches is still read and returned in
   `notReady` (also in `usage.json`) instead of throwing.
-- `usage.json`'s `summary` has a `viewports` count.
+- `usage.json`'s `summary` has a `viewports` count, and the file now lists
+  the dead declarations and fold candidates in full (`deadInFixtures`,
+  `foldCandidates`) beside the `dead` and `fold` counts.
+- `themeAttribute` on `capture` and `runUsage`: the `<html>` attribute a
+  theme is set as (default `theme`; `null` for none).
+- CLI: `crassus capture <dir>` (and `--base <ref>`, in a worktree),
+  `crassus snapshot-diff <base> <head>` and `crassus usage`, over the
+  fixture pages in a new `browser` block of `crassus.config.ts`: the
+  fixture directory and the command that builds it, themes, the theme
+  attribute, `sheetMarker`, viewports and `readySelector`. Flags override
+  it: `--only`, `--themes`, `--viewport` (repeatable), `--no-states`,
+  `--engine`, `--matcher`, `--concurrency`, `--url` (a running server) and
+  `--out`. `snapshot-diff` prints changes grouped by
+  `property: before -> after` (or `--format json`) and exits 1 on any
+  difference. `usage` writes `usage.json` and a `report.md` (dead in
+  fixtures with what each lost to, fold candidates, never-matched rules,
+  each by size, under the run's evidence bounds) and always exits 0.
 
 **Fixes**
 

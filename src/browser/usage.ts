@@ -8,11 +8,14 @@ import path from "node:path";
 import { parseRules } from "../core/cascade";
 import {
   createAggregate,
+  type DeclarationStats,
   deadInFixtures,
   foldCandidates,
+  type InventoryRule,
   inventoryFromRules,
   mergeAggregate,
   neverMatchedRules,
+  type Summary,
   summarize,
   type UsageAggregate,
 } from "../core/usage";
@@ -42,6 +45,11 @@ export interface UsageOptions {
   chromePath?: string;
   /** Text only the library stylesheet contains (a class prefix, `.bx--`): how it's told apart from the page's other sheets. */
   sheetMarker: string;
+  /**
+   * The `<html>` attribute each theme is set as, before first paint (with
+   * `serveFixtures`). Default `theme`; `null` sets none.
+   */
+  themeAttribute?: string | null;
   settleMs?: number;
   /**
    * Visits every page at each (default 1280 × 900) and aggregates them: a
@@ -58,11 +66,42 @@ export interface UsageOptions {
   readyTimeoutMs?: number;
 }
 
+/** `usage.json`. */
+export interface UsageFile {
+  summary: Summary;
+  /** Every library declaration that matched, with its counts. */
+  declarations: DeclarationStats[];
+  /** Rules no page matched. */
+  unmatched: InventoryRule[];
+  /** `foldCandidates.length`. */
+  fold: number;
+  /** Observations per page (`name theme`, plus `WxH` with several viewports). */
+  perPage: Record<string, number>;
+  /** `deadInFixtures.length`. */
+  dead: number;
+  /** Pages `readySelector` never matched on. */
+  notReady: string[];
+  /**
+   * Matched but never won, except declarations that only lose to rules
+   * under `prefers-reduced-motion`, `prefers-contrast` or `forced-colors`
+   * (alternatives for a user preference, not overrides).
+   */
+  deadInFixtures: DeclarationStats[];
+  /** Dead in fixtures, always losing to the same single rule. */
+  foldCandidates: DeclarationStats[];
+}
+
 export async function runUsage(opts: UsageOptions) {
   await mkdir(opts.outDir, { recursive: true });
   const marker = opts.sheetMarker;
   const viewports = viewportsOf(opts);
-  const jobs = pageJobs(opts.baseUrl, opts.fixtures, opts.themes, viewports);
+  const jobs = pageJobs(
+    opts.baseUrl,
+    opts.fixtures,
+    opts.themes,
+    viewports,
+    opts.themeAttribute,
+  );
   const aggs = new Map<View, UsageAggregate>();
   let libraryCss: string | undefined;
   const domStats: DomPageStats[] = [];
@@ -122,6 +161,8 @@ export async function runUsage(opts: UsageOptions) {
   );
   const notReady = jobs.filter((_, i) => !ready[i]).map((j) => j.label);
   const unmatched = neverMatchedRules(agg, inventory);
+  const dead = deadInFixtures(agg);
+  const fold = foldCandidates(agg);
   await Bun.write(
     path.join(opts.outDir, "usage.json"),
     JSON.stringify(
@@ -129,11 +170,13 @@ export async function runUsage(opts: UsageOptions) {
         summary,
         declarations: [...agg.declarations.values()],
         unmatched,
-        fold: foldCandidates(agg).length,
+        fold: fold.length,
         perPage,
-        dead: deadInFixtures(agg).length,
+        dead: dead.length,
         notReady,
-      },
+        deadInFixtures: dead,
+        foldCandidates: fold,
+      } satisfies UsageFile,
       null,
       2,
     ),

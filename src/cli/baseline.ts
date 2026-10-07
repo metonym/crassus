@@ -53,6 +53,16 @@ async function inCheckout<T>(
   }
 }
 
+/** Runs `fn` in a temporary checkout of `ref`; returns its commit too. */
+export async function atRef<T>(
+  cwd: string,
+  ref: string,
+  fn: (root: string) => Promise<T>,
+): Promise<{ sha: string; result: T }> {
+  const { sha, top } = await resolveRef(cwd, ref);
+  return { sha, result: await inCheckout(cwd, top, sha, fn) };
+}
+
 /**
  * The stylesheets at `ref`. Cached under node_modules/.cache/crassus by
  * commit, config and entries; `cache: false` rebuilds.

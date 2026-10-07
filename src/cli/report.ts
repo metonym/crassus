@@ -4,6 +4,7 @@
  * Every finding says how far it can be trusted.
  */
 import { version } from "../../package.json";
+import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { Histogram } from "../core/cascade";
 import type { Specificity } from "../core/selector";
 import type { DeadResult, DiffResult, FlipFinding, RuleRef } from "./commands";
@@ -392,5 +393,66 @@ export function formatFix(
       ? `Checked in memory: the stylesheets would lose exactly these declarations. ${wins}`
       : "Edits to sources are checked when written: crassus rebuilds, re-analyzes, and undoes the fix if anything else changed.";
   if (report.fixed.length > 0) lines.push(dim(note));
+  return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// snapshot-diff
+
+const MAX_PAGES = 6;
+const shown = (v: string | null) => v ?? "(not recorded)";
+
+/** `snapshot-diff` (human or json). */
+export function formatSnapshotDiff(
+  diff: SnapshotDiff,
+  format: "human" | "json",
+): string {
+  if (format === "json")
+    return JSON.stringify(
+      {
+        schema: SCHEMA,
+        command: "snapshot-diff",
+        claim: "ground truth",
+        ...diff,
+      },
+      null,
+      2,
+    );
+  const lines = [
+    `${diff.files} snapshot file(s), ${diff.entries} element entries compared ${dim("(ground truth for the captured fixtures, themes, viewports and states)")}`,
+  ];
+  for (const f of diff.onlyBase) lines.push(yellow(`only in base: ${f}`));
+  for (const f of diff.onlyHead) lines.push(yellow(`only in head: ${f}`));
+  const paths = diff.pages.filter((p) => p.removed.length || p.added.length);
+  if (paths.length > 0) {
+    lines.push(
+      "",
+      bold("Elements on one side only (DOM or state changes; not diffed)"),
+    );
+    for (const p of paths)
+      lines.push(
+        `  ${p.file}: ${p.removed.length} only in base, ${p.added.length} only in head`,
+      );
+  }
+  if (diff.groups.length === 0) {
+    lines.push("", "No computed-style differences.");
+    return lines.join("\n");
+  }
+  const total = diff.groups.reduce((n, g) => n + g.count, 0);
+  lines.push(
+    "",
+    bold(
+      `${diff.groups.length} distinct change(s), ${total} in all, on ${diff.pages.filter((p) => Object.keys(p.changed).length).length} page(s):`,
+    ),
+  );
+  for (const g of diff.groups) {
+    const more = g.pages.length - MAX_PAGES;
+    lines.push(
+      "",
+      `${g.count}×  ${g.property}: ${red(shown(g.before))} -> ${red(shown(g.after))}`,
+      `     ${dim("pages:")} ${g.pages.slice(0, MAX_PAGES).join(", ")}${more > 0 ? ` (+${more})` : ""}`,
+      ...g.examples.map((e) => `     ${dim("e.g.")} ${e.page}  ${e.path}`),
+    );
+  }
   return lines.join("\n");
 }

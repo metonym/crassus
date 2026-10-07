@@ -44,6 +44,41 @@ export interface Config {
    * class with a leading `prefix--` removed, cut at the first `__` or `--`.
    */
   componentOf?: (className: string) => string;
+  /** Fixture pages for `capture` and `usage` (rungs 2 and 3). */
+  browser?: BrowserConfig;
+}
+
+/**
+ * Real-browser runs. Each `.html` file in the fixture directory is a page,
+ * loaded once per theme and viewport. Command-line flags override these.
+ */
+export interface BrowserConfig {
+  /**
+   * The fixture directory (relative to the project root), or that and the
+   * shell command that writes it. `build` runs first, in the project, or in
+   * the base checkout for `capture --base`.
+   */
+  fixtures: string | { dir: string; build?: string };
+  /** Themes to load each page in. Default: one run, with no theme attribute. */
+  themes?: string[];
+  /** The `<html>` attribute a theme is set as, before first paint. Default `theme`. */
+  themeAttribute?: string;
+  /** Text only the library stylesheet contains (a class prefix): `usage` needs it. */
+  sheetMarker?: string;
+  /** Default: 1280 × 900. Cover your `min-width`/`max-width` breakpoints. */
+  viewports?: { width: number; height: number }[];
+  /** Wait after load until this selector matches (a page that never does is reported). */
+  readySelector?: string;
+  /** Default 5000. */
+  readyTimeoutMs?: number;
+  /** `capture`: wait this long after load (and readiness). Default 500. */
+  settleMs?: number;
+  /** Default `chrome`. `webkit` is the system WebKit (macOS). */
+  engine?: "chrome" | "webkit";
+  /** Tabs in parallel. Default 8. */
+  concurrency?: number;
+  /** Chrome or Chromium binary. Default: auto-detected. */
+  chromePath?: string;
 }
 
 /** Types a `crassus.config.ts`. */

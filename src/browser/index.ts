@@ -17,5 +17,5 @@ export {
   type SnapshotDiffOptions,
   type SnapshotPageDiff,
 } from "./snapshot-diff";
-export { runUsage, type UsageOptions } from "./usage";
+export { runUsage, type UsageFile, type UsageOptions } from "./usage";
 export type { Viewport } from "./view";

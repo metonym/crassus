@@ -39,14 +39,16 @@ export interface PageJob {
 }
 
 /**
- * Every fixture in every theme at every viewport, with its URL. Viewport
- * first, so a pooled view rarely resizes.
+ * Every fixture in every theme at every viewport, with its URL, which sets
+ * `attribute` to the theme on `<html>` (`null`: none). Viewport first, so a
+ * pooled view rarely resizes.
  */
 export function pageJobs(
   baseUrl: string,
   fixtures: string[],
   themes: string[],
   viewports: Viewport[],
+  attribute: string | null = "theme",
 ): PageJob[] {
   return viewports.flatMap((viewport) =>
     fixtures.flatMap((name) =>
@@ -54,7 +56,11 @@ export function pageJobs(
         name,
         theme,
         viewport,
-        url: `${baseUrl}/${name}.html?cr-attr=theme&cr-value=${encodeURIComponent(theme)}`,
+        url:
+          `${baseUrl}/${name}.html` +
+          (attribute === null
+            ? ""
+            : `?cr-attr=${encodeURIComponent(attribute)}&cr-value=${encodeURIComponent(theme)}`),
         label:
           `${name} ${theme}` +
           (viewports.length > 1 ? ` ${viewportName(viewport)}` : ""),

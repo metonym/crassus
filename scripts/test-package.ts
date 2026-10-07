@@ -1,7 +1,7 @@
 // Packs dist/, installs the tarball into a scratch project, and checks it
 // the way a consumer would: the core in Node ESM, its types via `exports`,
 // `crassus/browser` loading in Bun, and the `crassus` bin.
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { $ } from "bun";
@@ -123,8 +123,46 @@ for (const f of [capture, runUsage, serveFixtures])
       `crassus dead: exit ${dead.exitCode}\n${dead.text()}${dead.stderr}`,
     );
 
+  // The browser commands, bundled into the bin: capture twice (the second
+  // after a change), diff, and usage.
+  await writeFile(
+    join(dir, "crassus.config.js"),
+    `export default { browser: { fixtures: "site", sheetMarker: ".x", settleMs: 0, concurrency: 1 } };`,
+  );
+  await mkdir(join(dir, "site"));
+  await writeFile(
+    join(dir, "site/p.html"),
+    `<!doctype html><style>.x{color:red}.x{color:blue}</style><p class="x">p</p>`,
+  );
+  const run = async (...args: string[]) => {
+    const r = await $`${bin} ${args}`.cwd(dir).nothrow().quiet();
+    return { code: r.exitCode, out: `${r.text()}${r.stderr}` };
+  };
+  const captured = await run("capture", "a", "--no-states");
+  if (captured.code !== 0)
+    throw new Error(`crassus capture: exit ${captured.code}\n${captured.out}`);
+  const used = await run("usage", "--no-states");
+  if (used.code !== 0)
+    throw new Error(`crassus usage: exit ${used.code}\n${used.out}`);
+  await writeFile(
+    join(dir, "site/p.html"),
+    `<!doctype html><style>.x{color:red}</style><p class="x">p</p>`,
+  );
+  await run("capture", "b", "--no-states");
+  const diff = await run("snapshot-diff", "a", "b");
+  if (
+    diff.code !== 1 ||
+    !diff.out.includes("color: rgb(0, 0, 255) -> rgb(255, 0, 0)")
+  )
+    throw new Error(`crassus snapshot-diff: exit ${diff.code}\n${diff.out}`);
+  const usage = JSON.parse(
+    await readFile(join(dir, ".crassus/usage/usage.json"), "utf8"),
+  );
+  if (usage.deadInFixtures.length !== 1)
+    throw new Error(`crassus usage: ${JSON.stringify(usage.deadInFixtures)}`);
+
   console.log(
-    "✓ Core works in Node and type-checks; crassus/browser loads in Bun; the crassus bin runs",
+    "✓ Core works in Node and type-checks; crassus/browser loads in Bun; the crassus bin runs, browser commands included",
   );
 } finally {
   await rm(dir, { recursive: true, force: true });

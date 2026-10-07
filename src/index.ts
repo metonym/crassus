@@ -4,7 +4,12 @@
  */
 
 export { parseRules, type Rule } from "./core/cascade";
-export { type Config, defineConfig, type Stylesheets } from "./core/config";
+export {
+  type BrowserConfig,
+  type Config,
+  defineConfig,
+  type Stylesheets,
+} from "./core/config";
 export { type CascadeDiff, cascadeDiff, type Flip } from "./core/diff";
 export { type DeadDeclaration, deadDeclarations } from "./core/overrides";
 export { canonicalContext } from "./core/placement";

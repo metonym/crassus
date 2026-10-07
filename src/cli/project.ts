@@ -34,8 +34,8 @@ export async function loadConfig(
   return { config, file };
 }
 
-/** Runs the config's `build` command in `root`; its output shows on failure. */
-async function build(command: string, root: string): Promise<void> {
+/** Runs a configured build command in `root`; its output shows on failure. */
+export async function build(command: string, root: string): Promise<void> {
   const proc = Bun.spawn(["sh", "-c", command], {
     cwd: root,
     stdout: "pipe",
