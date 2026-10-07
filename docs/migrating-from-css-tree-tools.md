@@ -44,3 +44,7 @@ Cascade flips over-report by design. If the job shouldn't block a merge, set `co
 ## Fixture builds
 
 `browser.fixtures.build` runs in the project root, but the tool it runs may resolve paths from somewhere else. A Vite config with `root: "e2e/fixtures"` reads `--outDir` relative to that root, so write `--outDir ../../.crassus/fixtures` (or an absolute path) to land in `.crassus/fixtures`. Add `.crassus/` to `.gitignore`.
+
+`capture --base` runs the same command in a fresh worktree, which has only tracked files: if the fixtures import built output (`css/all.css`), build that first, as in `bun run build:css && bunx vite build …`.
+
+A `readySelector` has to match every fixture, including index or listing pages without your mount point: use a selector list (`#app > *, body > nav`).
