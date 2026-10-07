@@ -40,18 +40,24 @@ export const viewportsOf = (opts: {
 export class View {
   readonly engine: EngineName;
   #view: Bun.WebView;
-  #size: Viewport;
+  /**
+   * The viewport, when known. Chrome's window size includes its own UI
+   * (1280 × 900 is a 1280 × 813 page in new headless), so a Chrome view's
+   * size is unknown until `resize` sets it over CDP.
+   */
+  #size: Viewport | null;
   #queue: Promise<unknown> = Promise.resolve();
   #navigated = false;
 
   constructor(opts: ViewOptions) {
     this.engine = opts.engine;
-    this.#size = {
+    const size = {
       width: opts.width ?? DEFAULT_VIEWPORT.width,
       height: opts.height ?? DEFAULT_VIEWPORT.height,
     };
+    this.#size = opts.engine === "webkit" ? size : null;
     this.#view = new Bun.WebView({
-      ...this.#size,
+      ...size,
       backend:
         opts.engine === "webkit"
           ? "webkit"
@@ -80,10 +86,15 @@ export class View {
     });
   }
 
-  /** Resizes the viewport when it differs; takes effect for the next page. */
+  /** Sets the page's viewport when it differs; takes effect for the next page. */
   resize({ width, height }: Viewport): Promise<void> {
     return this.#run(async () => {
-      if (width === this.#size.width && height === this.#size.height) return;
+      if (width === this.#size?.width && height === this.#size?.height) return;
+      // Chrome resizes over CDP, which needs a page.
+      if (!this.#navigated) {
+        await this.#view.navigate("about:blank");
+        this.#navigated = true;
+      }
       await this.#view.resize(width, height);
       this.#size = { width, height };
     });

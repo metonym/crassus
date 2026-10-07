@@ -63,7 +63,7 @@ const NESTING_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="ne
 
 // Below and above 42rem (672px).
 const VIEWPORT_CSS = `
-.bx--v { color: blue; }
+.bx--v { color: blue; height: 100vh; }
 @media (min-width: 42rem) { .bx--v { color: red; } }
 @media (max-width: 41.98rem) { .bx--v { top: 1px; } }
 `;
@@ -209,6 +209,8 @@ it("captures each viewport into its own file, and usage aggregates them", async 
     fixtures: ["viewport"],
     outDir,
     viewports,
+    // Two fresh tabs: the second resizes before it has loaded anything.
+    concurrency: 2,
     states: false,
     emulate: "cdp",
     settleMs: 0,
@@ -221,6 +223,22 @@ it("captures each viewport into its own file, and usage aggregates them", async 
     (await Bun.file(join(outDir, file)).json())["body>p.bx--v"].color;
   expect(await color("viewport.white.320x640.json")).toBe("rgb(0, 0, 255)");
   expect(await color("viewport.white.1280x900.json")).toBe("rgb(255, 0, 0)");
+  // The page gets the whole viewport: Chrome's window size includes its UI.
+  const height = async (dir: string, file: string) =>
+    (await Bun.file(join(dir, file)).json())["body>p.bx--v"].height;
+  expect(await height(outDir, "viewport.white.320x640.json")).toBe("640px");
+  expect(await height(outDir, "viewport.white.1280x900.json")).toBe("900px");
+  await capture({
+    ...base(),
+    fixtures: ["viewport"],
+    outDir: join(dir, "snap-default-viewport"),
+    states: false,
+    emulate: "cdp",
+    settleMs: 0,
+  });
+  expect(
+    await height(join(dir, "snap-default-viewport"), "viewport.white.json"),
+  ).toBe("900px");
 
   const unmatched = async (vs?: typeof viewports) => {
     const out = join(dir, `usage-viewports-${vs?.length ?? 0}`);
