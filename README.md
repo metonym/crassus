@@ -185,7 +185,7 @@ export default defineConfig({
 
 | Option | Description |
 |:---|:---|
-| `fixtures` | The fixture directory, or `{ dir, build? }`. |
+| `fixtures` | The fixture directory, or `{ dir, build? }`. For `capture --base`, `build` runs in a fresh worktree with only tracked files, so it must also build anything the fixtures load that's gitignored (compiled CSS). |
 | `themes` | Themes to load each page in (default: one run, no attribute). |
 | `themeAttribute` | The `<html>` attribute a theme is set as (default `theme`). |
 | `sheetMarker` | Text only the library stylesheet contains; `usage` needs it to tell that sheet from the page's others. |
