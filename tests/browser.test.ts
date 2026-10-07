@@ -5,7 +5,12 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseRules } from "crassus";
-import { capture, runUsage, serveFixtures } from "crassus/browser";
+import {
+  capture,
+  diffSnapshots,
+  runUsage,
+  serveFixtures,
+} from "crassus/browser";
 import { View } from "../src/browser/view";
 import {
   parseSelectorList,
@@ -56,6 +61,24 @@ const NESTING_CSS = `
 const NESTING_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="nesting.css"></head>
 <body><div class="bx--p"><p class="bx--x">x</p></div></body></html>`;
 
+// Below and above 42rem (672px).
+const VIEWPORT_CSS = `
+.bx--v { color: blue; }
+@media (min-width: 42rem) { .bx--v { color: red; } }
+@media (max-width: 41.98rem) { .bx--v { top: 1px; } }
+`;
+const VIEWPORT_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="viewport.css"></head>
+<body><p class="bx--v">x</p></body></html>`;
+
+// Content that arrives after load.
+const LATE_PAGE = `<!doctype html><html><head><style>.bx--late { color: red; }</style></head>
+<body><script>setTimeout(() => { const p = document.createElement("p"); p.className = "bx--late"; document.body.append(p); }, 200);</script></body></html>`;
+
+const DIFF_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="diff.css"></head>
+<body><div class="bx--d"><p class="bx--d">a</p><p class="bx--d">b</p></div><span class="bx--e">c</span></body></html>`;
+const diffCss = (color: string) =>
+  `.bx--d { color: ${color}; margin: 0; } .bx--e { color: green; }`;
+
 let dir = "";
 let server: ReturnType<typeof serveFixtures>;
 
@@ -67,6 +90,9 @@ beforeAll(async () => {
   await Bun.write(join(dir, "site/layers.html"), LAYERS_PAGE);
   await Bun.write(join(dir, "site/nesting.css"), NESTING_CSS);
   await Bun.write(join(dir, "site/nesting.html"), NESTING_PAGE);
+  await Bun.write(join(dir, "site/viewport.css"), VIEWPORT_CSS);
+  await Bun.write(join(dir, "site/viewport.html"), VIEWPORT_PAGE);
+  await Bun.write(join(dir, "site/late.html"), LATE_PAGE);
   server = serveFixtures(join(dir, "site"));
 });
 
@@ -107,6 +133,145 @@ it("captures the same forced states via CDP and via selector rewrite", async () 
   expect((hovered?.[1] as Record<string, string> | undefined)?.color).toBe(
     "rgb(0, 128, 0)",
   );
+}, 60_000);
+
+it("diffSnapshots groups a seeded color change once and lists one-sided pages", async () => {
+  // Two sites, so the second capture can't reuse a cached stylesheet.
+  const sides = [
+    ["base", "blue", ["diff"]],
+    ["head", "purple", ["diff", "extra"]],
+  ] as const;
+  await Promise.all(
+    sides.flatMap(([side, color]) => [
+      Bun.write(join(dir, side, "diff.css"), diffCss(color)),
+      Bun.write(join(dir, side, "diff.html"), DIFF_PAGE),
+      Bun.write(join(dir, side, "extra.html"), DIFF_PAGE),
+    ]),
+  );
+  for (const [side, , fixtures] of sides) {
+    const site = serveFixtures(join(dir, side));
+    try {
+      // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential captures
+      await capture({
+        ...base(),
+        baseUrl: site.url,
+        fixtures: [...fixtures],
+        outDir: join(dir, `snap-${side}`),
+        states: false,
+        emulate: "cdp",
+        settleMs: 0,
+      });
+    } finally {
+      site.stop();
+    }
+  }
+  const diff = await diffSnapshots(
+    join(dir, "snap-base"),
+    join(dir, "snap-head"),
+  );
+  expect(diff.onlyBase).toEqual([]);
+  expect(diff.onlyHead).toEqual(["extra.white.json"]);
+  expect(diff.files).toBe(1);
+  expect(diff.groups).toEqual([
+    {
+      property: "color",
+      before: "rgb(0, 0, 255)",
+      after: "rgb(128, 0, 128)",
+      count: 3,
+      pages: ["diff.white.json"],
+      examples: [
+        { page: "diff.white.json", path: "body>div.bx--d" },
+        { page: "diff.white.json", path: "body>div.bx--d>p.bx--d" },
+        { page: "diff.white.json", path: "body>div.bx--d>p.bx--d[1]" },
+      ],
+    },
+  ]);
+  expect(diff.pages).toMatchObject([
+    {
+      file: "diff.white.json",
+      fixture: "diff",
+      theme: "white",
+      removed: [],
+      added: [],
+    },
+  ]);
+  expect(Object.keys(diff.pages[0].changed)).toHaveLength(3);
+}, 60_000);
+
+it("captures each viewport into its own file, and usage aggregates them", async () => {
+  const viewports = [
+    { width: 320, height: 640 },
+    { width: 1280, height: 900 },
+  ];
+  const outDir = join(dir, "snap-viewports");
+  await capture({
+    ...base(),
+    fixtures: ["viewport"],
+    outDir,
+    viewports,
+    states: false,
+    emulate: "cdp",
+    settleMs: 0,
+  });
+  expect((await readdir(outDir)).sort()).toEqual([
+    "viewport.white.1280x900.json",
+    "viewport.white.320x640.json",
+  ]);
+  const color = async (file: string) =>
+    (await Bun.file(join(outDir, file)).json())["body>p.bx--v"].color;
+  expect(await color("viewport.white.320x640.json")).toBe("rgb(0, 0, 255)");
+  expect(await color("viewport.white.1280x900.json")).toBe("rgb(255, 0, 0)");
+
+  const unmatched = async (vs?: typeof viewports) => {
+    const out = join(dir, `usage-viewports-${vs?.length ?? 0}`);
+    const { notReady } = await runUsage({
+      ...base(),
+      fixtures: ["viewport"],
+      outDir: out,
+      matcher: "cdp",
+      emulate: "cdp",
+      states: false,
+      viewports: vs,
+    });
+    expect(notReady).toEqual([]);
+    const report = await Bun.file(join(out, "usage.json")).json();
+    return report.unmatched.map((r: { context: string }) => r.context);
+  };
+  // One viewport (1280): the max-width rule never matches.
+  expect(await unmatched()).toEqual(["@media (max-width:41.98rem)"]);
+  expect(await unmatched(viewports)).toEqual([]);
+}, 60_000);
+
+it("waits for readySelector, and lists pages that never get there", async () => {
+  const opts = {
+    ...base(),
+    fixtures: ["late"],
+    states: false as const,
+    emulate: "cdp" as const,
+    settleMs: 0,
+  };
+  const outDir = join(dir, "snap-late");
+  const ready = await capture({ ...opts, outDir, readySelector: ".bx--late" });
+  expect(ready.notReady).toEqual([]);
+  const snap = await Bun.file(join(outDir, "late.white.json")).json();
+  expect(snap["body>p.bx--late"]?.color).toBe("rgb(255, 0, 0)");
+
+  const never = await capture({
+    ...opts,
+    outDir: join(dir, "snap-never"),
+    readySelector: ".bx--never",
+    readyTimeoutMs: 300,
+  });
+  expect(never.notReady).toEqual(["late white"]);
+  const usage = await runUsage({
+    ...opts,
+    outDir: join(dir, "usage-never"),
+    matcher: "dom",
+    states: false,
+    readySelector: ".bx--never",
+    readyTimeoutMs: 300,
+  });
+  expect(usage.notReady).toEqual(["late white"]);
 }, 60_000);
 
 const usageStats = async (matcher: "cdp" | "dom", page = "page") => {

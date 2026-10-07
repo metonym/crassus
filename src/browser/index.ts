@@ -3,6 +3,19 @@
  * system WebKit on macOS). Bun-only, experimental.
  */
 
+export type {
+  ChangeGroup,
+  PageDiff,
+  PropertyChange,
+  Snapshot,
+} from "../core/snapshot-diff";
 export { serveFixtures } from "./serve";
-export { type CaptureOptions, capture, type Snapshot } from "./snapshot";
+export { type CaptureOptions, capture } from "./snapshot";
+export {
+  diffSnapshots,
+  type SnapshotDiff,
+  type SnapshotDiffOptions,
+  type SnapshotPageDiff,
+} from "./snapshot-diff";
 export { runUsage, type UsageOptions } from "./usage";
+export type { Viewport } from "./view";

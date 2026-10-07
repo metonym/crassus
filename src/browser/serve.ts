@@ -3,6 +3,7 @@
  * on `<html>` before first paint (WebView has no init scripts).
  */
 import path from "node:path";
+import { type Viewport, viewportName } from "./view";
 
 const HEAD_OPEN_RE = /<head[^>]*>/i;
 
@@ -28,17 +29,36 @@ export function serveFixtures(dir: string): { url: string; stop: () => void } {
   };
 }
 
-/** Every fixture in every theme, with its URL. */
-export function themedPages(
+export interface PageJob {
+  name: string;
+  theme: string;
+  viewport: Viewport;
+  url: string;
+  /** `name theme`, plus `WxH` when there are several viewports. */
+  label: string;
+}
+
+/**
+ * Every fixture in every theme at every viewport, with its URL. Viewport
+ * first, so a pooled view rarely resizes.
+ */
+export function pageJobs(
   baseUrl: string,
   fixtures: string[],
   themes: string[],
-): { name: string; theme: string; url: string }[] {
-  return fixtures.flatMap((name) =>
-    themes.map((theme) => ({
-      name,
-      theme,
-      url: `${baseUrl}/${name}.html?cr-attr=theme&cr-value=${encodeURIComponent(theme)}`,
-    })),
+  viewports: Viewport[],
+): PageJob[] {
+  return viewports.flatMap((viewport) =>
+    fixtures.flatMap((name) =>
+      themes.map((theme) => ({
+        name,
+        theme,
+        viewport,
+        url: `${baseUrl}/${name}.html?cr-attr=theme&cr-value=${encodeURIComponent(theme)}`,
+        label:
+          `${name} ${theme}` +
+          (viewports.length > 1 ? ` ${viewportName(viewport)}` : ""),
+      })),
+    ),
   );
 }

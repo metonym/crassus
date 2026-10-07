@@ -13,17 +13,45 @@ export interface ViewOptions {
   chromePath?: string;
 }
 
+export interface Viewport {
+  width: number;
+  height: number;
+}
+
+const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 900 };
+
+export const viewportName = (v: Viewport) => `${v.width}x${v.height}`;
+
+/** `viewports`, else the single `width` × `height` (1280 × 900 when unset). */
+export const viewportsOf = (opts: {
+  viewports?: Viewport[];
+  width?: number;
+  height?: number;
+}): Viewport[] =>
+  opts.viewports?.length
+    ? opts.viewports
+    : [
+        {
+          width: opts.width ?? DEFAULT_VIEWPORT.width,
+          height: opts.height ?? DEFAULT_VIEWPORT.height,
+        },
+      ];
+
 export class View {
   readonly engine: EngineName;
   #view: Bun.WebView;
+  #size: Viewport;
   #queue: Promise<unknown> = Promise.resolve();
   #navigated = false;
 
   constructor(opts: ViewOptions) {
     this.engine = opts.engine;
+    this.#size = {
+      width: opts.width ?? DEFAULT_VIEWPORT.width,
+      height: opts.height ?? DEFAULT_VIEWPORT.height,
+    };
     this.#view = new Bun.WebView({
-      width: opts.width ?? 1280,
-      height: opts.height ?? 900,
+      ...this.#size,
       backend:
         opts.engine === "webkit"
           ? "webkit"
@@ -49,6 +77,15 @@ export class View {
     return this.#run(async () => {
       await this.#view.navigate(url);
       this.#navigated = true;
+    });
+  }
+
+  /** Resizes the viewport when it differs; takes effect for the next page. */
+  resize({ width, height }: Viewport): Promise<void> {
+    return this.#run(async () => {
+      if (width === this.#size.width && height === this.#size.height) return;
+      await this.#view.resize(width, height);
+      this.#size = { width, height };
     });
   }
 
@@ -89,6 +126,25 @@ export const reduceMotion = (view: View) =>
   view.cdp("Emulation.setEmulatedMedia", {
     features: [{ name: "prefers-reduced-motion", value: "reduce" }],
   });
+
+/**
+ * Polls until `selector` matches in the page, up to `timeoutMs`; false on
+ * timeout.
+ */
+export async function waitReady(
+  view: View,
+  selector: string,
+  timeoutMs = 5000,
+): Promise<boolean> {
+  const expr = `!!document.querySelector(${JSON.stringify(selector)})`;
+  const deadline = performance.now() + timeoutMs;
+  for (;;) {
+    // biome-ignore lint/performance/noAwaitInLoops: polling
+    if (await view.evaluate<boolean>(expr)) return true;
+    if (performance.now() >= deadline) return false;
+    await Bun.sleep(25);
+  }
+}
 
 /** Runs `jobs` over `size` views, each view one job at a time. */
 export async function runPool<J, R>(

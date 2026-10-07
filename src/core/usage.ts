@@ -316,6 +316,7 @@ export function neverMatchedRules(
 export interface Summary {
   fixtures: number;
   themes: number;
+  viewports: number;
   observations: number;
   rulesTotal: number;
   rulesMatched: number;
@@ -331,6 +332,7 @@ export function summarize(
   inventory: InventoryRule[],
   fixtures: number,
   themes: number,
+  viewports = 1,
 ): Summary {
   const declarations = [...agg.declarations.values()];
   const neverWon = deadInFixtures(agg);
@@ -338,6 +340,7 @@ export function summarize(
   return {
     fixtures,
     themes,
+    viewports,
     observations: agg.observations,
     rulesTotal: inventory.length,
     rulesMatched: agg.matchedRuleKeys.size,
