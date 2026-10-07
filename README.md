@@ -259,6 +259,8 @@ Measured against carbon-components-svelte's original tooling (css-tree, source-m
 | Computed-style snapshot, 218 pages | 471.7 s | **43.9 s** (CDP, 8 tabs, identical output) |
 | Cascade usage, 218 pages | 1,171.7 s | **22.3 s** (`dom` engine, 8 tabs) |
 
+Coming from scripts of your own built on css-tree and Playwright? See [Migrating from css-tree-based cascade tools](docs/migrating-from-css-tree-tools.md).
+
 ## Limitations
 
 - **`dead` assumes the later declaration applies.** If a browser rejects its value or its selector, the earlier declaration still wins there. Known fallback patterns (vendor prefixes, `fit-content`, `dvh`, legacy aliases) aren't reported.
