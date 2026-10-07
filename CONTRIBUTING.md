@@ -87,7 +87,7 @@ A behavior fix needs a test that fails before the fix and passes after.
 | `sourcemap-size.ts` | Source-map attribution and the minified-size line |
 | `snapshot.ts` | `capture` against `e2e/cascade-snapshot.ts`, and WebKit against Chrome |
 | `usage.ts` | `runUsage` (CDP and `dom`) against `e2e/cascade-usage.ts` |
-| `selector-stats.ts` | The selector-stats harness (`selector-stats-harness.ts`, still a port) against `e2e/selector-stats.ts` |
+| `selector-stats.ts` | The selector-stats harness (`selector-stats-harness.ts`) against `e2e/selector-stats.ts`. A measurement spike, not a feature: selector cost isn't a cascade claim, so it won't ship in `src/` (README, "Limitations") |
 
 carbon-components-svelte has since moved onto crassus and deleted the tooling it replaced, so the comparisons against it need a checkout from before the migration. `96ed27f02` is the parent of the migration commit:
 

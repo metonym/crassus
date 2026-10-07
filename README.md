@@ -258,3 +258,4 @@ Measured against carbon-components-svelte's original tooling (css-tree, source-m
 - **`dead` assumes the later declaration applies.** If a browser rejects its value or its selector, the earlier declaration still wins there. Known fallback patterns (vendor prefixes, `fit-content`, `dvh`, legacy aliases) aren't reported.
 - **Logical properties assume a horizontal writing mode.** `inset-block-start` and `top` share a slot; the inline axis is left alone.
 - **Two different `@scope` roots are compared by source order.** Which is closer depends on the DOM. A scoped rule does beat an unscoped one at equal specificity.
+- **Selector performance is out of scope.** How long Chrome spends matching selectors (DevTools' selector stats, `RecalcStyleDuration`) is a measurement, not a claim about the cascade, so it has no rung. `eval/carbon/selector-stats-harness.ts` is a measurement spike kept for comparison and won't ship; keep a perf harness of your own.

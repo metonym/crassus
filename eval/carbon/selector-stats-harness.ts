@@ -1,7 +1,9 @@
 /**
  * CDP harness for CSS selector matching cost during a full-document recalc.
  * Spike port of e2e/selector-stats.ts onto Bun.WebView via Playwright-shaped
- * shims (Page.evaluate(fn, arg) -> evaluate(`(${fn})(${json})`)).
+ * shims (Page.evaluate(fn, arg) -> evaluate(`(${fn})(${json})`)). A
+ * measurement spike kept for comparison; it won't move into src/ (selector
+ * cost isn't a cascade claim).
  *
  * Clones a fixture's rendered markup to scale, then repeatedly changes an
  * inherited custom property on `<html>` that no rule reads. Every element
