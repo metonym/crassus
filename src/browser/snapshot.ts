@@ -6,14 +6,24 @@
  */
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import type { Snapshot } from "../core/snapshot-diff";
 import { INTERACTIVE, MAX_STATE_ELEMENTS, STATE_SETS } from "../page/states";
 import { PAGE_HELPERS } from "./page-helpers";
-import { themedPages } from "./serve";
-import { type EngineName, reduceMotion, runPool, View } from "./view";
+import { type PageJob, pageJobs } from "./serve";
+import {
+  type EngineName,
+  reduceMotion,
+  runPool,
+  View,
+  type Viewport,
+  viewportName,
+  viewportsOf,
+  waitReady,
+} from "./view";
 
 const TRAILING_SEMICOLON_RE = /;$/;
-
-export type Snapshot = Record<string, Record<string, string>>;
+const VIEWPORT_RE = /^\d+x\d+$/;
+const JSON_EXT_RE = /\.json$/;
 
 const FREEZE =
   "*, *::before, *::after { transition: none !important; animation: none !important; }";
@@ -107,19 +117,61 @@ export interface CaptureOptions {
   emulate: "cdp" | "cssom";
   concurrency: number;
   chromePath?: string;
+  /** One viewport (default 1280 × 900). Prefer `viewports`. */
   width?: number;
   height?: number;
+  /**
+   * Captures every page at each. Default: the one `width` × `height`. With
+   * more than one, files are named `<name>.<theme>.<W>x<H>.json`.
+   */
+  viewports?: Viewport[];
+  /**
+   * Waits after load until this selector matches (polled, up to
+   * `readyTimeoutMs`), before `settleMs`. A page that never matches is
+   * still captured, and listed in `notReady`.
+   */
+  readySelector?: string;
+  /** Default 5000 ms. */
+  readyTimeoutMs?: number;
   /** After load. Default 500 ms. */
   settleMs?: number;
+}
+
+/** `<name>.<theme>.json`, or `<name>.<theme>.<W>x<H>.json` with `viewport`. */
+const snapshotFile = (
+  job: Pick<PageJob, "name" | "theme">,
+  viewport?: Viewport,
+) =>
+  `${job.name}.${job.theme}${viewport ? `.${viewportName(viewport)}` : ""}.json`;
+
+/** Reverses `snapshotFile`. */
+export function parseSnapshotFile(file: string): {
+  fixture: string;
+  theme: string;
+  viewport?: string;
+} {
+  const parts = file.replace(JSON_EXT_RE, "").split(".");
+  const viewport =
+    parts.length > 2 && VIEWPORT_RE.test(parts.at(-1) ?? "")
+      ? parts.pop()
+      : undefined;
+  const theme = parts.length > 1 ? (parts.pop() ?? "") : "";
+  return { fixture: parts.join("."), theme, ...(viewport && { viewport }) };
 }
 
 async function capturePage(
   view: View,
   url: string,
-  opts: Pick<CaptureOptions, "states" | "emulate" | "settleMs">,
-): Promise<Snapshot> {
+  opts: Pick<
+    CaptureOptions,
+    "states" | "emulate" | "settleMs" | "readySelector" | "readyTimeoutMs"
+  >,
+): Promise<{ snap: Snapshot; ready: boolean }> {
   if (opts.emulate === "cdp") await reduceMotion(view);
   await view.navigate(url);
+  const ready = opts.readySelector
+    ? await waitReady(view, opts.readySelector, opts.readyTimeoutMs)
+    : true;
   // evaluate() takes an expression: drop the statement terminator.
   await view.evaluate(PAGE_HELPERS.trim().replace(TRAILING_SEMICOLON_RE, ""));
   await view.evaluate(CR_HELPERS);
@@ -127,7 +179,7 @@ async function capturePage(
     await view.evaluate("window.__cr.reducedMotion()");
   await Bun.sleep(opts.settleMs ?? 500);
   const snap = await view.evaluate<Snapshot>("window.__ccs.snapshot()");
-  if (!opts.states) return snap;
+  if (!opts.states) return { snap, ready };
 
   await view.evaluate(
     `(() => { const s = document.createElement("style"); s.textContent = ${JSON.stringify(FREEZE)}; document.head.append(s); })()`,
@@ -142,7 +194,7 @@ async function capturePage(
       snap,
       await view.evaluate<Snapshot>(`window.__cr.allStates(${n})`),
     );
-    return snap;
+    return { snap, ready };
   }
 
   await view.cdp("DOM.enable");
@@ -177,32 +229,41 @@ async function capturePage(
   }
   await view.cdp("DOM.disable");
   await view.cdp("CSS.disable");
-  return snap;
+  return { snap, ready };
 }
 
 export async function capture(
   opts: CaptureOptions,
-): Promise<{ pages: number; ms: number }> {
+): Promise<{ pages: number; ms: number; notReady: string[] }> {
   await mkdir(opts.outDir, { recursive: true });
-  const jobs = themedPages(opts.baseUrl, opts.fixtures, opts.themes);
+  const viewports = viewportsOf(opts);
+  const jobs = pageJobs(opts.baseUrl, opts.fixtures, opts.themes, viewports);
   const started = performance.now();
-  await runPool(
+  const ready = await runPool(
     jobs,
     opts.concurrency,
     () =>
       new View({
         engine: opts.engine,
         chromePath: opts.chromePath,
-        width: opts.width,
-        height: opts.height,
+        ...viewports[0],
       }),
-    async (view, { name, theme, url }) => {
-      const snap = await capturePage(view, url, opts);
+    async (view, job) => {
+      await view.resize(job.viewport);
+      const { snap, ready } = await capturePage(view, job.url, opts);
       await Bun.write(
-        path.join(opts.outDir, `${name}.${theme}.json`),
+        path.join(
+          opts.outDir,
+          snapshotFile(job, viewports.length > 1 ? job.viewport : undefined),
+        ),
         JSON.stringify(snap),
       );
+      return ready;
     },
   );
-  return { pages: jobs.length, ms: performance.now() - started };
+  return {
+    pages: jobs.length,
+    ms: performance.now() - started,
+    notReady: jobs.filter((_, i) => !ready[i]).map((j) => j.label),
+  };
 }

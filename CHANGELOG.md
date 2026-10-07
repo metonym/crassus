@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- `diffSnapshots(baseDir, headDir, { examples? })` in `crassus/browser`
+  compares two `capture` directories: per changed page, the element paths
+  and their `{ property, before, after }` changes, plus every change grouped
+  by `(property, before -> after)` with a count, the pages it's on and the
+  first few paths, so a systematic change reads as one line. Files and
+  element paths on one side only are listed, not diffed. It reproduces
+  carbon-components-svelte's `cascade-snapshot.ts diff` groups, except that
+  a property only head records (its stylesheets started declaring it) is a
+  change from `null` too.
+- `viewports` on `capture` and `runUsage`: every page at each size. With
+  more than one, capture files are `<name>.<theme>.<W>x<H>.json`; with one
+  (the default, still `width` × `height` or 1280 × 900) names don't change.
+  `runUsage` aggregates them, so a declaration that wins at any viewport has
+  won, and `min-width`/`max-width` rules out of range at one size stop
+  reading as never matched.
+- `readySelector` (and `readyTimeoutMs`, default 5000) on `capture` and
+  `runUsage`: waits after load until the selector matches, before
+  `settleMs`. A page that never matches is still read and returned in
+  `notReady` (also in `usage.json`) instead of throwing.
+- `usage.json`'s `summary` has a `viewports` count.
+
 ## 0.1.2 — 2026-10-06
 
 **Features**

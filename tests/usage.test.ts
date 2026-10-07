@@ -325,6 +325,7 @@ describe("summarize", () => {
     expect(summary).toMatchObject({
       fixtures: 1,
       themes: 2,
+      viewports: 1,
       observations: 1,
       rulesTotal: 3,
       rulesMatched: 2,

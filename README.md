@@ -161,11 +161,17 @@ Real-browser rungs on [`Bun.WebView`](https://bun.sh/docs/runtime/webview): Chro
 
 | Export | Description |
 |:---|:---|
-| `capture(options)` | Computed-style snapshot of every element, `::before`/`::after` and forced `:hover`/`:focus`/`:active`, per theme. States come from CDP (exact) or from rewriting state selectors in place (any engine). |
-| `runUsage(options)` | Which declarations of the library stylesheet (the one containing `sheetMarker`) match and win on every element. `matcher: "cdp"` asks Chrome per element; `matcher: "dom"` matches in the page with `Element.matches()` in one round trip per page, on Chrome or WebKit. |
+| `capture(options)` | Computed-style snapshot of every element, `::before`/`::after` and forced `:hover`/`:focus`/`:active`, per theme and viewport, one JSON file per page. States come from CDP (exact) or from rewriting state selectors in place (any engine). |
+| `diffSnapshots(baseDir, headDir, { examples? })` | Compares two `capture` directories: changed element paths per page, and every change grouped by `(property, before -> after)` with counts and example paths. Pages and paths on one side only are listed, not diffed. |
+| `runUsage(options)` | Which declarations of the library stylesheet (the one containing `sheetMarker`) match and win on every element, over all themes and viewports. `matcher: "cdp"` asks Chrome per element; `matcher: "dom"` matches in the page with `Element.matches()` in one round trip per page, on Chrome or WebKit. |
 | `serveFixtures(dir)` | Static fixture server that sets a theme attribute before first paint. |
 
-Types: `CaptureOptions`, `UsageOptions`, `Snapshot`.
+Both browser runs take:
+
+- `viewports: { width, height }[]`: every page at each size (default one, 1280 × 900; `width`/`height` still set a single one). Use enough to cover the stylesheet's `min-width`/`max-width` breakpoints, or rules outside them read as never matched. With several, capture files are named `<name>.<theme>.<W>x<H>.json`.
+- `readySelector` (and `readyTimeoutMs`, default 5000): wait after load until the selector matches, for content that mounts late. A page that never matches is still read, and returned in `notReady`.
+
+Types: `CaptureOptions`, `UsageOptions`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`.
 
 ## Features
 

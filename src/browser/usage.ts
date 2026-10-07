@@ -16,10 +16,18 @@ import {
   summarize,
   type UsageAggregate,
 } from "../core/usage";
-import { themedPages } from "./serve";
+import { pageJobs } from "./serve";
 import { processPageCdp } from "./usage-cdp";
 import { type DomPageStats, processPageDom } from "./usage-dom";
-import { type EngineName, reduceMotion, runPool, View } from "./view";
+import {
+  type EngineName,
+  reduceMotion,
+  runPool,
+  View,
+  type Viewport,
+  viewportsOf,
+  waitReady,
+} from "./view";
 
 export interface UsageOptions {
   baseUrl: string;
@@ -35,29 +43,52 @@ export interface UsageOptions {
   /** Text only the library stylesheet contains (a class prefix, `.bx--`): how it's told apart from the page's other sheets. */
   sheetMarker: string;
   settleMs?: number;
+  /**
+   * Visits every page at each (default 1280 × 900) and aggregates them: a
+   * declaration that wins at any viewport has won.
+   */
+  viewports?: Viewport[];
+  /**
+   * Waits after load until this selector matches (polled, up to
+   * `readyTimeoutMs`). A page that never matches is still read, and listed
+   * in `notReady`.
+   */
+  readySelector?: string;
+  /** Default 5000 ms. */
+  readyTimeoutMs?: number;
 }
 
 export async function runUsage(opts: UsageOptions) {
   await mkdir(opts.outDir, { recursive: true });
   const marker = opts.sheetMarker;
-  const jobs = themedPages(opts.baseUrl, opts.fixtures, opts.themes);
+  const viewports = viewportsOf(opts);
+  const jobs = pageJobs(opts.baseUrl, opts.fixtures, opts.themes, viewports);
   const aggs = new Map<View, UsageAggregate>();
   let libraryCss: string | undefined;
   const domStats: DomPageStats[] = [];
   const perPage: Record<string, number> = {};
   const started = performance.now();
-  await runPool(
+  const ready = await runPool(
     jobs,
     opts.concurrency,
-    () => new View({ engine: opts.engine, chromePath: opts.chromePath }),
-    async (view, { name, theme, url }) => {
+    () =>
+      new View({
+        engine: opts.engine,
+        chromePath: opts.chromePath,
+        ...viewports[0],
+      }),
+    async (view, { url, viewport, label }) => {
       let agg = aggs.get(view);
       if (!agg) {
         agg = createAggregate();
         aggs.set(view, agg);
       }
+      await view.resize(viewport);
       if (opts.emulate === "cdp") await reduceMotion(view);
       await view.navigate(url);
+      const ready = opts.readySelector
+        ? await waitReady(view, opts.readySelector, opts.readyTimeoutMs)
+        : true;
       const r =
         opts.matcher === "cdp"
           ? await processPageCdp(view, agg, marker, opts.states)
@@ -69,9 +100,10 @@ export async function runUsage(opts: UsageOptions) {
               opts.emulate === "cssom",
             );
       libraryCss ??= r.libraryCss;
-      perPage[`${name} ${theme}`] = r.observed;
+      perPage[label] = r.observed;
       const stats = (r as { stats?: DomPageStats }).stats;
       if (stats) domStats.push(stats);
+      return ready;
     },
   );
   const ms = performance.now() - started;
@@ -86,7 +118,9 @@ export async function runUsage(opts: UsageOptions) {
     inventory,
     opts.fixtures.length,
     opts.themes.length,
+    viewports.length,
   );
+  const notReady = jobs.filter((_, i) => !ready[i]).map((j) => j.label);
   const unmatched = neverMatchedRules(agg, inventory);
   await Bun.write(
     path.join(opts.outDir, "usage.json"),
@@ -98,10 +132,11 @@ export async function runUsage(opts: UsageOptions) {
         fold: foldCandidates(agg).length,
         perPage,
         dead: deadInFixtures(agg).length,
+        notReady,
       },
       null,
       2,
     ),
   );
-  return { ms, summary, domStats };
+  return { ms, summary, domStats, notReady };
 }

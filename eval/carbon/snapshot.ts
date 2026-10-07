@@ -9,11 +9,8 @@ import { readdir } from "node:fs/promises";
 import { loadavg } from "node:os";
 import path from "node:path";
 import { serveFixtures } from "../../src/browser/serve";
-import {
-  type CaptureOptions,
-  capture,
-  type Snapshot,
-} from "../../src/browser/snapshot";
+import { type CaptureOptions, capture } from "../../src/browser/snapshot";
+import type { Snapshot } from "../../src/core/snapshot-diff";
 import { CCS_ROOT, fixturesDir, oldTool, results } from "./ccs";
 
 const root = CCS_ROOT;
