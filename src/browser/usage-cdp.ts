@@ -1,4 +1,3 @@
-/** The `cdp` usage engine: Chrome's matched rules per element. */
 import { parseStylesheet } from "../core/parse";
 import { canonicalContext, layerRanks } from "../core/placement";
 import {
@@ -22,6 +21,7 @@ import {
   STATE_SETS,
 } from "../page/states";
 import { librarySheet } from "./library";
+import type { PageUsage } from "./usage-dom";
 import type { View } from "./view";
 
 interface CdpRuleMatch {
@@ -47,7 +47,7 @@ interface CdpNode {
   children?: CdpNode[];
 }
 
-// Layer ranks of the last library sheet seen: usually the same on every page.
+// Cached: the library sheet is usually the same on every page.
 let ranksFor: { text: string; ranks: Map<string, number> } | undefined;
 function libraryLayerRanks(text: string): Map<string, number> {
   if (ranksFor?.text !== text)
@@ -60,10 +60,7 @@ function libraryLayerRanks(text: string): Map<string, number> {
   return ranksFor.ranks;
 }
 
-/**
- * A nested rule's selector resolved as `parseRules` does it, from CDP's own
- * (relative) selector and its ancestors'. Nested declarations have none: `&`.
- */
+/** As `parseRules` resolves it. Nested declarations have no own selector: `&`. */
 function nestedSelector(own: string, ancestors: string[]): string {
   let parent = parseSelectorList(ancestors[ancestors.length - 1]);
   for (let i = ancestors.length - 2; i >= 0; i--) {
@@ -108,12 +105,28 @@ function toMatchedRule(
   return matched;
 }
 
-async function processPageCdpInner(
+// Disables the domains however it ends: a tab left with CSS enabled gets no
+// `styleSheetAdded` replay on the next page, which then finds no library.
+export async function processPageCdp(
   view: View,
   agg: UsageAggregate,
   sheetMarker: string,
   states: boolean,
-): Promise<{ observed: number; libraryCss?: string }> {
+): Promise<PageUsage> {
+  try {
+    return await observePage(view, agg, sheetMarker, states);
+  } finally {
+    await view.cdp("CSS.disable");
+    await view.cdp("DOM.disable");
+  }
+}
+
+async function observePage(
+  view: View,
+  agg: UsageAggregate,
+  sheetMarker: string,
+  states: boolean,
+): Promise<PageUsage> {
   const sheets: { styleSheetId: string; origin: string }[] = [];
   const off = view.on<{ header: { styleSheetId: string; origin: string } }>(
     "CSS.styleSheetAdded",
@@ -143,29 +156,23 @@ async function processPageCdpInner(
   if (!library) return { observed: 0 };
   const lib = library.styleSheetId;
   const ranks = libraryLayerRanks(library.text);
+  const toRules = (matches: CdpRuleMatch[]) =>
+    matches.flatMap((rm) => toMatchedRule(rm, lib, ranks) ?? []);
 
-  const matchedFor = async (nodeId: number) => {
+  const observe = async (nodeId: number) => {
     const res = await view.cdp<{
       matchedCSSRules?: CdpRuleMatch[];
       pseudoElements?: { pseudoType: string; matches: CdpRuleMatch[] }[];
     }>("CSS.getMatchedStylesForNode", { nodeId });
-    const self = (res.matchedCSSRules ?? [])
-      .map((rm) => toMatchedRule(rm, lib, ranks))
-      .filter((r): r is MatchedRule => r !== undefined);
-    const pseudos: MatchedRule[][] = [];
-    for (const pe of res.pseudoElements ?? []) {
-      if (pe.pseudoType !== "before" && pe.pseudoType !== "after") continue;
-      const list = pe.matches
-        .map((rm) => toMatchedRule(rm, lib, ranks))
-        .filter((r): r is MatchedRule => r !== undefined);
-      if (list.length > 0) pseudos.push(list);
-    }
+    const lists = [
+      toRules(res.matchedCSSRules ?? []),
+      ...(res.pseudoElements ?? [])
+        .filter((pe) => pe.pseudoType === "before" || pe.pseudoType === "after")
+        .map((pe) => toRules(pe.matches)),
+    ];
     let observed = 0;
-    if (self.length > 0) {
-      recordObservation(agg, self);
-      observed++;
-    }
-    for (const list of pseudos) {
+    for (const list of lists) {
+      if (list.length === 0) continue;
       recordObservation(agg, list);
       observed++;
     }
@@ -202,31 +209,28 @@ async function processPageCdpInner(
 
   let observed = 0;
   // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
-  for (const nodeId of elements) observed += await matchedFor(nodeId);
+  for (const nodeId of elements) observed += await observe(nodeId);
 
   if (states) {
     const { nodeIds } = await view.cdp<{ nodeIds: number[] }>(
       "DOM.querySelectorAll",
-      {
-        nodeId: body.nodeId,
-        selector: INTERACTIVE,
-      },
+      { nodeId: body.nodeId, selector: INTERACTIVE },
     );
     for (const nodeId of nodeIds.slice(0, MAX_STATE_ELEMENTS)) {
+      const parent = parentOf.get(nodeId);
+      const targets = [
+        nodeId,
+        ...(parent !== undefined && parent !== body.nodeId ? [parent] : []),
+        ...descendantsOf(nodeId, childrenOf, MAX_STATE_DESCENDANTS),
+      ];
       for (const forced of Object.values(STATE_SETS)) {
         // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
         await view.cdp("CSS.forcePseudoState", {
           nodeId,
           forcedPseudoClasses: forced,
         });
-        const parent = parentOf.get(nodeId);
-        const targets = [
-          nodeId,
-          ...(parent !== undefined && parent !== body.nodeId ? [parent] : []),
-          ...descendantsOf(nodeId, childrenOf, MAX_STATE_DESCENDANTS),
-        ];
         // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
-        for (const t of targets) observed += await matchedFor(t);
+        for (const t of targets) observed += await observe(t);
         await view.cdp("CSS.forcePseudoState", {
           nodeId,
           forcedPseudoClasses: [],
@@ -242,31 +246,8 @@ function descendantsOf(
   childrenOf: Map<number, number[]>,
   cap: number,
 ): number[] {
-  const out: number[] = [];
-  const stack = [...(childrenOf.get(nodeId) ?? [])];
-  while (stack.length > 0 && out.length < cap) {
-    const id = stack.shift();
-    if (id === undefined) break;
-    out.push(id);
-    stack.push(...(childrenOf.get(id) ?? []));
-  }
-  return out;
-}
-
-/**
- * Disables the domains however it ends: a tab left with CSS enabled gets no
- * `styleSheetAdded` replay on the next page, which then finds no library.
- */
-export async function processPageCdp(
-  view: View,
-  agg: UsageAggregate,
-  sheetMarker: string,
-  states: boolean,
-): Promise<{ observed: number; libraryCss?: string }> {
-  try {
-    return await processPageCdpInner(view, agg, sheetMarker, states);
-  } finally {
-    await view.cdp("CSS.disable");
-    await view.cdp("DOM.disable");
-  }
+  const queue = [...(childrenOf.get(nodeId) ?? [])];
+  for (let i = 0; i < queue.length && queue.length < cap; i++)
+    queue.push(...(childrenOf.get(queue[i]) ?? []));
+  return queue.slice(0, cap);
 }

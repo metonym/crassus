@@ -1,11 +1,12 @@
-// Forced states, shared by the snapshot, both usage engines and the page script.
-
-/** What each forced state sets. Focus also sets `:focus-visible`. */
 export const STATE_SETS: Record<string, string[]> = {
   hover: ["hover"],
   focus: ["focus", "focus-visible"],
   active: ["active"],
 };
+
+/** State pseudo-classes, rewritten to `[data-cr-*]` when forced without CDP. */
+export const STATE_RE =
+  /:(focus-visible|focus-within|hover|focus|active)(?![\w-])/g;
 
 /** Elements whose states are forced, up to MAX_STATE_ELEMENTS per page. */
 export const INTERACTIVE =

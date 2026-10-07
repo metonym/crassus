@@ -4,22 +4,14 @@
  *
  *   CCS_ROOT=… bun eval/carbon/selector-stats.ts [scenario] [--runs 5] [--recalc-runs 10]
  */
-import { loadavg } from "node:os";
 import path from "node:path";
-import { CCS_ROOT, results } from "./ccs";
+import { args, CCS_ROOT, loadAvg, opt, PLAYWRIGHT_SHELL, results } from "./ccs";
 
-const root = CCS_ROOT;
-const args = process.argv.slice(2);
-const opt = (n: string, d: string) => {
-  const i = args.indexOf(`--${n}`);
-  return i >= 0 ? args[i + 1] : d;
-};
 const scenario = args[0] && !args[0].startsWith("--") ? args[0] : "link-icons";
-const RUNS = opt("runs", "5");
-const RECALC = opt("recalc-runs", "10");
+const RUNS = opt("runs") ?? "5";
+const RECALC = opt("recalc-runs") ?? "10";
 const PORT = 4391;
 const URL = `http://localhost:${PORT}`;
-const SHELL = `${process.env.HOME}/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell`;
 const outDir = results("selector-stats");
 
 const vite = Bun.spawn(
@@ -32,11 +24,11 @@ const vite = Bun.spawn(
     String(PORT),
     "--strictPort",
   ],
-  { cwd: root, stdout: "ignore", stderr: "ignore" },
+  { cwd: CCS_ROOT, stdout: "ignore", stderr: "ignore" },
 );
 for (let i = 0; i < 100; i++) {
   try {
-    // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
+    // biome-ignore lint/performance/noAwaitInLoops: polling until the server answers
     if ((await fetch(URL)).status) break;
   } catch {}
   await Bun.sleep(200);
@@ -88,7 +80,7 @@ async function run(
       URL,
     ],
     {
-      cwd: root,
+      cwd: CCS_ROOT,
       stdout: "ignore",
       stderr: "inherit",
       env: { ...process.env, ...env },
@@ -102,9 +94,7 @@ async function run(
 
 try {
   console.log(
-    `scenario ${scenario}, runs ${RUNS}, recalc-runs ${RECALC}; load avg ${loadavg()
-      .map((x) => x.toFixed(1))
-      .join(" ")}`,
+    `scenario ${scenario}, runs ${RUNS}, recalc-runs ${RECALC}; load avg ${loadAvg()}`,
   );
   await Bun.$`mkdir -p ${outDir}`;
   // Warm vite's transform cache so neither side pays for it.
@@ -115,7 +105,7 @@ try {
   const neu = await run(
     "webview",
     path.join(import.meta.dir, "selector-stats-harness.ts"),
-    { CR_CHROME_PATH: SHELL },
+    { CR_CHROME_PATH: PLAYWRIGHT_SHELL },
   );
 
   const a = old.report;
@@ -152,20 +142,18 @@ try {
   });
   // Spearman over the shared top-N selectors.
   const rank = (xs: number[]) => {
-    const s = [...xs].map((x, i) => [x, i]).sort((p, q) => p[0] - q[0]);
-    const r = new Array(xs.length);
-    s.forEach(([, i], k) => {
-      r[i] = k;
-    });
+    const r: number[] = [];
+    xs.map((x, i) => [x, i] as const)
+      .sort((p, q) => p[0] - q[0])
+      .forEach(([, i], k) => {
+        r[i] = k;
+      });
     return r;
   };
   const ra = rank(ranksA);
   const rb = rank(ranksB);
   const n = ra.length;
-  const d2 = ra.reduce(
-    (acc: number, x: number, i: number) => acc + (x - rb[i]) ** 2,
-    0,
-  );
+  const d2 = ra.reduce((acc, x, i) => acc + (x - rb[i]) ** 2, 0);
   const rho = n > 1 ? 1 - (6 * d2) / (n * (n * n - 1)) : 1;
   console.log(
     `top-${a.top.length} selectors: ${both} shared, ${countersEqual}/${both} with identical attempts+matches, Spearman ρ of elapsed rank ${rho.toFixed(2)}`,

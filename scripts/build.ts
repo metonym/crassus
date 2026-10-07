@@ -11,7 +11,6 @@ const entries = {
   index: { entry: resolve(root, "src/index.ts"), target: "browser" },
   // Bun.WebView drivers. The page script is inlined by a Bun macro.
   browser: { entry: resolve(root, "src/browser/index.ts"), target: "bun" },
-  // The `crassus` bin (Bun).
   cli: { entry: resolve(root, "src/cli/index.ts"), target: "bun" },
 } as const;
 

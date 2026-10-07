@@ -1,21 +1,3 @@
-/**
- * Cascade replay and aggregation for rung 2. Each observation (an element,
- * pseudo-element or forced state) is the list of library rules matched on
- * it in normal cascade order (layer, specificity, scope, source order), as
- * CDP's `matchedCSSRules` or `cascadeOrder` gives it. Per longhand, the
- * winner is the `!important` declaration in the earliest layer, else the
- * last normal one.
- *
- * A shorthand expands to its longhands (CDP's `longhandProperties`, or the
- * text-less entries CDP lists beside it, or the engine's CSSOM in the `dom`
- * engine) and counts as won if it wins any of them: a partial override
- * still shows.
- *
- * Rule identity for "never matched" is `context + selector`, so a selector
- * authored twice in one context counts as matched if either copy is. That
- * under-reports, which is the safe side for evidence.
- */
-
 import { SHORTHANDS } from "./shorthands";
 
 /** A `Protocol.CSS.CSSProperty` subset: CDP responses fit as they are. */
@@ -40,7 +22,7 @@ export interface Declaration {
 }
 
 export interface MatchedRule {
-  /** `@media`, `@supports`, `@container`, outermost first, joined with " / ". */
+  /** See `Rule.context`. */
   context: string;
   selector: string;
   declarations: Declaration[];
@@ -52,10 +34,7 @@ const VENDOR_PREFIX_RE = /^-(?:webkit|moz|ms)-(.+)$/;
 
 const usable = (p: CdpProperty) => !p.disabled && p.parsedOk !== false;
 
-/**
- * The standard property a vendor alias sets, when CDP lists it text-less
- * beside the alias (`-webkit-user-select` sets `user-select`).
- */
+/** The standard property a vendor alias sets, when CDP lists it text-less beside it. */
 function aliasTarget(
   name: string,
   cssProperties: CdpProperty[],
@@ -68,9 +47,8 @@ function aliasTarget(
 }
 
 /**
- * The authored declarations of a matched rule, from CDP's `cssProperties`:
- * entries with `text` (the longhands CDP derives from a shorthand have
- * none), minus disabled and unparsed ones.
+ * A matched rule's authored declarations: the `cssProperties` with `text`
+ * (CDP's derived longhands have none), minus disabled and unparsed ones.
  */
 export function authoredDeclarations(
   cssProperties: CdpProperty[],
@@ -105,17 +83,16 @@ export function authoredDeclarations(
 
 const WS_RUN_RE = /\s+/g;
 
-/** Context text with whitespace collapsed. */
 export function normalizeContext(context: string): string {
   return context.replace(WS_RUN_RE, " ").trim();
 }
 
-// ---------------------------------------------------------------------------
-// Cascade replay
-
 type Loc = [ruleIndex: number, declIndex: number];
 
-/** Longhand -> the winning declaration in one observation (see the header). */
+/**
+ * Longhand -> the winning declaration: the `!important` one in the earliest
+ * layer, else the last normal one.
+ */
 export function cascadeWinners(rules: MatchedRule[]): Map<string, Loc> {
   const important = new Map<string, Loc>();
   const importantRank = new Map<string, number>();
@@ -138,6 +115,7 @@ export function cascadeWinners(rules: MatchedRule[]): Map<string, Loc> {
   return normal;
 }
 
+// A shorthand wins if it wins any longhand, so a partial override still shows.
 const wonAny = (
   winners: Map<string, Loc>,
   decl: Declaration,
@@ -156,9 +134,6 @@ export function replayWins(rules: MatchedRule[]): boolean[][] {
     rule.declarations.map((decl, di) => wonAny(winners, decl, ri, di)),
   );
 }
-
-// ---------------------------------------------------------------------------
-// Aggregation
 
 export interface DeclarationStats {
   context: string;
@@ -187,7 +162,8 @@ export function createAggregate(): UsageAggregate {
   };
 }
 
-const ruleKey = (r: MatchedRule): string => `${r.context}\0${r.selector}`;
+const ruleKey = (r: { context: string; selector: string }): string =>
+  `${r.context}\0${r.selector}`;
 const declKey = (r: MatchedRule, d: Declaration): string =>
   `${r.context}\0${r.selector}\0${d.property}\0${d.value}\0${d.important}`;
 const ruleLabel = (r: MatchedRule): string =>
@@ -215,7 +191,10 @@ function statsFor(
   return stats;
 }
 
-/** Records one observation: the library rules matched, in cascade order. */
+/**
+ * Records one observation (element, pseudo-element or forced state): its
+ * matched library rules in cascade order, as CDP or `cascadeOrder` gives them.
+ */
 export function recordObservation(
   agg: UsageAggregate,
   rules: MatchedRule[],
@@ -233,8 +212,7 @@ export function recordObservation(
         stats.won++;
         continue;
       }
-      // The loss goes to the winner of the first longhand: enough to spot a
-      // recurring override.
+      // Charged to the first longhand's winner: enough to spot a recurring override.
       const winnerLoc = winners.get(decl.longhands[0]);
       if (!winnerLoc) continue;
       const label = ruleLabel(rules[winnerLoc[0]]);
@@ -246,13 +224,11 @@ export function recordObservation(
 export const bytesOf = (d: { property: string; value: string }): number =>
   d.property.length + d.value.length + 2;
 
-// Runs emulate `prefers-reduced-motion`, so a `transition` always loses to
-// its `transition: none` there. A preference-gated rule is an alternative,
-// not an override.
+// Runs emulate `prefers-reduced-motion`, where `transition` always loses to
+// `transition: none`: a preference-gated rule is an alternative, not an override.
 const PREFERENCE_MEDIA_RE =
   /prefers-reduced-motion|prefers-contrast|forced-colors/;
 
-/** A loss that only happens because of an emulated user preference. */
 const losesOnlyToPreferenceMedia = (d: DeclarationStats): boolean => {
   const winners = Object.keys(d.lostTo);
   return (
@@ -272,9 +248,6 @@ export function foldCandidates(agg: UsageAggregate): DeclarationStats[] {
   return deadInFixtures(agg).filter((d) => Object.keys(d.lostTo).length === 1);
 }
 
-// ---------------------------------------------------------------------------
-// Inventory: every rule of the sheet, matched or not
-
 export interface InventoryRule {
   context: string;
   selector: string;
@@ -282,7 +255,7 @@ export interface InventoryRule {
   bytes: number;
 }
 
-/** The inventory from `parseRules` output (one entry per selector). */
+/** Every rule of the sheet, matched or not, from `parseRules` output. */
 export function inventoryFromRules(
   rules: { context: string; selector: string; decls: Map<string, string> }[],
 ): InventoryRule[] {
@@ -300,18 +273,16 @@ export function inventoryFromRules(
   });
 }
 
-/** Rules no observation matched. */
+/**
+ * Rules no observation matched. A selector authored twice in one context is
+ * matched if either copy is: that under-reports, the safe side for evidence.
+ */
 export function neverMatchedRules(
   agg: UsageAggregate,
   inventory: InventoryRule[],
 ): InventoryRule[] {
-  return inventory.filter(
-    (r) => !agg.matchedRuleKeys.has(`${r.context}\0${r.selector}`),
-  );
+  return inventory.filter((r) => !agg.matchedRuleKeys.has(ruleKey(r)));
 }
-
-// ---------------------------------------------------------------------------
-// Summary
 
 export interface Summary {
   fixtures: number;
@@ -352,7 +323,7 @@ export function summarize(
   };
 }
 
-/** Folds `from` into `into`, as when merging per-tab aggregates. */
+/** Folds `from` into `into` (per-tab aggregates). */
 export function mergeAggregate(
   into: UsageAggregate,
   from: UsageAggregate,

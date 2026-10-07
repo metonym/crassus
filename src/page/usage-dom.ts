@@ -1,10 +1,5 @@
-/**
- * The `dom` usage engine's page half, bundled to an IIFE by page-script.ts.
- * Matches the library sheet's rules against every element with
- * `Element.matches()`, bucketed by the rightmost compound's id, class or tag
- * as Blink's RuleSet does, and returns compact match lists. Cascade order and
- * declarations are worked out Bun-side.
- */
+// The `dom` usage engine's page half: `Element.matches()` against rules
+// bucketed by the rightmost compound's id, class or tag, as Blink's RuleSet.
 import {
   type Complex,
   parseComplex,
@@ -13,21 +8,22 @@ import {
   serializeList,
   splitList,
 } from "../core/selector";
+import { pushTo } from "../core/util";
 import {
   INTERACTIVE,
   MAX_STATE_DESCENDANTS,
   MAX_STATE_ELEMENTS,
+  STATE_RE,
   STATE_SETS,
 } from "./states";
 
-const STATE_RE = /:(focus-visible|focus-within|hover|focus|active)(?![\w-])/g;
 const PSEUDO_END = /::?(before|after)$/i;
 
 interface Prepared {
   rule: number;
   sel: number;
   host: string;
-  pe: "" | "before" | "after";
+  kind: 0 | 1 | 2;
 }
 
 /** [cssomRuleIndex, ...matchingSelectorIndexes] */
@@ -40,10 +36,7 @@ let active: boolean[] = [];
 /** Index of the style rule each rule is nested in, or -1. */
 let parents: number[] = [];
 
-/**
- * Selector text with `&` resolved against the enclosing style rules (CSS
- * nesting), from the current selectorText. Nested declarations are `&`.
- */
+/** Current selector texts with `&` resolved. Nested declarations are `&`. */
 function resolvedSelectors(): string[] {
   const texts: string[] = [];
   const lists: (Complex[] | undefined)[] = [];
@@ -86,7 +79,6 @@ function unescapeIdent(s: string): string {
   );
 }
 
-/** Rightmost compound start (after the last top-level combinator). */
 function rightmostStart(sel: string): number {
   let depth = 0;
   let start = 0;
@@ -121,7 +113,7 @@ function bucketKey(host: string): string {
 function collectRules(
   sheet: CSSStyleSheet,
 ): { ctx: string[]; sel: string; active: boolean }[] {
-  const out: { ctx: string[]; sel: string; active: boolean }[] = [];
+  const ctxs: string[][] = [];
   rules = [];
   active = [];
   parents = [];
@@ -134,9 +126,8 @@ function collectRules(
     rules.push(r);
     active.push(on);
     parents.push(parent);
-    out.push({ ctx, sel: "", active: on });
+    ctxs.push(ctx);
   };
-  // `parent`: index of the enclosing style rule (CSS nesting), or -1.
   const visit = (
     list: CSSRuleList,
     ctx: string[],
@@ -183,9 +174,11 @@ function collectRules(
     }
   };
   visit(sheet.cssRules, [], true, -1);
-  const texts = resolvedSelectors();
-  for (let i = 0; i < out.length; i++) out[i].sel = texts[i];
-  return out;
+  return resolvedSelectors().map((sel, i) => ({
+    ctx: ctxs[i],
+    sel,
+    active: active[i],
+  }));
 }
 
 const api = {
@@ -229,7 +222,6 @@ const api = {
     return { longhands, valid };
   },
 
-  /** Emulates prefers-reduced-motion: reduce by rewriting media rules. */
   reducedMotion() {
     for (const sheet of Array.from(document.styleSheets)) {
       const visit = (list: CSSRuleList) => {
@@ -252,18 +244,15 @@ const api = {
 
   run(states: boolean) {
     const t0 = performance.now();
-    // Forced states: state pseudo-classes become `[data-cr-*]` in place (same
-    // specificity and order), toggled below.
+    // Rewritten in place (same specificity and order), toggled below.
     if (states) {
       for (const r of rules) {
-        if (r instanceof CSSStyleRule && STATE_RE.test(r.selectorText)) {
-          STATE_RE.lastIndex = 0;
-          r.selectorText = r.selectorText.replace(
-            STATE_RE,
-            (_, s) => `[data-cr-${s}]`,
-          );
-        }
-        STATE_RE.lastIndex = 0;
+        if (!(r instanceof CSSStyleRule)) continue;
+        const sel = r.selectorText.replace(
+          STATE_RE,
+          (_, s) => `[data-cr-${s}]`,
+        );
+        if (sel !== r.selectorText) r.selectorText = sel;
       }
     }
     const buckets = new Map<string, Prepared[]>();
@@ -271,22 +260,19 @@ const api = {
     resolvedSelectors().forEach((selectorText, ri) => {
       splitList(selectorText).forEach(({ text }, si) => {
         let host = text;
-        let pe: Prepared["pe"] = "";
+        let kind: Prepared["kind"] = 0;
         const m = PSEUDO_END.exec(host);
         if (m) {
-          pe = m[1].toLowerCase() as Prepared["pe"];
+          kind = m[1].toLowerCase() === "before" ? 1 : 2;
           host = host.slice(0, m.index).trim();
           if (!host || TRAILING_COMBINATOR_RE.test(host)) host += "*";
         }
+        // Other pseudo-elements never match an element.
         if (OTHER_PSEUDO_ELEMENT_RE.test(host)) {
           skipped++;
-          return; // other pseudo-elements: not element matches
+          return;
         }
-        const key = bucketKey(host);
-        const list = buckets.get(key);
-        const p = { rule: ri, sel: si, host, pe };
-        if (list) list.push(p);
-        else buckets.set(key, [p]);
+        pushTo(buckets, bucketKey(host), { rule: ri, sel: si, host, kind });
       });
     });
     const tPrep = performance.now();
@@ -314,12 +300,8 @@ const api = {
           } catch {
             bad.add(p.host);
           }
-          if (!ok) continue;
-          const kind = p.pe === "" ? 0 : p.pe === "before" ? 1 : 2;
-          const sels = byKind[kind].get(p.rule);
-          if (sels) {
-            if (!sels.includes(p.sel)) sels.push(p.sel);
-          } else byKind[kind].set(p.rule, [p.sel]);
+          if (ok && !byKind[p.kind].get(p.rule)?.includes(p.sel))
+            pushTo(byKind[p.kind], p.rule, p.sel);
         }
       }
       byKind.forEach((m, kind) => {
@@ -354,14 +336,11 @@ const api = {
           if (el.parentElement && el.parentElement !== body)
             observe(el.parentElement, out);
           const queue = Array.from(el.children);
-          let n = 0;
-          while (queue.length > 0 && n < MAX_STATE_DESCENDANTS) {
-            const d = queue.shift() as Element;
-            n++;
-            observe(d, out);
-            queue.push(...Array.from(d.children));
+          for (let i = 0; i < queue.length && i < MAX_STATE_DESCENDANTS; i++) {
+            observe(queue[i], out);
+            queue.push(...Array.from(queue[i].children));
           }
-          for (const n2 of names) el.removeAttribute(`data-cr-${n2}`);
+          for (const n of names) el.removeAttribute(`data-cr-${n}`);
           for (const a of within) a.removeAttribute("data-cr-focus-within");
         }
       }
@@ -380,4 +359,6 @@ const api = {
   },
 };
 
-(window as unknown as { __crDom: typeof api }).__crDom = api;
+export type UsageDomApi = typeof api;
+
+Object.assign(window, { __crDom: api });

@@ -1,12 +1,9 @@
-/**
- * In-page helpers, copied verbatim from e2e/cascade-snapshot.ts so captures
- * are comparable byte for byte.
- */
+// From carbon-components-svelte's e2e/cascade-snapshot.ts, so captures compare
+// byte for byte. An expression, as evaluate() takes no statements.
 export const PAGE_HELPERS = `
   (() => {
-    // Only longhands the loaded stylesheets can set (the browser expands
-    // shorthands in CSSStyleDeclaration), so files stay small and diffs stay
-    // about the cascade. Custom properties are theme tokens; skip them.
+    // Only longhands the stylesheets set, so diffs stay about the cascade.
+    // Custom properties are theme tokens: skipped.
     const declared = new Set();
     for (const sheet of document.styleSheets) {
       let rules;
@@ -75,5 +72,5 @@ export const PAGE_HELPERS = `
         return out;
       },
     };
-  })();
+  })()
 `;

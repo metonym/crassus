@@ -1,14 +1,12 @@
-/**
- * CSS parser for cascade analysis. Not a full CSS Syntax implementation: it
- * recovers at-rules, style rules and declarations, and keeps values as raw
- * text. Error recovery follows browsers (fuzz-tested against Chrome).
- */
+// Not a full CSS Syntax parser: values stay raw text. Error recovery follows
+// browsers (fuzz-tested against Chrome).
 
 import {
   AT,
   BACKSLASH,
   COLON,
   COMMA,
+  commentEnd,
   DASH,
   DQUOTE,
   EQ,
@@ -33,7 +31,7 @@ import {
 
 export interface Decl {
   property: string;
-  /** Raw value text (trimmed, `!important` removed). */
+  /** `!important` removed; trimmed unless a custom property. */
   raw: string;
   important: boolean;
   start: number;
@@ -45,10 +43,8 @@ interface StyleRule {
   kind: "rule";
   prelude: string;
   preludeStart: number;
-  /** Just past the closing `}`. */
   end: number;
   decls: Decl[];
-  /** Nested rules (CSS nesting). */
   rules: Node[];
 }
 
@@ -58,21 +54,30 @@ interface AtRule {
   name: string;
   prelude: string;
   start: number;
-  /** `@font-face { … }`, or a group rule nested in a style rule (`.a { @media … { color: red } }`). */
+  /** `@font-face { … }`, or a group rule nested in a style rule. */
   decls: Decl[] | null;
   rules: Node[] | null;
 }
 
 export type Node = StyleRule | AtRule;
 
+interface Block {
+  decls: Decl[];
+  rules: Node[];
+  end: number;
+}
+
 const VENDOR_PREFIX_RE = /^-[a-z]+-/;
 // What `scan` can skip without looking.
 const PLAIN_RE = /[^"'/\\()[\]{};]+/y;
+const IMPORTANT_RE = /!\s*important\s*(?:\/\*[\s\S]*?\*\/\s*)*$/i;
 
-/** Blocks nested deeper are skipped: no real stylesheet comes close, and the recursion would overflow. */
+// Deeper blocks are skipped: no real sheet comes close, and the recursion
+// would overflow.
 export const MAX_DEPTH = 256;
 
-// At-rules whose block holds declarations, not rules.
+export const unprefixed = (name: string) => name.replace(VENDOR_PREFIX_RE, "");
+
 const DECL_AT_RULES = new Set([
   "font-face",
   "page",
@@ -86,11 +91,6 @@ const DECL_AT_RULES = new Set([
 
 export function parseStylesheet(css: string): Node[] {
   const n = css.length;
-
-  function skipComment(i: number): number {
-    const end = css.indexOf("*/", i + 2);
-    return end < 0 ? n : end + 2;
-  }
 
   function skipString(from: number, quote: number): number {
     let i = from + 1;
@@ -111,16 +111,14 @@ export function parseStylesheet(css: string): Node[] {
       const c = css.charCodeAt(i);
       if (isWs(c)) i++;
       else if (c === SLASH && css.charCodeAt(i + 1) === STAR)
-        i = skipComment(i);
+        i = commentEnd(css, i);
       else break;
     }
     return i;
   }
 
-  /**
-   * The first `{`, `;` or `}` outside strings, comments, parens and
-   * brackets. With `braces`, `{}` pairs nest (custom property values).
-   */
+  // The first `{`, `;` or `}` outside strings, comments, parens and
+  // brackets. With `braces`, `{}` pairs nest (custom property values).
   function scan(from: number, braces: boolean): number {
     let i = from;
     let depth = 0;
@@ -137,7 +135,7 @@ export function parseStylesheet(css: string): Node[] {
         continue;
       }
       if (c === SLASH && css.charCodeAt(i + 1) === STAR) {
-        i = skipComment(i);
+        i = commentEnd(css, i);
         continue;
       }
       if (c === BACKSLASH) {
@@ -161,7 +159,7 @@ export function parseStylesheet(css: string): Node[] {
     return n;
   }
 
-  /** `inStyle`: in a style rule, where a group rule's block holds declarations too. */
+  // `inStyle`: in a style rule, a group rule's block holds declarations too.
   function parseAtRule(
     start: number,
     inStyle: boolean,
@@ -196,15 +194,11 @@ export function parseStylesheet(css: string): Node[] {
     if (stop >= n) return { node, end: n };
     const c = css.charCodeAt(stop);
     if (c !== LBRACE) return { node, end: c === SEMI ? stop + 1 : stop };
-    if (DECL_AT_RULES.has(name.replace(VENDOR_PREFIX_RE, ""))) {
+    const declsOnly = DECL_AT_RULES.has(unprefixed(name));
+    if (declsOnly || inStyle) {
       const r = parseDeclList(stop + 1);
       node.decls = r.decls;
-      return { node, end: r.end };
-    }
-    if (inStyle) {
-      const r = parseDeclList(stop + 1);
-      node.decls = r.decls;
-      node.rules = r.rules;
+      if (!declsOnly) node.rules = r.rules;
       return { node, end: r.end };
     }
     const r = parseRuleList(stop + 1);
@@ -214,7 +208,6 @@ export function parseStylesheet(css: string): Node[] {
 
   let depth = 0;
 
-  /** Just past the `}` closing the block that starts at `from`. */
   function skipBlock(from: number): number {
     let i = from;
     let open = 1;
@@ -229,7 +222,6 @@ export function parseStylesheet(css: string): Node[] {
     return n;
   }
 
-  /** A group rule's block. */
   function parseRuleList(from: number): { nodes: Node[]; end: number } {
     if (depth >= MAX_DEPTH) return { nodes: [], end: skipBlock(from) };
     depth++;
@@ -274,25 +266,25 @@ export function parseStylesheet(css: string): Node[] {
         stop = scan(stop + 1, false);
       }
       if (stop >= n) return { nodes, end: n };
-      const r = parseDeclList(stop + 1);
-      if (!invalid)
-        nodes.push({
-          kind: "rule",
-          prelude: css.slice(i, stop).trim(),
-          preludeStart: i,
-          end: r.end,
-          decls: r.decls,
-          rules: r.rules,
-        });
-      i = r.end;
+      const rule = parseStyleRule(i, stop);
+      if (!invalid) nodes.push(rule);
+      i = rule.end;
     }
   }
 
-  function parseDeclList(from: number): {
-    decls: Decl[];
-    rules: Node[];
-    end: number;
-  } {
+  function parseStyleRule(start: number, brace: number): StyleRule {
+    const r = parseDeclList(brace + 1);
+    return {
+      kind: "rule",
+      prelude: css.slice(start, brace).trim(),
+      preludeStart: start,
+      end: r.end,
+      decls: r.decls,
+      rules: r.rules,
+    };
+  }
+
+  function parseDeclList(from: number): Block {
     if (depth >= MAX_DEPTH)
       return { decls: [], rules: [], end: skipBlock(from) };
     depth++;
@@ -301,11 +293,7 @@ export function parseStylesheet(css: string): Node[] {
     return r;
   }
 
-  function readDeclList(from: number): {
-    decls: Decl[];
-    rules: Node[];
-    end: number;
-  } {
+  function readDeclList(from: number): Block {
     let i = from;
     const decls: Decl[] = [];
     const rules: Node[] = [];
@@ -327,17 +315,9 @@ export function parseStylesheet(css: string): Node[] {
       const custom = c === DASH && css.charCodeAt(i + 1) === DASH;
       const stop = scan(i, custom);
       if (stop < n && css.charCodeAt(stop) === LBRACE) {
-        const prelude = css.slice(i, stop).trim();
-        const r = parseDeclList(stop + 1);
-        rules.push({
-          kind: "rule",
-          prelude,
-          preludeStart: i,
-          end: r.end,
-          decls: r.decls,
-          rules: r.rules,
-        });
-        i = r.end;
+        const rule = parseStyleRule(i, stop);
+        rules.push(rule);
+        i = rule.end;
         continue;
       }
       const text = css.slice(i, stop);
@@ -367,9 +347,6 @@ export function parseStylesheet(css: string): Node[] {
   return readRuleList(css.charCodeAt(0) === 0xfeff ? 1 : 0, false).nodes;
 }
 
-const IMPORTANT_RE = /!\s*important\s*(?:\/\*[\s\S]*?\*\/\s*)*$/i;
-
-/** Offset of each line's first character. */
 export function lineStarts(text: string): number[] {
   const starts = [0];
   for (let i = 0; i < text.length; i++)
@@ -395,10 +372,8 @@ export function locator(css: string): (offset: number) => {
   };
 }
 
-/**
- * Value or prelude text without comments, with whitespace collapsed, and
- * dropped next to `,` `(` `)` and after `:` inside parens. Strings stay.
- */
+// Comments dropped, whitespace collapsed (and dropped next to `,` `(` `)` and
+// after `:` in parens). Strings stay.
 export function canonicalText(raw: string): string {
   // Verbatim runs are copied as slices; whitespace and comments end them.
   const n = raw.length;
@@ -412,10 +387,7 @@ export function canonicalText(raw: string): string {
     const comment = c === SLASH && raw.charCodeAt(i + 1) === STAR;
     if (comment || isWs(c)) {
       if (start < i) out += raw.slice(start, i);
-      if (comment) {
-        const end = raw.indexOf("*/", i + 2);
-        i = end < 0 ? n : end + 2;
-      } else i++;
+      i = comment ? commentEnd(raw, i) : i + 1;
       pendingWs = true;
       start = i;
       continue;
@@ -448,11 +420,8 @@ const NO_WS_AFTER = new Set([COMMA, LPAREN]);
 const COMPARISON = new Set([LT, GT, EQ]);
 const CONDITION_SPACING_RE = /\)[a-z]|[<>=]/i;
 
-/**
- * A condition prelude after `canonicalText`, with a space between `)` and a
- * keyword (`) and (`) and none around a range operator (`(width>=42rem)`),
- * so a minified sheet and Chrome's serialization agree.
- */
+// After `canonicalText`: a space between `)` and a keyword (`) and (`), none
+// around a range operator (`(width>=42rem)`), as Chrome serializes it.
 export function canonicalCondition(text: string): string {
   if (!CONDITION_SPACING_RE.test(text)) return text;
   let out = "";

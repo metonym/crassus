@@ -16,8 +16,6 @@ import {
   summarize,
 } from "../src/core/usage";
 
-// @vitest-environment node
-
 const rule = (
   context: string,
   selector: string,
@@ -37,6 +35,9 @@ const rule = (
     longhands: d.longhands ?? [d.property],
   })),
 });
+
+const color = (selector: string, value: string, context = "") =>
+  rule(context, selector, [{ property: "color", value }]);
 
 describe("authoredDeclarations", () => {
   it("plain longhand", () => {
@@ -136,10 +137,7 @@ describe("authoredDeclarations", () => {
 
 describe("cascadeWinners / replayWins", () => {
   it("later declaration wins for the same property", () => {
-    const rules = [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("", ".a.b", [{ property: "color", value: "blue" }]),
-    ];
+    const rules = [color(".a", "red"), color(".a.b", "blue")];
     const winners = cascadeWinners(rules);
     expect(winners.get("color")).toEqual([1, 0]);
     expect(replayWins(rules)).toEqual([[false], [true]]);
@@ -148,7 +146,7 @@ describe("cascadeWinners / replayWins", () => {
   it("!important wins regardless of order", () => {
     const rules = [
       rule("", ".a", [{ property: "color", value: "red", important: true }]),
-      rule("", ".a.b", [{ property: "color", value: "blue" }]),
+      color(".a.b", "blue"),
     ];
     expect(replayWins(rules)).toEqual([[true], [false]]);
   });
@@ -191,7 +189,7 @@ describe("cascadeWinners / replayWins", () => {
 
   it("independent properties don't interact", () => {
     const rules = [
-      rule("", ".a", [{ property: "color", value: "red" }]),
+      color(".a", "red"),
       rule("", ".a", [{ property: "top", value: "0" }]),
     ];
     expect(replayWins(rules)).toEqual([[true], [true]]);
@@ -201,13 +199,8 @@ describe("cascadeWinners / replayWins", () => {
 describe("recordObservation", () => {
   it("counts matches and wins across observations", () => {
     const agg = createAggregate();
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-    ]);
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("", ".a.b", [{ property: "color", value: "blue" }]),
-    ]);
+    recordObservation(agg, [color(".a", "red")]);
+    recordObservation(agg, [color(".a", "red"), color(".a.b", "blue")]);
     const stats = [...agg.declarations.values()];
     const red = stats.find((s) => s.value === "red");
     const blue = stats.find((s) => s.value === "blue");
@@ -219,10 +212,8 @@ describe("recordObservation", () => {
   it("attributes a loss to the winning rule's label", () => {
     const agg = createAggregate();
     recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("@media (min-width: 42em)", ".a.b", [
-        { property: "color", value: "blue" },
-      ]),
+      color(".a", "red"),
+      color(".a.b", "blue", "@media (min-width: 42em)"),
     ]);
     const red = [...agg.declarations.values()].find((s) => s.value === "red");
     expect(red?.lostTo).toEqual({ "@media (min-width: 42em) .a.b": 1 });
@@ -230,9 +221,7 @@ describe("recordObservation", () => {
 
   it("tracks rule identity for matched-rule lookups", () => {
     const agg = createAggregate();
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-    ]);
+    recordObservation(agg, [color(".a", "red")]);
     expect(agg.matchedRuleKeys.has("\0.a")).toBe(true);
   });
 });
@@ -251,15 +240,8 @@ describe("deadInFixtures / foldCandidates", () => {
 
   it("a declaration that always loses is dead; one that sometimes wins is not", () => {
     const agg = createAggregate();
-    // .a color:red always loses to .a.b color:blue.
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("", ".a.b", [{ property: "color", value: "blue" }]),
-    ]);
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("", ".a.b", [{ property: "color", value: "blue" }]),
-    ]);
+    recordObservation(agg, [color(".a", "red"), color(".a.b", "blue")]);
+    recordObservation(agg, [color(".a", "red"), color(".a.b", "blue")]);
     // .c top:0 wins on its own elsewhere.
     recordObservation(agg, [rule("", ".c", [{ property: "top", value: "0" }])]);
 
@@ -278,14 +260,8 @@ describe("deadInFixtures / foldCandidates", () => {
 
   it("not a fold candidate when it loses to more than one rule", () => {
     const agg = createAggregate();
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("", ".a.b", [{ property: "color", value: "blue" }]),
-    ]);
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("", ".a.c", [{ property: "color", value: "green" }]),
-    ]);
+    recordObservation(agg, [color(".a", "red"), color(".a.b", "blue")]);
+    recordObservation(agg, [color(".a", "red"), color(".a.c", "green")]);
     expect(deadInFixtures(agg)).toHaveLength(1);
     expect(foldCandidates(agg)).toHaveLength(0);
   });
@@ -294,9 +270,7 @@ describe("deadInFixtures / foldCandidates", () => {
 describe("inventoryFromRules / neverMatchedRules", () => {
   it("flags inventory rules that never matched, keeps bytes for sorting", () => {
     const agg = createAggregate();
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-    ]);
+    recordObservation(agg, [color(".a", "red")]);
 
     const inventory = inventoryFromRules([
       { context: "", selector: ".a", decls: new Map([["color", "red"]]) },
@@ -312,10 +286,7 @@ describe("inventoryFromRules / neverMatchedRules", () => {
 describe("summarize", () => {
   it("reports totals consistent with the aggregate and inventory", () => {
     const agg = createAggregate();
-    recordObservation(agg, [
-      rule("", ".a", [{ property: "color", value: "red" }]),
-      rule("", ".a.b", [{ property: "color", value: "blue" }]),
-    ]);
+    recordObservation(agg, [color(".a", "red"), color(".a.b", "blue")]);
     const inventory = inventoryFromRules([
       { context: "", selector: ".a", decls: new Map([["color", "red"]]) },
       { context: "", selector: ".a.b", decls: new Map([["color", "blue"]]) },

@@ -3,7 +3,7 @@
  * Bun.WebView port, same Chromium build (Playwright's headless shell), plus
  * the engine-agnostic modes and WebKit.
  *
- *   CCS_ROOT=… bun eval/carbon/snapshot.ts [--only button] [--skip-old]
+ *   CCS_ROOT=… bun eval/carbon/snapshot.ts [--only button] [--skip-old] [--runs webview-cdp,webkit]
  */
 import { readdir } from "node:fs/promises";
 import { loadavg } from "node:os";
@@ -11,27 +11,27 @@ import path from "node:path";
 import { serveFixtures } from "../../src/browser/serve";
 import { type CaptureOptions, capture } from "../../src/browser/snapshot";
 import type { Snapshot } from "../../src/core/snapshot-diff";
-import { CCS_ROOT, fixturesDir, oldTool, results } from "./ccs";
+import {
+  args,
+  CCS_ROOT,
+  fixtureNames,
+  fixturesDir,
+  loadAvg,
+  oldTool,
+  opt,
+  PLAYWRIGHT_SHELL,
+  results,
+} from "./ccs";
 
-const root = CCS_ROOT;
-const args = process.argv.slice(2);
 const OLD = args.includes("--skip-old")
   ? undefined
   : oldTool("e2e/cascade-snapshot.ts", "pass --skip-old");
-const opt = (n: string) => {
-  const i = args.indexOf(`--${n}`);
-  return i >= 0 ? args[i + 1] : undefined;
-};
 const ONLY = opt("only");
-const CONCURRENCY = Number(opt("concurrency") ?? 8);
+const K = Number(opt("concurrency") ?? 8);
+const RUNS = opt("runs")?.split(",");
 const out = (n: string) => results("snap", n);
-const SHELL = `${process.env.HOME}/Library/Caches/ms-playwright/chromium_headless_shell-1243/chrome-headless-shell-mac-arm64/chrome-headless-shell`;
 
-const fixtures = (await readdir(path.join(root, "e2e/fixtures")))
-  .filter((f) => f.endsWith(".html"))
-  .map((f) => f.slice(0, -5))
-  .filter((f) => !ONLY || f.includes(ONLY))
-  .sort();
+const fixtures = await fixtureNames(ONLY);
 const themes = ["white", "g100"];
 const server = serveFixtures(await fixturesDir());
 
@@ -71,7 +71,7 @@ async function compare(a: string, b: string): Promise<Compare> {
   };
   for (const f of files) {
     const fb = Bun.file(path.join(b, f));
-    // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
+    // biome-ignore lint/performance/noAwaitInLoops: ordered output
     if (!(await fb.exists())) continue;
     r.files++;
     const sa: Snapshot = await Bun.file(path.join(a, f)).json();
@@ -122,9 +122,7 @@ function report(label: string, c: Compare) {
 
 const timings: Record<string, number> = {};
 console.log(
-  `fixtures: ${fixtures.length} × themes ${themes.length}; load avg ${loadavg()
-    .map((x) => x.toFixed(1))
-    .join(" ")}`,
+  `fixtures: ${fixtures.length} × themes ${themes.length}; load avg ${loadAvg()}`,
 );
 
 if (OLD) {
@@ -139,7 +137,7 @@ if (OLD) {
       server.url,
       ...(ONLY ? ["--only", ONLY] : []),
     ],
-    { cwd: root, stdout: "ignore", stderr: "inherit" },
+    { cwd: CCS_ROOT, stdout: "ignore", stderr: "inherit" },
   );
   await proc.exited;
   timings.playwright = performance.now() - t;
@@ -148,74 +146,49 @@ if (OLD) {
   );
 }
 
-const runs: { name: string; opts: Partial<CaptureOptions>; vs: string[] }[] = [
+type RunOptions = Pick<
+  CaptureOptions,
+  "engine" | "chromePath" | "states" | "emulate" | "concurrency"
+>;
+const chrome = { engine: "chrome", chromePath: PLAYWRIGHT_SHELL } as const;
+const runs: { name: string; opts: RunOptions; vs: string[] }[] = [
   {
     name: "webview-cdp-x1",
-    opts: {
-      engine: "chrome",
-      chromePath: SHELL,
-      states: "cdp",
-      emulate: "cdp",
-      concurrency: 1,
-    },
+    opts: { ...chrome, states: "cdp", emulate: "cdp", concurrency: 1 },
     vs: ["playwright"],
   },
   {
-    name: `webview-cdp-x${CONCURRENCY}`,
-    opts: {
-      engine: "chrome",
-      chromePath: SHELL,
-      states: "cdp",
-      emulate: "cdp",
-      concurrency: CONCURRENCY,
-    },
+    name: `webview-cdp-x${K}`,
+    opts: { ...chrome, states: "cdp", emulate: "cdp", concurrency: K },
     vs: ["playwright"],
   },
   {
-    name: `webview-rewrite-x${CONCURRENCY}`,
-    opts: {
-      engine: "chrome",
-      chromePath: SHELL,
-      states: "rewrite",
-      emulate: "cdp",
-      concurrency: CONCURRENCY,
-    },
+    name: `webview-rewrite-x${K}`,
+    opts: { ...chrome, states: "rewrite", emulate: "cdp", concurrency: K },
     vs: ["playwright"],
   },
   {
-    name: `webview-agnostic-x${CONCURRENCY}`,
-    opts: {
-      engine: "chrome",
-      chromePath: SHELL,
-      states: "rewrite",
-      emulate: "cssom",
-      concurrency: CONCURRENCY,
-    },
+    name: `webview-agnostic-x${K}`,
+    opts: { ...chrome, states: "rewrite", emulate: "cssom", concurrency: K },
     vs: ["playwright"],
   },
   {
-    name: `webkit-x${CONCURRENCY}`,
+    name: `webkit-x${K}`,
     opts: {
       engine: "webkit",
       states: "rewrite",
       emulate: "cssom",
-      concurrency: CONCURRENCY,
+      concurrency: K,
     },
-    vs: [`webview-agnostic-x${CONCURRENCY}`],
+    vs: [`webview-agnostic-x${K}`],
   },
 ];
 
 for (const run of runs) {
-  if (
-    opt("runs") &&
-    !opt("runs")
-      ?.split(",")
-      .some((r) => run.name.startsWith(r))
-  )
-    continue;
-  // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
+  if (RUNS && !RUNS.some((r) => run.name.startsWith(r))) continue;
+  // biome-ignore lint/performance/noAwaitInLoops: one run at a time, so timings don't contend
   const res = await capture({
-    ...(run.opts as CaptureOptions),
+    ...run.opts,
     baseUrl: server.url,
     fixtures,
     themes,
@@ -226,7 +199,7 @@ for (const run of runs) {
     `\n${run.name}: ${(res.ms / 1000).toFixed(1)}s (${res.pages} pages)`,
   );
   for (const v of run.vs) {
-    // biome-ignore lint/performance/noAwaitInLoops: sequential by design (one operation per view, or ordered output)
+    // biome-ignore lint/performance/noAwaitInLoops: ordered output
     if (await Bun.file(path.join(out(v), `${fixtures[0]}.white.json`)).exists())
       report(v, await compare(out(v), out(run.name)));
   }

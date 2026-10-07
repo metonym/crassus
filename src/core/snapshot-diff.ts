@@ -1,9 +1,4 @@
-/**
- * Rung 3 comparison: the computed styles of two captures of a page. Element
- * paths on one side only are DOM or forced-state changes, counted but not
- * diffed. Changes group by `(property, before -> after)` across pages, so a
- * systematic change reads as one line.
- */
+// Paths on one side only are DOM or forced-state changes: counted, not diffed.
 
 /** Element path (with `::before`, `@hover` and similar suffixes) → longhand → computed value. */
 export type Snapshot = Record<string, Record<string, string>>;
@@ -16,7 +11,6 @@ export interface PropertyChange {
 }
 
 export interface PageDiff {
-  /** Paths on both sides whose computed styles differ. */
   changed: Record<string, PropertyChange[]>;
   /** Paths only in base. */
   removed: string[];
@@ -61,8 +55,8 @@ export interface ChangeGroup {
 }
 
 /**
- * Groups every change by `(property, before, after)`: most frequent first,
- * ties in first-seen order. Each page comes once.
+ * Groups changes by `(property, before, after)` across pages, so a systematic
+ * change reads as one line: most frequent first, ties in first-seen order.
  */
 export function groupChanges(
   pages: Iterable<{ page: string; changed: PageDiff["changed"] }>,
@@ -84,6 +78,5 @@ export function groupChanges(
       }
     }
   }
-  // Array.prototype.sort is stable: ties keep insertion (first-seen) order.
   return [...groups.values()].sort((a, b) => b.count - a.count);
 }

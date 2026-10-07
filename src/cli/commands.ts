@@ -1,7 +1,3 @@
-/**
- * `dead` (rung 0) and `diff` (rung 1) as data: what was found, where it is
- * in the sources, and how far it can be trusted. Formatting is report.ts.
- */
 import {
   type Histogram,
   histogram,
@@ -15,12 +11,14 @@ import { type DeadDeclaration, deadDeclarations } from "../core/overrides";
 import type { Specificity } from "../core/selector";
 import { bytesOf } from "../core/usage";
 import { type Size, sizeOf } from "./size";
-import { locateIn, type Sheet, type SourceLocation } from "./sources";
+import {
+  type Locate,
+  locateIn,
+  type Sheet,
+  type SourceLocation,
+} from "./sources";
 
-// ---------------------------------------------------------------------------
-// dead
-
-interface DeadFinding extends DeadDeclaration {
+export interface DeadFinding extends DeadDeclaration {
   source?: SourceLocation;
 }
 
@@ -46,10 +44,6 @@ export function runDead(sheets: Sheet[]): DeadResult[] {
   });
 }
 
-// ---------------------------------------------------------------------------
-// diff
-
-/** A rule as reports show it. */
 export interface RuleRef {
   selector: string;
   context: string;
@@ -95,7 +89,7 @@ export interface DiffResult {
   moveFlips: FlipFinding[];
 }
 
-const refOf = (rule: Rule, sheet: Sheet, locate = locateIn(sheet)): RuleRef => {
+const refOf = (rule: Rule, locate: Locate): RuleRef => {
   const ref: RuleRef = {
     selector: rule.selector,
     context: rule.context,
@@ -109,7 +103,6 @@ const refOf = (rule: Rule, sheet: Sheet, locate = locateIn(sheet)): RuleRef => {
   return ref;
 };
 
-// Weight of a file: selectors at three or more classes.
 const weight = (h: Histogram | undefined) =>
   h ? h.classes[3] + h.classes[4] : 0;
 
@@ -131,16 +124,20 @@ export async function runDiff(
     const locateHead = locateIn(h);
     // One ref per rule, so reports can group findings by rule.
     const refs = new Map<Rule, RuleRef>();
-    const cached = (r: Rule, s: Sheet, locate: typeof locateBase) => {
+    const refAt = (locate: Locate) => (r: Rule) => {
       let ref = refs.get(r);
       if (!ref) {
-        ref = refOf(r, s, locate);
+        ref = refOf(r, locate);
         refs.set(r, ref);
       }
       return ref;
     };
-    const atBase = (r: Rule) => cached(r, b, locateBase);
-    const atHead = (r: Rule) => cached(r, h, locateHead);
+    const atBase = refAt(locateBase);
+    const atHead = refAt(locateHead);
+    const moved = ([to, from]: [Rule, Rule]) => ({
+      from: atBase(from),
+      to: atHead(to),
+    });
     const flip = (f: Flip): FlipFinding => {
       const out: FlipFinding = {
         rule: atHead(f.rule),
@@ -153,8 +150,7 @@ export async function runDiff(
         out.otherWas = f.otherBase.selector;
       return out;
     };
-    const fileOf = (locate: typeof locateBase) => (r: Rule) =>
-      locate(r.loc)?.file;
+    const fileOf = (locate: Locate) => (r: Rule) => locate(r.loc)?.file;
     const filesBase = histogramByFile(baseRules, fileOf(locateBase));
     const filesHead = histogramByFile(headRules, fileOf(locateHead));
     const files = [...new Set([...filesBase.keys(), ...filesHead.keys()])]
@@ -186,25 +182,15 @@ export async function runDiff(
       size: { base: sizeBase, head: sizeHead },
       dropped: d.dropped.map(atBase),
       newRules: d.newRules.map(atHead),
-      rewrites: [...d.rewrites].map(([to, from]) => ({
-        from: atBase(from),
-        to: atHead(to),
-      })),
-      contextMoves: [...d.contextMoves].map(([to, from]) => ({
-        from: atBase(from),
-        to: atHead(to),
-      })),
+      rewrites: [...d.rewrites].map(moved),
+      contextMoves: [...d.contextMoves].map(moved),
       flips: d.flips.map(flip),
       moveFlips: d.moveFlips.map(flip),
     });
   }
-  return {
-    results,
-    onlyBase: base
-      .filter((b) => !head.some((h) => h.name === b.name))
-      .map((s) => s.name),
-    onlyHead: head
-      .filter((h) => !base.some((b) => b.name === h.name))
-      .map((s) => s.name),
-  };
+  const only = (these: Sheet[], those: Sheet[]) =>
+    these
+      .filter((t) => !those.some((s) => s.name === t.name))
+      .map((t) => t.name);
+  return { results, onlyBase: only(base, head), onlyHead: only(head, base) };
 }

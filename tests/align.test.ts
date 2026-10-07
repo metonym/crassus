@@ -92,14 +92,7 @@ describe("cascadeOrder", () => {
   it("orders by layer, specificity, scope, then source order", () => {
     // `#x.a` is heavier but layered, so it comes first; the scoped `.a`
     // beats the unscoped one at equal specificity.
-    expect(
-      order([
-        [3, 0],
-        [0, 0],
-        [2, 0],
-      ]),
-    ).toEqual(["#x.a", ".a", ".a"]);
-    const [, unscoped, scoped] = cascadeOrder(
+    const rules = cascadeOrder(
       [
         [3, 0],
         [0, 0],
@@ -108,6 +101,8 @@ describe("cascadeOrder", () => {
       aligned,
       declarations,
     );
+    expect(rules.map((r) => r.selector)).toEqual(["#x.a", ".a", ".a"]);
+    const [, unscoped, scoped] = rules;
     expect(unscoped.declarations[0].value).toBe("red");
     expect(scoped.declarations[0].value).toBe("gray");
   });

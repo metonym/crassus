@@ -2,7 +2,7 @@ import { cascadeDiff, deadDeclarations, parseRules } from "crassus";
 import { type CssNode, generate, parse, walk } from "css-tree";
 import { canonicalText, type Node, parseStylesheet } from "../src/core/parse";
 import { canonicalSelector } from "../src/core/selector";
-import { generator } from "./fuzz-gen";
+import { generator, loose } from "./fuzz-gen";
 
 // FUZZ_SEED=n FUZZ_RUNS=n for longer runs.
 const SEED = Number(process.env.FUZZ_SEED ?? 12345);
@@ -10,18 +10,23 @@ const RUNS = Number(process.env.FUZZ_RUNS ?? 2000);
 
 const STRAY_RE = /[;}]/;
 
-// Formatting-insensitive: whitespace, quote style, escapes, `::` vs `:`.
-const loose = (s: string) => s.replace(/[\s"'\\]+/g, "").replace(/::/g, ":");
-
 interface Shape {
   preludes: string[];
   decls: string[];
 }
 
+interface Decl {
+  start: number;
+  text: string;
+}
+
+const inSourceOrder = (decls: Decl[]) =>
+  decls.sort((a, b) => a.start - b.start).map((d) => d.text);
+
 /** Style rule preludes and declarations in source order, as crassus reads them. */
 function ours(css: string): Shape {
   const preludes: string[] = [];
-  const decls: { start: number; text: string }[] = [];
+  const decls: Decl[] = [];
   const visit = (list: Node[]) => {
     for (const node of list) {
       for (const d of node.decls ?? [])
@@ -41,14 +46,13 @@ function ours(css: string): Shape {
     }
   };
   visit(parseStylesheet(css));
-  decls.sort((a, b) => a.start - b.start);
-  return { preludes, decls: decls.map((d) => d.text) };
+  return { preludes, decls: inSourceOrder(decls) };
 }
 
 /** The same, as css-tree reads them. */
 function reference(css: string): Shape {
   const preludes: string[] = [];
-  const decls: { start: number; text: string }[] = [];
+  const decls: Decl[] = [];
   walk(parse(css, { positions: true }), {
     enter(node: CssNode) {
       // `@supports (display: grid)` is a condition, not a declaration.
@@ -67,8 +71,7 @@ function reference(css: string): Shape {
         });
     },
   });
-  decls.sort((a, b) => a.start - b.start);
-  return { preludes, decls: decls.map((d) => d.text) };
+  return { preludes, decls: inSourceOrder(decls) };
 }
 
 test(`fuzz against css-tree (seed ${SEED}, ${RUNS} sheets)`, () => {

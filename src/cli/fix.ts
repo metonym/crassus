@@ -1,15 +1,14 @@
 /**
- * `crassus dead --fix`. CSS without a source map is edited in place (unless
- * the config's `build` writes it). With a map, a source declaration goes
- * when everything it produces, in every stylesheet analyzed, is dead. Every
- * edit is checked: re-analyzed, the stylesheets must have lost exactly the
- * fixed declarations.
+ * `dead --fix`. A source declaration goes only when everything it produces,
+ * in every stylesheet analyzed, is dead. Every edit is checked: re-analyzed,
+ * the stylesheets must have lost exactly the fixed declarations.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
-import { canonicalValue } from "../core/cascade";
+import { canonicalValue, propertyName } from "../core/cascade";
+import { commentEnd, stringEnd } from "../core/chars";
 import type { DeadDeclaration } from "../core/overrides";
 import {
   locator as lineIndex,
@@ -20,13 +19,19 @@ import {
 import { placeRules } from "../core/placement";
 import { serialize } from "../core/selector";
 import { pushTo } from "../core/util";
-import type { DeadResult } from "./commands";
+import type { DeadFinding, DeadResult } from "./commands";
 import {
   type Locate,
   mappedLocator,
   type Sheet,
   type SourceLocation,
 } from "./sources";
+
+const SCSS_RE = /\.(scss|sass|less)$/;
+const WS_RE = /\s/;
+const PROPERTY_RE = /^\s*([-\w]+)\s*:/;
+const TRAILING_COMMENT_RE =
+  /^[ \t]*(?:\/\/[^\n]*|\/\*[^\n]*?\*\/[ \t]*)(?=\n|$)/;
 
 interface Fixed {
   entry: string;
@@ -52,9 +57,7 @@ interface Skipped {
 interface FixPlan {
   fixed: Fixed[];
   skipped: Skipped[];
-  /** Files to write: path relative to the project root, before and after. */
   files: { file: string; before: string; after: string }[];
-  /** The dead declarations the edits remove, by stylesheet. */
   removed: Map<string, DeadDeclaration[]>;
 }
 
@@ -74,13 +77,10 @@ function declarationsOf(css: string): Map<string, number> {
     if (p.keyframes) continue;
     const selector = p.selectors.map((s) => serialize(s.complex)).join(",");
     for (const d of p.decls) {
-      const property = d.property.startsWith("--")
-        ? d.property
-        : d.property.toLowerCase();
       const key = declKey(
         { context: p.context, layer: p.layer.name, scope: p.scope },
         selector,
-        property,
+        propertyName(d.property),
         canonicalValue(d.raw, false, d.property),
       );
       counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -89,7 +89,6 @@ function declarationsOf(css: string): Map<string, number> {
   return counts;
 }
 
-/** The multiset `before` minus the fixed declarations. */
 function expectedAfter(
   before: Map<string, number>,
   dead: DeadDeclaration[],
@@ -105,9 +104,6 @@ function expectedAfter(
 
 const sameCounts = (a: Map<string, number>, b: Map<string, number>) =>
   a.size === b.size && [...a].every(([k, n]) => b.get(k) === n);
-
-// ---------------------------------------------------------------------------
-// Edits
 
 interface Range {
   start: number;
@@ -150,8 +146,10 @@ function cssRange(css: string, [start, end]: [number, number]): Range {
   return { start, end: css[b] === ";" ? b + 1 : end };
 }
 
-// Just past a source declaration's `;`, or at its block's `}`. Knows
-// strings, comments, nesting, and Sass/Less `//` comments and `#{…}`.
+/**
+ * Just past a source declaration's `;`, or at its block's `}`. Knows
+ * strings, comments, nesting, and Sass/Less `//` comments and `#{…}`.
+ */
 function statementEnd(
   text: string,
   from: number,
@@ -160,18 +158,9 @@ function statementEnd(
   let depth = 0;
   for (let i = from; i < text.length; i++) {
     const c = text[i];
-    if (c === '"' || c === "'") {
-      for (i++; i < text.length && text[i] !== c; i++)
-        if (text[i] === "\\") i++;
-    } else if (c === "/" && text[i + 1] === "*") {
-      const close = text.indexOf("*/", i + 2);
-      i = close < 0 ? text.length : close + 1;
-    } else if (
-      lineComments &&
-      c === "/" &&
-      text[i + 1] === "/" &&
-      depth === 0
-    ) {
+    if (c === '"' || c === "'") i = stringEnd(text, i);
+    else if (c === "/" && text[i + 1] === "*") i = commentEnd(text, i) - 1;
+    else if (lineComments && c === "/" && text[i + 1] === "/" && depth === 0) {
       return i;
     } else if (c === "\\") i++;
     else if (c === "(" || c === "[" || (c === "#" && text[i + 1] === "{")) {
@@ -184,24 +173,11 @@ function statementEnd(
   return text.length;
 }
 
-// A comment after the statement, alone on the rest of its line.
-const TRAILING_COMMENT_RE =
-  /^[ \t]*(?:\/\/[^\n]*|\/\*[^\n]*?\*\/[ \t]*)(?=\n|$)/;
-
-/** Past a comment that ends the line: it was about the declaration. */
+/** Past a comment alone on the rest of the line: it was about the declaration. */
 function withTrailingComment(text: string, end: number): number {
   const m = TRAILING_COMMENT_RE.exec(text.slice(end, end + 500));
   return m ? end + m[0].length : end;
 }
-
-// ---------------------------------------------------------------------------
-// Plan
-
-const SCSS_RE = /\.(scss|sass|less)$/;
-const WS_RE = /\s/;
-const PROPERTY_RE = /^\s*([-\w]+)\s*:/;
-
-type Finding = DeadResult["dead"][number];
 
 interface Edit {
   root: string;
@@ -216,7 +192,7 @@ class Planner {
   removed = new Map<string, DeadDeclaration[]>();
   #edits = new Map<string, Edit>();
 
-  skip(entry: string, d: Finding, reason: string) {
+  skip(entry: string, d: DeadFinding, reason: string) {
     this.skipped.push({
       entry,
       selector: d.selector,
@@ -227,7 +203,7 @@ class Planner {
     });
   }
 
-  fix(entry: string, d: Finding, at: { file: string; line: number }) {
+  fix(entry: string, d: DeadFinding, at: { file: string; line: number }) {
     this.fixed.push({
       entry,
       ...at,
@@ -239,7 +215,6 @@ class Planner {
     pushTo(this.removed, entry, d);
   }
 
-  /** The pending edit of a file, read once. */
   edit(path: string, root: string): Edit {
     let e = this.#edits.get(path);
     if (!e) {
@@ -298,10 +273,7 @@ const posKey = (s: SourceLocation) => `${s.file}:${s.line}:${s.column}`;
 
 type Productions = Map<string, { total: number; dead: number }>;
 
-/**
- * Per source position: how many compiled declarations it produces across
- * the mapped stylesheets, and how many of those are dead.
- */
+/** Per source position: the compiled declarations it produces, and how many are dead. */
 function productions(
   sheets: Sheet[],
   results: DeadResult[],
@@ -315,9 +287,10 @@ function productions(
         for (const d of n.decls ?? []) {
           const s = locate(at(d.start));
           if (!s) continue;
-          const c = out.get(posKey(s)) ?? { total: 0, dead: 0 };
+          const key = posKey(s);
+          const c = out.get(key) ?? { total: 0, dead: 0 };
           c.total++;
-          out.set(posKey(s), c);
+          out.set(key, c);
         }
         if (n.rules) visit(n.rules);
       }
@@ -337,7 +310,7 @@ function productions(
   return out;
 }
 
-/** Deletes dead declarations in the sources, where everything they produce is dead. */
+/** Deletes source declarations whose every production is dead. */
 function fixSources(
   p: Planner,
   sheet: Sheet,
@@ -402,10 +375,6 @@ function fixSources(
   }
 }
 
-/**
- * What `--fix` would change. `generated`: the config's `build` writes the
- * stylesheets, so only their sources may be edited.
- */
 function planFix(
   sheets: Sheet[],
   results: DeadResult[],
@@ -435,22 +404,13 @@ function planFix(
   return p.plan();
 }
 
-// ---------------------------------------------------------------------------
-// Apply
-
 export interface FixReport {
   fixed: Fixed[];
   skipped: Skipped[];
-  /** Files changed (or that would change, with `dryRun`). */
   files: string[];
   written: boolean;
-  /**
-   * `verified`: re-analyzed, the stylesheets lost exactly the fixed
-   * declarations. `unverified`: sources were edited but can't be rebuilt
-   * here (CSS files given on the command line); rebuild and run again.
-   */
+  /** `unverified`: sources were edited but can't be rebuilt here (CSS files given on the command line). */
   check: "verified" | "unverified";
-  /** With `dryRun`: the edits as a unified diff. */
   patch?: string;
 }
 
@@ -480,7 +440,7 @@ export async function fix(opts: {
   sheets: Sheet[];
   results: DeadResult[];
   root: string;
-  /** The config's `build` writes the stylesheets. */
+  /** The config's `build` writes the stylesheets: only their sources may be edited. */
   generated: boolean;
   dryRun: boolean;
   /** Reads the stylesheets again (rebuilding them); null when that's not possible. */
@@ -489,13 +449,14 @@ export async function fix(opts: {
   const plan = planFix(opts.sheets, opts.results, opts.generated);
   const changed = new Map(plan.files.map((f) => [f.file, f.after]));
   // Stylesheets edited directly can be checked before anything is written.
-  const direct = opts.sheets.filter(
-    (s) => !s.map && s.file && changed.has(s.file),
-  );
-  const inMemory = direct.map((s) => ({
-    ...s,
-    css: changed.get(s.file as string) as string,
-  }));
+  const direct: Sheet[] = [];
+  const inMemory: Sheet[] = [];
+  for (const s of opts.sheets) {
+    const css = !s.map && s.file ? changed.get(s.file) : undefined;
+    if (css === undefined) continue;
+    direct.push(s);
+    inMemory.push({ ...s, css });
+  }
   const bad = mismatches(direct, inMemory, plan.removed);
   if (bad.length > 0)
     throw new FixCheckError(
@@ -544,7 +505,6 @@ export async function fix(opts: {
   return report;
 }
 
-/** The edits as a unified diff, paths relative to the root. */
 async function unifiedDiff(files: FixPlan["files"]): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "crassus-fix-"));
   try {

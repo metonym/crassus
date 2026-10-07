@@ -1,7 +1,3 @@
-/**
- * `report.md` for `crassus usage`: what the fixtures say about the library
- * stylesheet, worst first, with how far it can be trusted.
- */
 import type { UsageFile } from "../browser/usage";
 import type { DeclarationStats } from "../core/usage";
 import { bytesOf } from "../core/usage";
@@ -17,6 +13,9 @@ const n = (x: number) => x.toLocaleString("en-US");
 
 const declaration = (d: DeclarationStats) =>
   code(`${d.property}: ${d.value}${d.important ? " !important" : ""}`);
+
+const ruleCell = (d: DeclarationStats) =>
+  `${code(d.selector)}${d.context ? ` in ${code(d.context)}` : ""}`;
 
 const byBytes = (a: DeclarationStats, b: DeclarationStats) =>
   bytesOf(b) - bytesOf(a) || b.matched - a.matched;
@@ -61,53 +60,47 @@ export function formatUsageReport(
       `| Not ready | ${usage.notReady.length} page(s) never matched ${code(run.readySelector ?? "")}: ${usage.notReady.map(code).join(", ")} |`,
     );
 
-  lines.push(
-    "",
-    `## Dead in fixtures (${n(dead.length)})`,
-    "",
+  const section = (
+    title: string,
+    intro: string,
+    head: [string, string],
+    rows: string[],
+  ) => {
+    lines.push("", `## ${title} (${n(rows.length)})`, "", intro, "");
+    if (rows.length) lines.push(...head, ...rows);
+    else lines.push("None.");
+  };
+  section(
+    "Dead in fixtures",
     "Declarations that matched at least once and never won, largest first. Declarations that lose only to `prefers-reduced-motion`, `prefers-contrast` or `forced-colors` rules are left out: those rules are alternatives for a user preference, not overrides.",
-    "",
-  );
-  if (dead.length) {
-    lines.push(
+    [
       "| Bytes | Declaration | Rule | Matched | Lost to |",
       "|---:|:---|:---|---:|:---|",
-    );
-    for (const d of dead)
-      lines.push(
-        `| ${bytesOf(d)} | ${declaration(d)} | ${code(d.selector)}${d.context ? ` in ${code(d.context)}` : ""} | ${n(d.matched)} | ${lostTo(d)} |`,
-      );
-  } else lines.push("None.");
-
-  lines.push(
-    "",
-    `## Fold candidates (${n(fold.length)})`,
-    "",
-    "Dead declarations that always lose to the same single rule: candidates for merging into it.",
-    "",
+    ],
+    dead.map(
+      (d) =>
+        `| ${bytesOf(d)} | ${declaration(d)} | ${ruleCell(d)} | ${n(d.matched)} | ${lostTo(d)} |`,
+    ),
   );
-  if (fold.length) {
-    lines.push(
+  section(
+    "Fold candidates",
+    "Dead declarations that always lose to the same single rule: candidates for merging into it.",
+    [
       "| Bytes | Declaration | Rule | Always loses to |",
       "|---:|:---|:---|:---|",
-    );
-    for (const d of fold)
-      lines.push(
-        `| ${bytesOf(d)} | ${declaration(d)} | ${code(d.selector)}${d.context ? ` in ${code(d.context)}` : ""} | ${code(Object.keys(d.lostTo)[0])} |`,
-      );
-  } else lines.push("None.");
-
-  lines.push(
-    "",
-    `## Never matched (${n(unmatched.length)})`,
-    "",
-    "Rules no element matched on any page, largest first.",
-    "",
+    ],
+    fold.map(
+      (d) =>
+        `| ${bytesOf(d)} | ${declaration(d)} | ${ruleCell(d)} | ${code(Object.keys(d.lostTo)[0])} |`,
+    ),
   );
-  if (unmatched.length) {
-    lines.push("| Bytes | Rule | Context |", "|---:|:---|:---|");
-    for (const r of unmatched)
-      lines.push(`| ${r.bytes} | ${code(r.selector)} | ${code(r.context)} |`);
-  } else lines.push("None.");
+  section(
+    "Never matched",
+    "Rules no element matched on any page, largest first.",
+    ["| Bytes | Rule | Context |", "|---:|:---|:---|"],
+    unmatched.map(
+      (r) => `| ${r.bytes} | ${code(r.selector)} | ${code(r.context)} |`,
+    ),
+  );
   return `${lines.join("\n")}\n`;
 }

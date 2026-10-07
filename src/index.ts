@@ -1,7 +1,4 @@
-/**
- * crassus core: runtime-neutral cascade analysis. No Bun, Node or DOM APIs;
- * runs in Bun, Node, Deno, browsers and workers.
- */
+// Runtime-neutral: no Bun, Node or DOM APIs, so it runs anywhere JS does.
 
 export { parseRules, type Rule } from "./core/cascade";
 export {

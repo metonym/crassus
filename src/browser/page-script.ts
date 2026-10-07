@@ -1,9 +1,5 @@
-/**
- * Bun macro that bundles src/page/usage-dom.ts to a minified IIFE
- * expression, inlined as a string wherever Bun transpiles the importer, so
- * dist/ needs no page sources. `Bun.build` deadlocks inside a macro, hence
- * the `bun build` subprocess.
- */
+// Bun macro: inlines src/page/usage-dom.ts as a minified IIFE, so dist/ needs
+// no page sources. A subprocess, as `Bun.build` deadlocks inside a macro.
 import path from "node:path";
 
 const TRAILING_SEMICOLON_RE = /;\s*$/;

@@ -1,11 +1,7 @@
-/**
- * The pure half of the `dom` usage engine: line up the rules a browser kept
- * (its CSSOM) with the parsed library sheet, and turn one element's matched
- * rules into cascade-ordered observations for `recordObservation`. The
- * browser side only matches selectors and expands declarations.
- */
+// The pure half of the `dom` usage engine: the browser only matches
+// selectors and expands declarations.
 
-import { canonicalValue } from "./cascade";
+import { canonicalValue, propertyName } from "./cascade";
 import { type Decl, parseStylesheet } from "./parse";
 import { placeRules } from "./placement";
 import {
@@ -16,13 +12,12 @@ import {
 } from "./selector";
 import type { Declaration, MatchedRule } from "./usage";
 
-/** A style rule of the library sheet, as the browser's CSSOM lists it. */
 export interface LibraryRule {
   context: string;
   /** `Rule.layerRank`, or undefined when unlayered. */
   layerRank: number | undefined;
   scoped: boolean;
-  /** Selector text with formatting removed, to find the rule in the CSSOM. */
+  /** Selector text without formatting, to find the rule in the CSSOM. */
   loose: string;
   selectors: { canon: string; spec: Specificity }[];
   decls: Decl[];
@@ -31,11 +26,10 @@ export interface LibraryRule {
 const WS_QUOTES_RE = /[\s"']+/g;
 const DOUBLE_COLON_RE = /::/g;
 
-/** Selector text with whitespace, quotes and `::` vs `:` differences removed. */
 const looseSelector = (s: string) =>
   s.replace(WS_QUOTES_RE, "").replace(DOUBLE_COLON_RE, ":").toLowerCase();
 
-/** The library sheet's style rules in CSSOM order (keyframes left out). */
+/** The sheet's style rules in CSSOM order. */
 export function libraryRules(css: string): LibraryRule[] {
   const out: LibraryRule[] = [];
   for (const p of placeRules(parseStylesheet(css))) {
@@ -55,7 +49,6 @@ export function libraryRules(css: string): LibraryRule[] {
   return out;
 }
 
-// How far ahead to look for a CSSOM rule among the parsed ones.
 const ALIGN_WINDOW = 200;
 
 /**
@@ -82,7 +75,6 @@ export function alignRules(
   return out;
 }
 
-/** What the engine says about each `[property, value]` pair it was asked about. */
 export interface EngineDeclInfo {
   /** Property -> the longhands it sets in this engine. */
   longhands: Record<string, string[]>;
@@ -91,9 +83,8 @@ export interface EngineDeclInfo {
 }
 
 /**
- * The distinct `[property, value]` pairs of the aligned rules, to ask the
- * engine about, and a function from its answers to each rule's declarations
- * (invalid ones dropped, longhands expanded).
+ * The distinct `[property, value]` pairs to ask the engine about, and a
+ * function from its answers to each rule's valid, expanded declarations.
  */
 export function engineDeclarations(aligned: (LibraryRule | undefined)[]): {
   pairs: [string, string][];
@@ -119,16 +110,13 @@ export function engineDeclarations(aligned: (LibraryRule | undefined)[]): {
         for (const d of rule.decls) {
           if (!info.valid[pairIndex.get(`${d.property}\0${d.raw}`) ?? -1])
             continue;
-          const prop = d.property.startsWith("--")
-            ? d.property
-            : d.property.toLowerCase();
+          const prop = propertyName(d.property);
+          const longhands = info.longhands[prop];
           ds.push({
             property: prop,
             value: canonicalValue(d.raw, false, prop),
             important: d.important,
-            longhands: info.longhands[prop]?.length
-              ? info.longhands[prop]
-              : [prop],
+            longhands: longhands?.length ? longhands : [prop],
           });
         }
         cache.set(rule, ds);
@@ -140,11 +128,9 @@ export function engineDeclarations(aligned: (LibraryRule | undefined)[]): {
 }
 
 /**
- * One observation's matched rules in normal cascade order: layer,
- * specificity (of the heaviest matching selector), scope proximity (scoped
- * before unscoped only: scope roots aren't evaluated), then source order.
- * `matches` holds `[cssomRuleIndex, ...matchingSelectorIndexes]`; rules
- * that didn't align or have no valid declarations are left out.
+ * `matches` (`[cssomRuleIndex, ...matchingSelectorIndexes]`) in normal cascade
+ * order: layer, heaviest matching selector, scoped before unscoped (scope
+ * roots aren't evaluated), source order. Unaligned or empty rules are left out.
  */
 export function cascadeOrder(
   matches: number[][],

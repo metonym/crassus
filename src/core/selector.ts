@@ -1,12 +1,9 @@
-/**
- * Selector parser, Selectors 4 specificity, CSS Nesting resolution and a
- * canonical serializer.
- */
 import {
   AMP,
   BACKSLASH,
   COLON,
   COMMA,
+  commentEnd,
   DASH,
   DOT,
   GT,
@@ -23,6 +20,7 @@ import {
   STAR,
   stringEnd,
   TILDE,
+  UNDERSCORE,
 } from "./chars";
 
 export type Specificity = [number, number, number];
@@ -62,7 +60,6 @@ export interface Complex {
   combinators: string[];
 }
 
-/** A part's selector-list argument, if it has one. */
 export const argList = (p: Part): Complex[] | null =>
   p.t === "pseudo-class" || p.t === "pseudo-element" ? p.list : null;
 
@@ -103,14 +100,17 @@ const ASCII_START_RE = /^[a-z]/i;
 
 const isLetter = (c: number) => (c >= 97 && c <= 122) || (c >= 65 && c <= 90);
 const isIdentChar = (c: number) =>
-  isLetter(c) || (c >= 48 && c <= 57) || c === DASH || c === 95 || c >= 0x80;
+  isLetter(c) ||
+  (c >= 48 && c <= 57) ||
+  c === DASH ||
+  c === UNDERSCORE ||
+  c >= 0x80;
 const isIdentStart = (c: number) =>
-  isLetter(c) || c === DASH || c === 95 || c === BACKSLASH || c >= 0x80;
+  isLetter(c) || c === DASH || c === UNDERSCORE || c === BACKSLASH || c >= 0x80;
 const isCombinator = (c: number) => c === GT || c === PLUS || c === TILDE;
 const isComment = (text: string, i: number) =>
   text.charCodeAt(i) === SLASH && text.charCodeAt(i + 1) === STAR;
 
-/** Splits on top-level commas (outside parens, brackets, strings). */
 export function splitList(text: string): { text: string; offset: number }[] {
   // Most lists are one selector with nothing to trim.
   if (
@@ -128,10 +128,8 @@ export function splitList(text: string): { text: string; offset: number }[] {
     const c = text.charCodeAt(i);
     if (c === BACKSLASH) i++;
     else if (isQuote(c)) i = stringEnd(text, i);
-    else if (isComment(text, i)) {
-      const end = text.indexOf("*/", i + 2);
-      i = end < 0 ? text.length : end + 1;
-    } else if (c === LPAREN || c === LBRACKET) depth++;
+    else if (isComment(text, i)) i = commentEnd(text, i) - 1;
+    else if (c === LPAREN || c === LBRACKET) depth++;
     else if (c === RPAREN || c === RBRACKET) depth--;
     else if (c === COMMA && depth === 0) {
       out.push(trimmed(text, start, i));
@@ -148,8 +146,7 @@ function trimmed(text: string, start: number, end: number) {
   let b = end;
   while (a < b && isWs(text.charCodeAt(a))) a++;
   while (text.startsWith("/*", a)) {
-    const close = text.indexOf("*/", a + 2);
-    a = close < 0 ? b : close + 2;
+    a = Math.min(commentEnd(text, a), b);
     while (a < b && isWs(text.charCodeAt(a))) a++;
   }
   while (b > a && isWs(text.charCodeAt(b - 1))) b--;
@@ -185,7 +182,7 @@ export function parseComplex(text: string): Complex {
       else if (isIdentChar(c)) i++;
       else break;
     }
-    return text.slice(start, Math.min(i, n));
+    return text.slice(start, i);
   };
 
   /** From an opening `(` or `[` to just past its match; returns what's inside. */
@@ -233,7 +230,9 @@ export function parseComplex(text: string): Complex {
             list = parseSelectorList(inner);
           else if (!element && NTH_OF.has(name)) {
             const m = NTH_OF_SPLIT_RE.exec(inner);
-            arg = canonicalNth(m ? inner.slice(0, m.index) : inner);
+            arg = (m ? inner.slice(0, m.index) : inner)
+              .replace(WS_RUN_RE, "")
+              .toLowerCase();
             if (m) list = parseSelectorList(inner.slice(m.index + m[0].length));
           } else arg = inner.trim().replace(WS_RUN_RE, " ");
         }
@@ -279,10 +278,8 @@ export function parseComplex(text: string): Complex {
   while (i < n) {
     while (i < n) {
       if (isWs(text.charCodeAt(i))) i++;
-      else if (isComment(text, i)) {
-        const end = text.indexOf("*/", i + 2);
-        i = end < 0 ? n : end + 2;
-      } else break;
+      else if (isComment(text, i)) i = commentEnd(text, i);
+      else break;
     }
     if (i >= n) break;
     const c = text.charCodeAt(i);
@@ -305,10 +302,6 @@ export function parseComplex(text: string): Complex {
     compounds.push(parseCompound());
   }
   return { compounds, combinators };
-}
-
-function canonicalNth(text: string): string {
-  return text.replace(WS_RUN_RE, "").toLowerCase();
 }
 
 /** Whitespace dropped outside strings, except before a flag after an unquoted value (`[a=x i]`). */
@@ -346,10 +339,8 @@ function canonicalAttr(raw: string): string {
 const ATTR_RE =
   /^\[(?:(?:[^|\]=~^$*]*|\*)\|(?!=))?([^|\]=~^$*\s]+)(?:([~|^$*]?=)("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s\]]+))?/;
 
-/**
- * An attribute selector's name (lowercased, without namespace) and, for `=`,
- * its value. Other operators only require the attribute.
- */
+// Name lowercased, without namespace; a value only for `=`, as other
+// operators only require the attribute.
 export function attrConstraint(raw: string): {
   name: string;
   value: string | null;
@@ -362,12 +353,8 @@ export function attrConstraint(raw: string): {
   return { name, value: isQuote(v.charCodeAt(0)) ? v.slice(1, -1) : v };
 }
 
-// ---------------------------------------------------------------------------
-// Nesting
-
 const NESTING: Part = { t: "nesting" };
 
-/** `&` count, selector-list arguments included. */
 function nestingCount(sel: Complex): number {
   let n = 0;
   for (const c of sel.compounds) {
@@ -394,7 +381,6 @@ function replaceNesting(sel: Complex, by: Part): Complex {
   };
 }
 
-// Parts in a selector list, arguments included.
 const weights = new WeakMap<Complex[], number>();
 function weightOf(list: Complex[]): number {
   let w = weights.get(list);
@@ -418,11 +404,10 @@ function weightOf(list: Complex[]): number {
 const MAX_RESOLVED_WEIGHT = 4096;
 
 /**
- * A nested rule's selector against its parent's (resolved) list, as CSS
- * Nesting reads it: `&` is `:is(<parent>)`, and a selector without `&` is
- * relative to the parent (`.b` is `& .b`, `> .b` is `& > .b`). A single
- * parent selector is spliced in when `&` only starts the selector: same
- * elements, same specificity, more readable.
+ * As CSS Nesting reads it: `&` is `:is(<parent>)`, and a selector without `&`
+ * is relative (`.b` is `& .b`, `> .b` is `& > .b`). A single parent selector
+ * is spliced in when `&` only starts the selector: same elements, same
+ * specificity, more readable.
  */
 export function resolveNested(sel: Complex, parent: Complex[]): Complex {
   if (weightOf(parent) > MAX_RESOLVED_WEIGHT) return sel;
@@ -468,9 +453,6 @@ export function resolveNested(sel: Complex, parent: Complex[]): Complex {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Specificity
-
 export function compareSpecificity(a: Specificity, b: Specificity): number {
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
   return 0;
@@ -485,7 +467,6 @@ function maxOf(list: Complex[] | null): Specificity {
   return best;
 }
 
-/** Selectors Level 4 specificity. */
 export function specificity(sel: Complex): Specificity {
   const s: Specificity = [0, 0, 0];
   const add = (o: Specificity) => {
@@ -510,9 +491,6 @@ export function specificity(sel: Complex): Specificity {
   }
   return s;
 }
-
-// ---------------------------------------------------------------------------
-// Serialization
 
 export function serialize(sel: Complex): string {
   let out = serializeCompound(sel.compounds[0] ?? { parts: [] });
@@ -566,11 +544,10 @@ function serializeCompound(c: Compound): string {
 }
 
 /**
- * A selector, or a list, as `Rule.selector` spells it: to key a browser's
- * selector text (CDP's `selectorList.selectors[i].text`) to `parseRules`.
- * Quotes stay as written, as CDP reports them. Nested rules' selectors are
- * resolved against their parents in `Rule`, so they only match once
- * resolved the same way.
+ * A selector or list as `Rule.selector` spells it, to key a browser's selector
+ * text (CDP's `selectorList.selectors[i].text`) to `parseRules`. Quotes stay
+ * as written, as CDP reports them. Nested selectors only match once resolved
+ * against their parents, as `Rule.selector` is.
  */
 export function canonicalSelector(text: string): string {
   return serializeList(parseSelectorList(text));

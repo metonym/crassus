@@ -8,18 +8,19 @@ import {
   wins,
 } from "../src/core/cascade";
 
-const rules = (css: string) => parseRules(css);
-const one = (css: string) => rules(css)[0];
+const one = (css: string) => parseRules(css)[0];
 
 describe("parseRules", () => {
   it("computes specificity per selector in a list", () => {
-    const [a, b, c, d] = rules(
+    const list = parseRules(
       ".x, .x.y:hover, button.x::before, .x:not(.y):not(.z)  { color: red }",
     );
-    expect(a.specificity).toEqual([0, 1, 0]);
-    expect(b.specificity).toEqual([0, 3, 0]);
-    expect(c.specificity).toEqual([0, 1, 2]);
-    expect(d.specificity).toEqual([0, 3, 0]);
+    expect(list.map((r) => r.specificity)).toEqual([
+      [0, 1, 0],
+      [0, 3, 0],
+      [0, 1, 2],
+      [0, 3, 0],
+    ]);
   });
 
   it(":where adds nothing, :is/:not take the heaviest argument", () => {
@@ -31,7 +32,7 @@ describe("parseRules", () => {
   });
 
   it("records media context, order, and important declarations", () => {
-    const [plain, inMedia] = rules(
+    const [plain, inMedia] = parseRules(
       ".x { color: red } @media (any-hover: hover) { .x:hover { color: blue !important; padding: 0 } }",
     );
     expect(plain.context).toBe("");
@@ -58,7 +59,7 @@ describe("parseRules", () => {
   });
 
   it("separates layer and scope from the condition context", () => {
-    const [a, b, c] = rules(
+    const [a, b, c] = parseRules(
       "@layer base, comp; @media print { @layer comp { .x { color: red } } } @layer base.reset { .y { color: red } } @scope (.r) to (.s) { .z { color: red } }",
     );
     expect([a.context, a.layer, a.scope]).toEqual(["@media print", "comp", ""]);
@@ -74,7 +75,7 @@ describe("parseRules", () => {
   });
 
   it("flattens CSS nesting in source order", () => {
-    const list = rules(
+    const list = parseRules(
       ".p { color: red; .x { color: blue } top: 0; @media print { left: 0; & > .y { right: 0 } } }",
     );
     expect(
@@ -90,7 +91,7 @@ describe("parseRules", () => {
   });
 
   it("gives nested declarations the specificity of `&`", () => {
-    const [a, b, , nested] = rules(
+    const [a, b, , nested] = parseRules(
       ".p, #q { color: red; & .x { top: 0 } color: blue }",
     );
     expect([a.specificity, b.specificity]).toEqual([
@@ -113,7 +114,7 @@ describe("parseRules", () => {
   });
 
   it("names anonymous layers", () => {
-    const [a] = rules("@layer { @layer x { .a { color: red } } }");
+    const [a] = parseRules("@layer { @layer x { .a { color: red } } }");
     expect(a.layer).toBe("<anonymous>.x");
   });
 
@@ -133,7 +134,7 @@ describe("histogram", () => {
     ".a, .a.b, a.a.b.c, .a.b.c.d:hover, .a .b .c .d .e { color: red }";
 
   it("buckets by class tier and counts qualified compounds", () => {
-    const h = histogram(rules(css));
+    const h = histogram(parseRules(css));
     expect(h.selectors).toBe(5);
     expect(h.classes).toEqual([0, 1, 1, 1, 2]);
     expect(h.qualified).toBe(1);
@@ -141,7 +142,7 @@ describe("histogram", () => {
   });
 
   it("groups by source file, unplaced rules under ?", () => {
-    const list = rules(css);
+    const list = parseRules(css);
     const byFile = histogramByFile(list, (r) =>
       r.selector.startsWith(".a.b") ? "x.scss" : undefined,
     );
@@ -167,14 +168,14 @@ describe("coMatchable", () => {
 
   it("pseudo-elements and media contexts must agree", () => {
     expect(coMatchable(r(".x::before"), r(".x"))).toBe(false);
-    const [a, b] = rules(
+    const [a, b] = parseRules(
       ".x { color: red } @media print { .x { color: blue } }",
     );
     expect(coMatchable(a, b)).toBe(false);
   });
 
   it("rules in different layers or scopes can co-match", () => {
-    const [a, b, c] = rules(
+    const [a, b, c] = parseRules(
       "@layer x { .x { color: red } } .x { color: blue } @scope (.r) { .x { color: green } }",
     );
     expect(coMatchable(a, b)).toBe(true);
@@ -239,8 +240,8 @@ describe("coMatchable", () => {
 
 describe("matchContextMoves", () => {
   it("pairs a dropped and a new rule sharing selector + decls across contexts", () => {
-    const removed = rules(".x { color: red }");
-    const added = rules("@media (any-hover: hover) { .x { color: red } }");
+    const removed = parseRules(".x { color: red }");
+    const added = parseRules("@media (any-hover: hover) { .x { color: red } }");
     const moves = matchContextMoves(removed, added);
     expect(moves.size).toBe(1);
     expect(moves.get(added[0])).toBe(removed[0]);
@@ -249,14 +250,14 @@ describe("matchContextMoves", () => {
   });
 
   it("pairs a rule that moved between layers", () => {
-    const removed = rules("@layer a { .x { color: red } }");
-    const added = rules("@layer b { .x { color: red } }");
+    const removed = parseRules("@layer a { .x { color: red } }");
+    const added = parseRules("@layer b { .x { color: red } }");
     expect(matchContextMoves(removed, added).size).toBe(1);
   });
 
   it("does not pair rules with the same context, or different selectors/decls", () => {
-    const removed = rules(".x { color: red } .y { color: red }");
-    const added = rules(
+    const removed = parseRules(".x { color: red } .y { color: red }");
+    const added = parseRules(
       ".x { color: red } @media print { .y { color: blue } }",
     );
     const moves = matchContextMoves(removed, added);
@@ -266,8 +267,8 @@ describe("matchContextMoves", () => {
   });
 
   it("leaves unmatched added rules in place", () => {
-    const removed = rules(".x { color: red }");
-    const added = rules(
+    const removed = parseRules(".x { color: red }");
+    const added = parseRules(
       "@media print { .x { color: red } } .z { color: green }",
     );
     const moves = matchContextMoves(removed, added);
@@ -278,7 +279,7 @@ describe("matchContextMoves", () => {
 
 describe("wins", () => {
   it("important beats specificity beats order", () => {
-    const [low, high, later, imp] = rules(
+    const [low, high, later, imp] = parseRules(
       ".a { color: red } .a.b { color: red } .a { color: red } .c { color: red !important }",
     );
     expect(wins(high, low, "color")).toBe(true);
@@ -288,12 +289,12 @@ describe("wins", () => {
   });
 
   it("layer beats specificity, reversed for !important", () => {
-    const [late, early, unlayered] = rules(
+    const [late, early, unlayered] = parseRules(
       "@layer a, b; @layer b { .x { color: red } } @layer a { #id.x { color: red } } .x { color: red }",
     );
     expect(wins(late, early, "color")).toBe(true);
     expect(wins(unlayered, early, "color")).toBe(true);
-    const [eImp, lImp, uImp] = rules(
+    const [eImp, lImp, uImp] = parseRules(
       "@layer a { .x { color: red !important } } @layer b { .x { color: red !important } } .x { color: red !important }",
     );
     expect(wins(eImp, lImp, "color")).toBe(true);
@@ -302,7 +303,7 @@ describe("wins", () => {
   });
 
   it("scoped beats unscoped at equal specificity only", () => {
-    const [scoped, plain, heavier, other] = rules(
+    const [scoped, plain, heavier, other] = parseRules(
       "@scope (.r) { .x { color: red } } .x { color: red } .x.y { color: red } @scope (.s) { .x { color: red } }",
     );
     expect(wins(scoped, plain, "color")).toBe(true);
@@ -312,7 +313,7 @@ describe("wins", () => {
   });
 
   it("conflicting properties include shorthand/longhand pairs", () => {
-    const [a, b] = rules(
+    const [a, b] = parseRules(
       ".a { border: 0; padding-left: 1px } .b { border-color: red; margin: 0 }",
     );
     expect(conflictingProps(a, b)).toEqual(["border~border-color"]);
