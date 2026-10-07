@@ -41,6 +41,9 @@
   fixtures with what each lost to, fold candidates, never-matched rules,
   each by size, under the run's evidence bounds) and always exits 0.
 
+- `diff`'s size line names the Bun version that minified it; the README
+  says to budget size on your own build output.
+
 **Fixes**
 
 - Chrome pages get exactly the requested viewport. Chrome's window size

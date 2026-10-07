@@ -90,6 +90,8 @@ Findings point at the authoring source (`css/_button.scss:42`) when the styleshe
 
 `diff` prints what changed between the two builds: the specificity profile, the files carrying the most selectors at three or more classes, the minified size as Bun minifies it (a trend, not a budget), dropped, new, rewritten and moved rules, and two sections of flips: **cascade flips**, where the winner between two rules that may match one element changed (these fail), and **order-tie flips** from rules that only moved (review). Both are rung 1 heuristics: confirm them with a computed-style snapshot (rung 3).
 
+The size line is Bun's minifier (the version is printed) with no browser targets, so it tracks the direction of a change, not what you ship. If you minify with something else or for specific targets, keep your size budget on your own build output.
+
 ### Fixing
 
 `crassus dead --fix` deletes declarations that can never win, where it can prove the edit removes nothing else:

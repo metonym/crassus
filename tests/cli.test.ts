@@ -189,6 +189,7 @@ describe("crassus diff", () => {
     expect(r.out).toContain("CASCADE FLIPS");
     expect(r.out).toContain(":where(.a) .x (0,1,0) now loses 'color' vs");
     expect(r.out).toContain("1 cascade flip(s)");
+    expect(r.out).toContain(`as Bun ${Bun.version} minifies it; a trend`);
     const github = (
       await cli(root, "diff", "base.css", "head.css", "--format", "github")
     ).out;
