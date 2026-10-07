@@ -184,6 +184,7 @@ export async function snapshotDiffCommand(opts: {
   dirs: string[];
   format: "human" | "json";
   io: Output;
+  summary?: ((title: string, report: () => string) => Promise<void>) | null;
 }): Promise<number> {
   if (opts.dirs.length !== 2)
     throw new UsageError("snapshot-diff takes two directories (base, head)");
@@ -194,6 +195,9 @@ export async function snapshotDiffCommand(opts: {
   });
   const { diffSnapshots } = await import("../browser/snapshot-diff");
   const diff = await diffSnapshots(base, head);
+  await opts.summary?.(`crassus snapshot-diff ${opts.dirs.join(" ")}`, () =>
+    formatSnapshotDiff(diff, "human"),
+  );
   opts.io.out(formatSnapshotDiff(diff, opts.format));
   const differs =
     diff.groups.length > 0 ||

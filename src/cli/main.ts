@@ -2,6 +2,7 @@
  * `crassus` CLI. Exit codes: 0 clean, 1 findings, 2 usage or environment
  * error. Review sections (order-tie flips) never fail a run.
  */
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { version } from "../../package.json";
 import { baseStylesheets } from "./baseline";
@@ -21,11 +22,13 @@ import {
   UsageError,
 } from "./project";
 import {
+  appendSummary,
   FORMATS,
   type Format,
   formatDead,
   formatDiff,
   formatFix,
+  uncolored,
 } from "./report";
 import type { Sheet } from "./sources";
 
@@ -62,6 +65,8 @@ Options:
   --dry-run          with --fix: print the edits as a patch, write nothing
   --no-cache         rebuild the base
   --verbose          show every rule in review sections
+  --summary <file>   dead, diff, snapshot-diff: also append the human report
+                     to this file ($GITHUB_STEP_SUMMARY), whatever --format
 
 Browser options (capture, usage; override the config's \`browser\`):
   --only <text>      only fixtures whose name contains this
@@ -138,6 +143,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       concurrency: { type: "string" },
       url: { type: "string" },
       out: { type: "string" },
+      summary: { type: "string" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
     },
@@ -162,6 +168,16 @@ async function run(argv: string[], io: Io): Promise<number> {
 
   if (values["dry-run"] && !values.fix)
     throw new UsageError("--dry-run goes with --fix");
+  const summary = values.summary
+    ? (title: string, report: () => string) =>
+        appendSummary(
+          resolve(cwd, values.summary as string),
+          title,
+          uncolored(report),
+        )
+    : null;
+  if (summary && (values.fix || command === "capture" || command === "usage"))
+    throw new UsageError("--summary goes with dead, diff and snapshot-diff");
   if (command === "dead") {
     const { config } = await loadConfig(cwd, values.config);
     const load = () =>
@@ -173,6 +189,7 @@ async function run(argv: string[], io: Io): Promise<number> {
     const sheets = await load();
     const results = runDead(sheets);
     if (!values.fix) {
+      await summary?.("crassus dead", () => formatDead(results, "human"));
       io.out(formatDead(results, format));
       return results.some((r) => r.dead.length > 0) ? 1 : 0;
     }
@@ -253,6 +270,9 @@ async function run(argv: string[], io: Io): Promise<number> {
       io.err(`crassus: ${name} is only in the base; skipped`);
     for (const name of onlyHead)
       io.err(`crassus: ${name} is only in the head; skipped`);
+    await summary?.(`crassus diff against ${base.ref}`, () =>
+      formatDiff(results, base, "human", values.verbose ?? false),
+    );
     io.out(formatDiff(results, base, format, values.verbose ?? false));
     return results.some((r) => r.flips.length > 0) ? 1 : 0;
   }
@@ -270,7 +290,7 @@ async function run(argv: string[], io: Io): Promise<number> {
   if (command === "snapshot-diff") {
     if (format !== "human" && format !== "json")
       throw new UsageError("snapshot-diff reports as human or json");
-    return snapshotDiffCommand({ cwd, dirs: files, format, io });
+    return snapshotDiffCommand({ cwd, dirs: files, format, io, summary });
   }
   if (command === "capture" || command === "usage") {
     if (format !== "human")

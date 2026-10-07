@@ -169,10 +169,21 @@ function sarif(findings: Finding[]): string {
 // ---------------------------------------------------------------------------
 // Human
 
+let plain = false;
 const color = (code: number) => (s: string) =>
-  process.stdout.isTTY && !process.env.NO_COLOR
+  !plain && process.stdout.isTTY && !process.env.NO_COLOR
     ? `\x1b[${code}m${s}\x1b[0m`
     : s;
+
+/** Runs a formatter without color, for files. */
+export function uncolored<T>(fn: () => T): T {
+  plain = true;
+  try {
+    return fn();
+  } finally {
+    plain = false;
+  }
+}
 const bold = color(1);
 const dim = color(2);
 const red = color(31);
@@ -455,4 +466,46 @@ export function formatSnapshotDiff(
     );
   }
   return lines.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// --summary
+
+/** GitHub's cap on a step summary. */
+const SUMMARY_LIMIT = 1024 * 1024;
+
+/**
+ * Appends a human report to `file` (a GitHub step summary) as a fenced
+ * block, cut at a line, with a note, to fit within 1 MiB with what's there.
+ */
+export async function appendSummary(
+  file: string,
+  title: string,
+  report: string,
+): Promise<void> {
+  const existing = await Bun.file(file)
+    .text()
+    .catch(() => "");
+  const fence = report.includes("```") ? "~~~~" : "```";
+  const open = `### ${title}\n\n${fence}text\n`;
+  const close = `\n${fence}\n`;
+  const budget =
+    SUMMARY_LIMIT -
+    Buffer.byteLength(existing) -
+    Buffer.byteLength(open + close) -
+    200;
+  let body = report;
+  if (Buffer.byteLength(body) > budget) {
+    const lines = body.split("\n");
+    let size = 0;
+    let kept = 0;
+    while (kept < lines.length) {
+      const next = Buffer.byteLength(lines[kept]) + 1;
+      if (size + next > budget) break;
+      size += next;
+      kept++;
+    }
+    body = `${lines.slice(0, kept).join("\n")}\n… ${lines.length - kept} more line(s) cut to fit GitHub's 1 MiB step summary; run crassus locally for the full report.`;
+  }
+  await Bun.write(file, `${existing}${open}${body}${close}`);
 }

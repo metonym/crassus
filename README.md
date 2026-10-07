@@ -64,6 +64,7 @@ crassus usage                     # declarations that match but never win (rung 
 | `--dry-run` | With `--fix`: print the edits as a unified diff and write nothing. |
 | `--no-cache` | Rebuild the base. |
 | `--verbose` | List every rule in review sections. |
+| `--summary <file>` | `dead`, `diff`, `snapshot-diff`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB. |
 
 `capture` and `usage` load the fixture pages from the config's [`browser`](#fixture-pages) block, and take:
 
@@ -196,8 +197,10 @@ export default defineConfig({
 In GitHub Actions, `--format github` puts each finding on the PR diff at its source line:
 
 ```yaml
-- run: bunx crassus diff --base origin/${{ github.base_ref }} --format github
+- run: bunx crassus diff --base origin/${{ github.base_ref }} --format github --summary "$GITHUB_STEP_SUMMARY"
 ```
+
+`--summary` puts the full human report in the job summary from the same run.
 
 ## API
 

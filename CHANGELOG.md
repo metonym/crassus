@@ -50,6 +50,12 @@
   everything it produces is dead in all of them. Without it, a fix in a
   Sass partial prints which entries the proof covered.
 
+- `--summary <file>` on `dead`, `diff` and `snapshot-diff` appends the
+  human report to a file (fenced, without color) while `--format` controls
+  stdout, so one CI run gives both annotations and a job summary. It's cut
+  at a line, with a note, to fit GitHub's 1 MiB step summary with what's
+  already there. Exit codes don't change.
+
 **Fixes**
 
 - Chrome pages get exactly the requested viewport. Chrome's window size
