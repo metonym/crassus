@@ -201,9 +201,10 @@ export async function snapshotDiffCommand(opts: {
     formatSnapshotDiff(diff, "human"),
   );
   opts.io.out(formatSnapshotDiff(diff, opts.format));
-  // Properties one side didn't record are listed for review, not failed on.
+  // Properties one side didn't record, and changes no one can see, are
+  // listed for review, not failed on.
   const differs =
-    diff.groups.length > 0 ||
+    diff.groups.some((g) => !g.invisible) ||
     diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
     diff.onlyBase.length > 0 ||
     diff.onlyHead.length > 0;

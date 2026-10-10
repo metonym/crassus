@@ -190,3 +190,205 @@ describe("encodeSnapshot", () => {
     ]);
   });
 });
+
+describe("folding", () => {
+  const SIDES = ["top", "right", "bottom", "left"];
+  const LOGICAL = ["block-start", "inline-end", "block-end", "inline-start"];
+  const border = (color: string, width = "1px") =>
+    Object.fromEntries(
+      SIDES.flatMap((side, i) => [
+        [`border-${side}-color`, color],
+        [`border-${LOGICAL[i]}-color`, color],
+        [`border-${side}-width`, width],
+        [`border-${side}-style`, "solid"],
+      ]),
+    );
+  const diff = (
+    before: Record<string, string>,
+    after: Record<string, string>,
+  ) => diffSnapshot({ a: before }, { a: after }).changed.a;
+
+  it("folds logical twins and a full longhand set into one change", () => {
+    // One border color change: 8 changes before folding.
+    expect(
+      diff(
+        { color: "black", ...border("red") },
+        { color: "black", ...border("blue") },
+      ),
+    ).toEqual([
+      {
+        property: "border-color",
+        before: "red",
+        after: "blue",
+        aliases: [
+          "border-block-end-color",
+          "border-block-start-color",
+          "border-bottom-color",
+          "border-inline-end-color",
+          "border-inline-start-color",
+          "border-left-color",
+          "border-right-color",
+          "border-top-color",
+        ],
+      },
+    ]);
+  });
+
+  it("names a partial set by its shorthand, and follows direction", () => {
+    const pad = (v: string, dir = "ltr") => ({
+      direction: dir,
+      "padding-top": v,
+      "padding-block-start": v,
+      "padding-bottom": v,
+      "padding-right": "0px",
+      "padding-inline-start": "0px",
+    });
+    expect(diff(pad("1px"), pad("2px"))).toEqual([
+      {
+        property: "padding-block",
+        before: "1px",
+        after: "2px",
+        aliases: ["padding-block-start", "padding-bottom", "padding-top"],
+      },
+    ]);
+    // In rtl, inline-start is the right side.
+    const rtl = (v: string) => ({
+      direction: "rtl",
+      "padding-right": v,
+      "padding-inline-start": v,
+    });
+    expect(diff(rtl("1px"), rtl("2px"))).toEqual([
+      {
+        property: "padding-right",
+        before: "1px",
+        after: "2px",
+        aliases: ["padding-inline-start"],
+      },
+    ]);
+    // A vertical writing mode: no physical twin to fold into.
+    const vertical = (v: string) => ({
+      "writing-mode": "vertical-rl",
+      "padding-top": v,
+      "padding-block-start": v,
+    });
+    expect(
+      diff(vertical("1px"), vertical("2px")).map((c) => c.property),
+    ).toEqual(["padding-top", "padding-block-start"]);
+  });
+
+  it("folds currentColor followers into the color change", () => {
+    const el = (color: string) => ({
+      color,
+      "caret-color": color,
+      "outline-color": color,
+      "outline-style": "solid",
+      ...border(color),
+      "text-decoration-color": "green",
+    });
+    const [change, ...others] = diff(el("red"), el("blue"));
+    expect(others).toEqual([]);
+    expect(change).toMatchObject({
+      property: "color",
+      before: "red",
+      after: "blue",
+    });
+    expect(change.aliases).toContain("caret-color");
+    expect(change.aliases).toContain("outline-color");
+    expect(change.aliases).toContain("border-inline-start-color");
+    expect(change.aliases).toHaveLength(10);
+  });
+
+  it("marks changes no one can see", () => {
+    const hidden = (color: string) => ({
+      visibility: "hidden",
+      color,
+      width: color === "red" ? "1px" : "2px",
+    });
+    expect(diff(hidden("red"), hidden("blue"))).toEqual([
+      {
+        property: "color",
+        before: "red",
+        after: "blue",
+        invisible: "visibility: hidden",
+      },
+      // Still takes space.
+      { property: "width", before: "1px", after: "2px" },
+    ]);
+    const lines = (top: string, outline: string) => ({
+      color: "black",
+      "border-top-color": top,
+      "border-top-width": "0px",
+      "outline-color": outline,
+      "outline-style": "none",
+    });
+    expect(diff(lines("red", "red"), lines("blue", "blue"))).toEqual([
+      {
+        property: "border-top-color",
+        before: "red",
+        after: "blue",
+        invisible: "no border",
+      },
+      {
+        property: "outline-color",
+        before: "red",
+        after: "blue",
+        invisible: "outline-style: none",
+      },
+    ]);
+    // Under an undisplayed ancestor, in a forced state too.
+    const page = (color: string): Snapshot => ({
+      "body>div.menu": { display: "none", color: "black" },
+      "body>div.menu>ul>li@hover": { display: "block", color },
+    });
+    expect(
+      diffSnapshot(page("red"), page("blue")).changed[
+        "body>div.menu>ul>li@hover"
+      ],
+    ).toEqual([
+      {
+        property: "color",
+        before: "red",
+        after: "blue",
+        invisible: "display: none",
+      },
+    ]);
+  });
+
+  it("groups invisible changes apart, and unions aliases", () => {
+    const groups = groupChanges([
+      {
+        page: "p",
+        changed: {
+          a: [
+            {
+              property: "color",
+              before: "red",
+              after: "blue",
+              aliases: ["caret-color"],
+            },
+          ],
+          b: [
+            {
+              property: "color",
+              before: "red",
+              after: "blue",
+              aliases: ["outline-color"],
+            },
+          ],
+          c: [
+            {
+              property: "color",
+              before: "red",
+              after: "blue",
+              invisible: "display: none",
+            },
+          ],
+        },
+      },
+    ]);
+    expect(groups.map((g) => [g.count, g.aliases, g.invisible])).toEqual([
+      [2, ["caret-color", "outline-color"], undefined],
+      [1, undefined, "display: none"],
+    ]);
+  });
+});
