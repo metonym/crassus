@@ -50,7 +50,9 @@ crassus diff base.css head.css    # or between two files
 
 crassus capture <dir>             # computed styles of every fixture page (rung 3)
 crassus capture --base main <dir> # the same at a git ref, in a worktree
+crassus capture --css new.css <dir>  # today's fixtures with another library stylesheet
 crassus snapshot-diff <base> <head>  # compare two captures (ground truth)
+crassus compare --base main       # today's fixtures, library CSS at main vs now, page by page
 crassus usage                     # declarations that match but never win (rung 2, evidence)
 ```
 
@@ -66,13 +68,15 @@ Browser runs open one tab (a renderer process) per `--concurrency`, by default h
 | `--dry-run` | With `--fix`: print the edits as a unified diff and write nothing. |
 | `--no-cache` | Rebuild the base. |
 | `--verbose` | List every rule in review sections. |
-| `--summary <file>` | `dead`, `diff`, `snapshot-diff`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB. |
+| `--summary <file>` | `dead`, `diff`, `snapshot-diff`, `compare`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB. |
 
-`capture` and `usage` load the fixture pages from the config's [`browser`](#fixture-pages) block, and take:
+`capture`, `compare` and `usage` load the fixture pages from the config's [`browser`](#fixture-pages) block, and take:
 
 | Option | Description |
 |:---|:---|
-| `--base <ref>` | `capture`: build and capture the fixtures of a git ref, in a temporary worktree. |
+| `--base <ref>` | `capture`: build and capture the fixtures of a git ref, in a temporary worktree. `compare`: build the stylesheet at that ref (default `HEAD`). |
+| `--css <file>` | `capture`: serve this CSS in place of the library stylesheet (the largest fixture `.css` file containing `sheetMarker`). |
+| `--entry <name>` | `compare`: the configured stylesheet the fixtures load, when there are several. |
 | `--only <text>` | Only fixtures whose name contains this. |
 | `--themes <a,b>` | Themes to load each page in. |
 | `--viewport <WxH>` | Viewport (repeatable), as `320x640`. |
@@ -88,6 +92,8 @@ Exit codes: `0` clean, `1` findings (dead declarations, cascade flips; for `snap
 Findings point at the authoring source (`css/_button.scss:42`) when the stylesheet has a source map: a sibling `.map`, a `sourceMappingURL` comment, or the map a `compile` hook returns. Without one they point at the CSS.
 
 `capture` writes one gzipped JSON file per page (`<fixture>.<theme>.json.gz`, or `<fixture>.<theme>.<W>x<H>.json.gz` with several viewports), storing each distinct computed style once: most elements share theirs, so a page is a few kilobytes (Carbon's data-table pages: 154 kB for 12, against 48.6 MB as plain JSON). Read one with `readSnapshot`. Once every page is written, it adds a `.crassus-capture` manifest listing them. It stops with an error before a capture would leave less than 512 MB free, projecting the pages written so far over the rest. `snapshot-diff` compares two such directories, reading only the files their manifests list, and refuses a directory without one (a capture that failed or is still running). Pages on one side only and elements on one side only (DOM or state changes) are listed, and computed-style changes are grouped by `property: before -> after`, so a systematic change reads as one line with its pages and example elements. One cause reads as one change on each element: logical twins fold into the physical property (`padding-block-start` into `padding-top`, assuming a horizontal writing mode), a full set of longhands that changed the same way into its shorthand (`border-color`, `padding-block`), and properties that follow `color` (currentColor: caret, outline, border, text-decoration colors) into `color`, each listed under `also:`. Changes no one can see on either side (under `display: none`, painted properties under `visibility: hidden`, the color of a border with width 0 or of an outline with style none) are listed apart as invisible and don't fail the run. Each capture records only the properties its stylesheets declare, so a property only one side declares has no value on the other: it's listed under "Not compared" for review, not reported as a change, and doesn't fail the run. `--format json` gives the full diff.
+
+`compare` answers "did this CSS change regress today's markup": it builds the library stylesheet at `--base` (default `HEAD`) and now, through the config's `css`/`build` or `compile` (or takes two CSS files), serves today's fixtures twice with each one swapped in for the stylesheet that contains `sheetMarker`, and captures both sides of every page in the same tab, diffing as it goes. It keeps no snapshots, and both sides record every property either stylesheet declares, so nothing is left uncompared. The report, JSON and exit codes are `snapshot-diff`'s. `capture --base` instead rebuilds the ref's fixtures, so its DOM changes too. On Carbon's 218 pages (2 themes, forced states) a `compare` takes about as long as two captures (85 s at 4 tabs) and writes nothing.
 
 Before reading styles, `capture` pauses infinite animations at their start and finishes the others, so a spinner doesn't differ between two runs of the same CSS. It forces only states a user can reach: no `:focus` or `:active` on a disabled element, no `:focus` on one that can't take focus (a `<li>`, a link without `href`, a hidden element), and none inside `inert`.
 
@@ -231,14 +237,15 @@ Real-browser rungs on [`Bun.WebView`](https://bun.sh/docs/runtime/webview): Chro
 | `readSnapshot(file)` | One `capture` file as a `Snapshot`: element path → property → computed value. Elements with the same style share one record object. |
 | `diffSnapshots(baseDir, headDir, { examples? })` | Compares two `capture` directories: changed element paths per page, and every change grouped by `(property, before -> after)` with counts and example paths. Pages and paths on one side only are listed, not diffed, and so are properties only one side recorded (`uncompared`). Changes carry the properties folded into them (`aliases`) and, when no one can see them, why (`invisible`). Throws `IncompleteCaptureError` for a directory without a manifest. |
 | `runUsage(options)` | Which declarations of the library stylesheet (the one containing `sheetMarker`) match and win on every element, over all themes and viewports. `matcher: "cdp"` asks Chrome per element; `matcher: "dom"` matches in the page with `Element.matches()` in one round trip per page, on Chrome or WebKit. |
-| `serveFixtures(dir)` | Static fixture server that sets a theme attribute before first paint. |
+| `compareCss(options)` | `capture`'s options with `dir` (the fixture directory), `sheetMarker`, and `base` and `head` CSS: every page captured with each swapped in for the library stylesheet, diffed page by page into a `SnapshotDiff` (plus `ms` and `notReady`), keeping no snapshots. |
+| `serveFixtures(dir, { swap? })` | Static fixture server that sets a theme attribute before first paint. `swap: { marker, css }` serves `css` in place of the largest `.css` file containing `marker`. |
 
 Both browser runs take:
 
 - `viewports: { width, height }[]`: every page at each size (default one, 1280 × 900; `width`/`height` still set a single one). Use enough to cover the stylesheet's `min-width`/`max-width` breakpoints, or rules outside them read as never matched. With several, capture files are named `<name>.<theme>.<W>x<H>.json.gz`.
 - `readySelector` (and `readyTimeoutMs`, default 5000): wait after load until the selector matches, for content that mounts late. A page that never matches is still read, and returned in `notReady`.
 
-`IncompleteCaptureError` is exported too. Types: `CaptureOptions`, `UsageOptions`, `UsageFile`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`, `Uncompared`.
+`IncompleteCaptureError` is exported too. Types: `CaptureOptions`, `CompareOptions`, `ServeOptions`, `UsageOptions`, `UsageFile`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`, `Uncompared`.
 
 ## Features
 

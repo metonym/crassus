@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { parseRules } from "crassus";
 import {
   capture,
+  compareCss,
   diffSnapshots,
   readSnapshot,
   runUsage,
@@ -295,6 +296,62 @@ it("diffSnapshots folds one cause into one change, and marks what no one sees", 
     ]),
   );
 }, 60_000);
+
+it("compareCss diffs two stylesheets on the same pages, forced states included", async () => {
+  const opts = {
+    ...base(),
+    dir: join(dir, "site"),
+    states: "cdp" as const,
+    emulate: "cdp" as const,
+    settleMs: 0,
+  };
+  const same = await compareCss({ ...opts, base: LIB_CSS, head: LIB_CSS });
+  expect(same.files).toBe(1);
+  expect(same.groups).toEqual([]);
+  expect(same.pages).toEqual([]);
+
+  const diff = await compareCss({
+    ...opts,
+    base: LIB_CSS,
+    head: LIB_CSS.replace("color: green", "color: lime"),
+  });
+  expect(diff.groups).toEqual([
+    expect.objectContaining({
+      property: "color",
+      before: "rgb(0, 128, 0)",
+      after: "rgb(0, 255, 0)",
+      count: 1,
+      pages: ["page.white"],
+      examples: [
+        { page: "page.white", path: "body>div.bx--wrap>button.bx--btn@hover" },
+      ],
+    }),
+  ]);
+}, 60_000);
+
+it("swaps the largest stylesheet that contains the marker", async () => {
+  const root = join(dir, "swap");
+  await Promise.all([
+    Bun.write(
+      join(root, "assets/lib.css"),
+      ".bx--a { color: red; } /* long */",
+    ),
+    Bun.write(join(root, "assets/extra.css"), ".bx--b { color: red; }"),
+    Bun.write(join(root, "big.css"), `.app { color: red; ${" ".repeat(99)}}`),
+  ]);
+  const site = serveFixtures(root, { swap: { marker: ".bx--", css: ".x{}" } });
+  try {
+    const get = (p: string) => fetch(`${site.url}/${p}`).then((r) => r.text());
+    expect(await get("assets/lib.css")).toBe(".x{}");
+    expect(await get("assets/extra.css")).toBe(".bx--b { color: red; }");
+    expect(await get("big.css")).toContain(".app");
+  } finally {
+    site.stop();
+  }
+  expect(() =>
+    serveFixtures(root, { swap: { marker: ".nope--", css: "" } }),
+  ).toThrow("no .css file under");
+});
 
 it("stops the pool at the first failure", async () => {
   let started = 0;

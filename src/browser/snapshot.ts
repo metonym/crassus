@@ -166,7 +166,7 @@ export interface CaptureOptions {
   settleMs?: number;
 }
 
-const snapshotFile = (job: PageJob, several: boolean) =>
+export const snapshotFile = (job: PageJob, several: boolean) =>
   `${job.name}.${job.theme}${several ? `.${viewportName(job.viewport)}` : ""}.json.gz`;
 
 /** Reverses `snapshotFile`. */
@@ -235,10 +235,14 @@ export async function readSnapshot(file: string): Promise<Snapshot> {
   return decodeSnapshot(await Bun.file(file).bytes());
 }
 
-async function capturePage(
+export async function capturePage(
   view: View,
   opts: Pick<CaptureOptions, "states" | "emulate" | "settleMs">,
+  /** Longhands to record beyond those the page's stylesheets declare. */
+  extraProps: string[] = [],
 ): Promise<Snapshot> {
+  if (extraProps.length)
+    await view.evaluate(`window.__crProps = ${JSON.stringify(extraProps)}`);
   await view.evaluate(PAGE_HELPERS);
   await view.evaluate(CR_HELPERS);
   if (opts.emulate === "cssom")

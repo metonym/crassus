@@ -260,7 +260,7 @@ function pageJobs(
   );
 }
 
-interface VisitOptions {
+export interface VisitOptions {
   baseUrl: string;
   fixtures: string[];
   themes: string[];
@@ -274,6 +274,19 @@ interface VisitOptions {
   emulate: "cdp" | "cssom";
   readySelector?: string;
   readyTimeoutMs?: number;
+}
+
+/** Loads `url` in `view` and waits for `readySelector`; false if it never matched. */
+export async function loadPage(
+  view: View,
+  url: string,
+  opts: Pick<VisitOptions, "emulate" | "readySelector" | "readyTimeoutMs">,
+): Promise<boolean> {
+  if (opts.emulate === "cdp") await reduceMotion(view);
+  await view.navigate(url);
+  return opts.readySelector
+    ? waitReady(view, opts.readySelector, opts.readyTimeoutMs)
+    : true;
 }
 
 export async function visitPages(
@@ -301,11 +314,7 @@ export async function visitPages(
       }),
     async (view, job, slot) => {
       await view.resize(job.viewport);
-      if (opts.emulate === "cdp") await reduceMotion(view);
-      await view.navigate(job.url);
-      const ready = opts.readySelector
-        ? await waitReady(view, opts.readySelector, opts.readyTimeoutMs)
-        : true;
+      const ready = await loadPage(view, job.url, opts);
       await work(view, job, slot);
       return ready;
     },

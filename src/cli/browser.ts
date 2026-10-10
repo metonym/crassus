@@ -3,11 +3,12 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { join, relative, resolve } from "node:path";
+import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { UsageFile } from "../browser/usage";
 import type { BrowserConfig, Config } from "../core/config";
-import { atRef } from "./baseline";
+import { atRef, baseStylesheets } from "./baseline";
 import type { Io } from "./main";
-import { build, isOneOf, UsageError } from "./project";
+import { build, isOneOf, stylesheets, UsageError } from "./project";
 import { formatSnapshotDiff, refLabel, type Summary, seconds } from "./report";
 
 /** Command-line overrides of `browser` in the config. */
@@ -78,13 +79,12 @@ function settings(config: Config, flags: BrowserFlags) {
   };
 }
 
-/** Builds and serves the fixtures in `root`, unless `--url` points at a running server. */
-async function withFixtures<T>(
+/** Builds the fixtures in `root` (unless `--url` serves them) and lists them. */
+async function fixturePages(
   root: string,
   browser: BrowserConfig,
   flags: BrowserFlags,
-  fn: (baseUrl: string, fixtures: string[]) => Promise<T>,
-): Promise<T> {
+): Promise<{ path: string; fixtures: string[] }> {
   const { dir, build: command } =
     typeof browser.fixtures === "string"
       ? { dir: browser.fixtures, build: undefined }
@@ -105,9 +105,21 @@ async function withFixtures<T>(
     throw new UsageError(
       `no .html fixtures in ${dir}${flags.only ? ` matching ${flags.only}` : ""}`,
     );
+  return { path, fixtures };
+}
+
+/** Builds and serves the fixtures in `root`, unless `--url` points at a running server. */
+async function withFixtures<T>(
+  root: string,
+  browser: BrowserConfig,
+  flags: BrowserFlags,
+  fn: (baseUrl: string, fixtures: string[]) => Promise<T>,
+  swap?: { marker: string; css: string },
+): Promise<T> {
+  const { path, fixtures } = await fixturePages(root, browser, flags);
   if (flags.url) return fn(flags.url.replace(TRAILING_SLASH_RE, ""), fixtures);
   const { serveFixtures } = await import("../browser/serve");
-  const server = serveFixtures(path);
+  const server = serveFixtures(path, { swap });
   try {
     return await fn(server.url, fixtures);
   } finally {
@@ -130,12 +142,35 @@ const notReadyLine = (
 ) =>
   `crassus: ${plural(pages.length, "page")} never matched readySelector ${JSON.stringify(readySelector)} (${anyway} anyway): ${pages.join(", ")}`;
 
-/** `crassus capture <outDir> [--base <ref>]`. Exit 1 when a page never got ready. */
+/** The marked stylesheet's replacement, read from `file`. */
+async function swapFrom(
+  browser: BrowserConfig,
+  flags: BrowserFlags,
+  cwd: string,
+  file: string,
+) {
+  const marker = needMarker(browser, "--css");
+  if (flags.url) throw new UsageError("--css serves the fixtures: drop --url");
+  const path = resolve(cwd, file);
+  if (!existsSync(path)) throw new UsageError(`no such file: ${file}`);
+  return { marker, css: await Bun.file(path).text() };
+}
+
+function needMarker(browser: BrowserConfig, what: string): string {
+  if (!browser.sheetMarker)
+    throw new UsageError(
+      `${what} needs \`browser.sheetMarker\`: text only the library stylesheet contains`,
+    );
+  return browser.sheetMarker;
+}
+
+/** `crassus capture <outDir> [--base <ref> | --css <file>]`. Exit 1 when a page never got ready. */
 export async function captureCommand(opts: {
   config: Config;
   flags: BrowserFlags;
   outDir: string;
   base?: string;
+  css?: string;
   io: Io;
 }): Promise<number> {
   const { flags, io, base } = opts;
@@ -143,29 +178,46 @@ export async function captureCommand(opts: {
   const { browser, states, pages } = settings(opts.config, flags);
   if (base && flags.url)
     throw new UsageError("--base builds its own fixtures: drop --url");
+  if (base && opts.css)
+    throw new UsageError(
+      "--css swaps the stylesheet on today's fixtures; --base builds a ref's: pick one (or use crassus compare)",
+    );
+  const swap = opts.css
+    ? await swapFrom(browser, flags, cwd, opts.css)
+    : undefined;
   const outDir = resolve(cwd, opts.outDir);
   const { capture } = await import("../browser/snapshot");
   const run = (root: string) =>
-    withFixtures(root, browser, flags, async (baseUrl, fixtures) => {
-      const r = await capture({
-        ...pages,
-        baseUrl,
-        fixtures,
-        outDir,
-        states: states
-          ? pages.engine === "chrome"
-            ? "cdp"
-            : "rewrite"
-          : false,
-        emulate: EMULATE[pages.engine],
-        settleMs: browser.settleMs,
-      });
-      return { ...r, fixtures: fixtures.length };
-    });
+    withFixtures(
+      root,
+      browser,
+      flags,
+      async (baseUrl, fixtures) => {
+        const r = await capture({
+          ...pages,
+          baseUrl,
+          fixtures,
+          outDir,
+          states: states
+            ? pages.engine === "chrome"
+              ? "cdp"
+              : "rewrite"
+            : false,
+          emulate: EMULATE[pages.engine],
+          settleMs: browser.settleMs,
+        });
+        return { ...r, fixtures: fixtures.length };
+      },
+      swap,
+    );
   const { sha, result: r } = base
     ? await atRef(cwd, base, run)
     : { sha: "", result: await run(cwd) };
-  const at = base ? ` at ${refLabel(base, sha)}` : "";
+  const at = base
+    ? ` at ${refLabel(base, sha)}`
+    : opts.css
+      ? ` with ${opts.css}`
+      : "";
   io.out(
     `crassus: captured ${pagesLine(r.pages, r.fixtures, pages.themes.length, pages.viewports?.length ?? 1)}${at} into ${relative(cwd, outDir) || "."} in ${seconds(r.ms)}`,
   );
@@ -173,6 +225,14 @@ export async function captureCommand(opts: {
   io.err(notReadyLine(r.notReady, pages.readySelector, "captured"));
   return 1;
 }
+
+// Properties one side didn't record, and changes no one can see, are listed
+// for review, not failed on.
+const differs = (diff: SnapshotDiff) =>
+  diff.groups.some((g) => !g.invisible) ||
+  diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
+  diff.onlyBase.length > 0 ||
+  diff.onlyHead.length > 0;
 
 /** `crassus snapshot-diff <baseDir> <headDir>`. Exit 1 when anything differs. */
 export async function snapshotDiffCommand(opts: {
@@ -201,14 +261,114 @@ export async function snapshotDiffCommand(opts: {
     formatSnapshotDiff(diff, "human"),
   );
   opts.io.out(formatSnapshotDiff(diff, opts.format));
-  // Properties one side didn't record, and changes no one can see, are
-  // listed for review, not failed on.
-  const differs =
-    diff.groups.some((g) => !g.invisible) ||
-    diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
-    diff.onlyBase.length > 0 ||
-    diff.onlyHead.length > 0;
-  return differs ? 1 : 0;
+  return differs(diff) ? 1 : 0;
+}
+
+/** The stylesheet the fixtures load, among the configured ones. */
+function pick<T extends { name: string }>(sheets: T[], entry: string[]): T {
+  if (entry.length > 1)
+    throw new UsageError("compare swaps one stylesheet: give one --entry");
+  const name = entry[0];
+  const sheet = name
+    ? sheets.find((s) => s.name === name)
+    : sheets.length === 1
+      ? sheets[0]
+      : undefined;
+  if (!sheet)
+    throw new UsageError(
+      name
+        ? `no stylesheet named ${name} (${sheets.map((s) => s.name).join(", ")})`
+        : `pick the stylesheet the fixtures load with --entry (${sheets.map((s) => s.name).join(", ")})`,
+    );
+  return sheet;
+}
+
+/**
+ * `crassus compare [--base <ref>] | <base.css> <head.css>`: today's fixtures
+ * with each side's library stylesheet, diffed page by page. Exit 1 when
+ * anything visible differs or a page never got ready.
+ */
+export async function compareCommand(opts: {
+  config: Config;
+  configFile?: string;
+  flags: BrowserFlags;
+  files: string[];
+  base?: string;
+  entry: string[];
+  cache: boolean;
+  format: "human" | "json";
+  io: Io;
+  summary?: Summary;
+}): Promise<number> {
+  const { flags, io, files } = opts;
+  const { cwd } = io;
+  const { browser, states, pages } = settings(opts.config, flags);
+  const marker = needMarker(browser, "compare");
+  if (flags.url)
+    throw new UsageError("compare serves the fixtures twice: drop --url");
+  let label: string;
+  let css: { base: string; head: string };
+  if (files.length > 0) {
+    if (files.length !== 2 || opts.base)
+      throw new UsageError(
+        "compare takes two CSS files (base, head), or --base <ref> with the config",
+      );
+    const [base, head] = await Promise.all(
+      files.map((f) => {
+        const path = resolve(cwd, f);
+        if (!existsSync(path)) throw new UsageError(`no such file: ${f}`);
+        return Bun.file(path).text();
+      }),
+    );
+    css = { base, head };
+    label = files[0];
+  } else {
+    const ref = opts.base ?? "HEAD";
+    const sheet = pick(
+      await stylesheets(cwd, opts.config, opts.entry),
+      opts.entry,
+    );
+    const started = performance.now();
+    const b = await baseStylesheets({
+      cwd,
+      ref,
+      config: opts.config,
+      configText: opts.configFile ? await Bun.file(opts.configFile).text() : "",
+      only: [sheet.name],
+      cache: opts.cache,
+    });
+    const baseSheet = pick(b.sheets, [sheet.name]);
+    css = { base: baseSheet.css, head: sheet.css };
+    label = `${sheet.name} at ${refLabel(ref, b.sha)}`;
+    if (opts.format === "human")
+      io.err(
+        `crassus: base ${refLabel(ref, b.sha)} ${b.cached ? "from cache" : `built in ${seconds(performance.now() - started)}`}`,
+      );
+  }
+  const { path, fixtures } = await fixturePages(cwd, browser, flags);
+  const { compareCss } = await import("../browser/compare");
+  const diff = await compareCss({
+    ...pages,
+    dir: path,
+    fixtures,
+    sheetMarker: marker,
+    ...css,
+    states: states ? (pages.engine === "chrome" ? "cdp" : "rewrite") : false,
+    emulate: EMULATE[pages.engine],
+    settleMs: browser.settleMs,
+  });
+  if (opts.format === "human")
+    io.err(
+      `crassus: compared ${pagesLine(diff.files, fixtures.length, pages.themes.length, pages.viewports?.length ?? 1)} against ${label} in ${seconds(diff.ms)}`,
+    );
+  const { ms: _, notReady, ...result } = diff;
+  await opts.summary?.(`crassus compare against ${label}`, () =>
+    formatSnapshotDiff(result, "human", "compare"),
+  );
+  io.out(formatSnapshotDiff(result, opts.format, "compare"));
+  if (notReady.length)
+    io.err(notReadyLine(notReady, pages.readySelector, "compared"));
+  return differs(result) || notReady.length > 0 ? 1 : 0;
 }
 
 /** `crassus usage`: writes usage.json and report.md. Always exit 0: evidence, not proof. */

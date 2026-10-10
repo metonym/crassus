@@ -561,7 +561,7 @@ describe("crassus capture, snapshot-diff and usage", () => {
 
     const same = await cli(root, "snapshot-diff", "snap/a", "snap/a");
     expect(same.code).toBe(0);
-    expect(same.out).toContain("8 snapshot file(s)");
+    expect(same.out).toContain("8 page(s)");
     expect(same.out).toContain("No computed-style differences.");
 
     await recolor(root);
@@ -592,7 +592,7 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect((await readdir(join(root, "snap/a"))).length).toBe(9);
     expect(
       (await cli(root, "snapshot-diff", "snap/a", "snap/b")).out,
-    ).toContain("4 snapshot file(s)");
+    ).toContain("4 page(s)");
     // Without the manifest, the capture didn't finish.
     await rm(join(root, "snap/b/.crassus-capture"));
     const partial = await cli(root, "snapshot-diff", "snap/a", "snap/b");
@@ -619,6 +619,81 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(diff.out).toContain("only base recorded top");
     expect(diff.out).toContain("No computed-style differences.");
     expect(diff.code).toBe(0);
+  }, 60_000);
+
+  it("compares today's fixtures under the stylesheet at a ref", async () => {
+    const root = await project({
+      "crassus.config.ts": CONFIG.replace(
+        "browser: {",
+        'css: "site/lib.css",\n    browser: {',
+      ),
+      ...(await site()),
+    });
+    await commitAll(root);
+    // Head recolors the button and stops declaring `left` at all.
+    await Bun.write(
+      join(root, "site/lib.css"),
+      (await read(SITE, "lib.css"))
+        .replace("color: blue", "color: purple")
+        .replace(
+          ".bx--tile {\n  left: 0;\n}\nbody .bx--tile {\n  left: 1px;\n}\n",
+          "",
+        ),
+    );
+    const flags = [
+      "--themes",
+      "white",
+      "--viewport",
+      "1280x900",
+      "--no-states",
+    ];
+    const r = await cli(root, "compare", ...flags);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("crassus: base HEAD (");
+    expect(r.err).toContain(
+      "crassus: compared 2 pages (2 fixtures × 1 theme × 1 viewport) against site/lib.css at HEAD (",
+    );
+    expect(r.out).toContain("2 page(s)");
+    expect(r.out).toContain("1×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)");
+    // Both sides record what either declares: the dropped `left` is a change.
+    expect(r.out).toContain("1×  left: 1px -> auto");
+    expect(r.out).not.toContain("Not compared");
+    // Nothing was written.
+    expect(await readdir(root)).not.toContain("snap");
+
+    // Two files, and JSON.
+    await Bun.write(join(root, "a.css"), await read(SITE, "lib.css"));
+    const json = JSON.parse(
+      (await cli(root, "compare", "a.css", "site/lib.css", ...flags, "--json"))
+        .out,
+    );
+    expect(json).toMatchObject({ command: "compare", files: 2 });
+    expect(json.groups.map((g: { property: string }) => g.property)).toEqual([
+      "color",
+      "left",
+    ]);
+  }, 60_000);
+
+  it("captures with another stylesheet swapped in with --css", async () => {
+    const root = await project({
+      "crassus.config.ts": CONFIG,
+      ...(await site()),
+      "other.css": ".bx--btn { color: rgb(1, 2, 3); }",
+    });
+    const flags = ["--only", "button", "--themes", "white", "--no-states"];
+    const r = await cli(
+      root,
+      "capture",
+      "snap/x",
+      "--css",
+      "other.css",
+      ...flags,
+    );
+    expect(r.out).toContain("with other.css into snap/x");
+    const snap = await readSnapshot(
+      join(root, "snap/x/button.white.1280x900.json.gz"),
+    );
+    expect(snap["body>div.bx--wrap>button.bx--btn"].color).toBe("rgb(1, 2, 3)");
   }, 60_000);
 
   it("prints a system error in one line", async () => {
@@ -738,6 +813,32 @@ describe("crassus capture, snapshot-diff and usage", () => {
       "capture takes one output directory",
     ],
     [["snapshot-diff", "a"], "{}", "two directories"],
+    [
+      ["compare"],
+      `{ browser: { fixtures: "site" } }`,
+      "compare needs `browser.sheetMarker`",
+    ],
+    [
+      ["compare", "--url", "http://x"],
+      `{ browser: { fixtures: "site", sheetMarker: ".bx--" } }`,
+      "drop --url",
+    ],
+    [
+      ["compare", "a.css"],
+      `{ browser: { fixtures: "site", sheetMarker: ".bx--" } }`,
+      "compare takes two CSS files",
+    ],
+    [
+      ["compare"],
+      `{ css: { a: "site/lib.css", b: "site/lib.css" }, browser: { fixtures: "site", sheetMarker: ".bx--" } }`,
+      "pick the stylesheet the fixtures load with --entry (a, b)",
+    ],
+    [
+      ["capture", "o", "--css", "site/lib.css", "--base", "HEAD"],
+      `{ browser: { fixtures: "site", sheetMarker: ".bx--" } }`,
+      "pick one",
+    ],
+    [["dead", "--css", "x.css"], "{}", "--css goes with capture"],
   ])("%j exits 2", async (argv, config, message) => {
     const root = await project({
       "crassus.config.ts": `export default ${config};`,

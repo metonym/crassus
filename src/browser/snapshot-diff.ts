@@ -59,6 +59,47 @@ async function snapshotFiles(dir: string): Promise<string[]> {
   return ((await manifest.json()) as CaptureManifest).files;
 }
 
+/** Builds a `SnapshotDiff` from page diffs, added in file order. */
+export function summarizePages(
+  pages: { file: string; diff: PageDiff; entries: number }[],
+  onlyBase: string[],
+  onlyHead: string[],
+  examples?: number,
+): SnapshotDiff {
+  const out: SnapshotDiff = {
+    files: pages.length,
+    entries: 0,
+    onlyBase,
+    onlyHead,
+    pages: [],
+    groups: [],
+    uncompared: { onlyBase: [], onlyHead: [] },
+  };
+  const props = { onlyBase: new Set<string>(), onlyHead: new Set<string>() };
+  for (const { file, diff, entries } of pages) {
+    out.entries += entries;
+    for (const p of diff.uncompared.onlyBase) props.onlyBase.add(p);
+    for (const p of diff.uncompared.onlyHead) props.onlyHead.add(p);
+    if (
+      Object.keys(diff.changed).length ||
+      diff.removed.length ||
+      diff.added.length ||
+      diff.uncompared.onlyBase.length ||
+      diff.uncompared.onlyHead.length
+    )
+      out.pages.push({ file, ...parseSnapshotFile(file), ...diff });
+  }
+  out.uncompared = {
+    onlyBase: [...props.onlyBase].sort(),
+    onlyHead: [...props.onlyHead].sort(),
+  };
+  out.groups = groupChanges(
+    out.pages.map((p) => ({ page: p.file, changed: p.changed })),
+    examples,
+  );
+  return out;
+}
+
 /**
  * Diffs two `capture` output directories; a file on one side only is listed,
  * not diffed. Throws `IncompleteCaptureError` for a directory `capture`
@@ -75,17 +116,7 @@ export async function diffSnapshots(
   ]);
   const inHead = new Set(head);
   const inBase = new Set(base);
-  const out: SnapshotDiff = {
-    files: 0,
-    entries: 0,
-    onlyBase: base.filter((f) => !inHead.has(f)),
-    onlyHead: head.filter((f) => !inBase.has(f)),
-    pages: [],
-    groups: [],
-    uncompared: { onlyBase: [], onlyHead: [] },
-  };
-  const onlyBase = new Set<string>();
-  const onlyHead = new Set<string>();
+  const pages: { file: string; diff: PageDiff; entries: number }[] = [];
   for (const file of base) {
     if (!inHead.has(file)) continue;
     // One pair in memory at a time: a page's snapshot can be megabytes.
@@ -94,27 +125,16 @@ export async function diffSnapshots(
       readSnapshot(path.join(baseDir, file)),
       readSnapshot(path.join(headDir, file)),
     ]);
-    out.files++;
-    out.entries += Object.keys(a).length;
-    const diff = diffSnapshot(a, b);
-    for (const p of diff.uncompared.onlyBase) onlyBase.add(p);
-    for (const p of diff.uncompared.onlyHead) onlyHead.add(p);
-    if (
-      Object.keys(diff.changed).length ||
-      diff.removed.length ||
-      diff.added.length ||
-      diff.uncompared.onlyBase.length ||
-      diff.uncompared.onlyHead.length
-    )
-      out.pages.push({ file, ...parseSnapshotFile(file), ...diff });
+    pages.push({
+      file,
+      diff: diffSnapshot(a, b),
+      entries: Object.keys(a).length,
+    });
   }
-  out.uncompared = {
-    onlyBase: [...onlyBase].sort(),
-    onlyHead: [...onlyHead].sort(),
-  };
-  out.groups = groupChanges(
-    out.pages.map((p) => ({ page: p.file, changed: p.changed })),
+  return summarizePages(
+    pages,
+    base.filter((f) => !inHead.has(f)),
+    head.filter((f) => !inBase.has(f)),
     options.examples,
   );
-  return out;
 }
