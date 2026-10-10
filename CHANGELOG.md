@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+**Breaking**
+
+- `capture` writes a `.crassus-capture` manifest once every page is
+  written, and `diffSnapshots` (and `snapshot-diff`) read only the files it
+  lists. A directory without one, from a capture that failed, is still
+  running or came from crassus 0.1, throws `IncompleteCaptureError` (exit 2
+  in the CLI) instead of being compared partially. Recapture 0.1
+  directories.
+- The CLI's default `--concurrency` is half the cores, at most 4, not 8.
+
+**Features**
+
+- Browser runs prefer Playwright's newest cached `chrome-headless-shell`
+  over Bun's auto-detection, which picks an installed Chrome first and
+  starts its helpers beside the user's own browser. `chromePath` still
+  wins.
+- `capture` stops before the disk fills: after each page it projects the
+  pages written so far over the rest, and fails with the sizes when that
+  would leave less than 512 MB free.
+
+**Fixes**
+
+- A failed page stops every tab from taking new pages, instead of the
+  others running on against closed views.
+- The CLI prints system errors (`ENOSPC`, `EACCES`) in one line, not a
+  stack trace, and the published CLI and `crassus/browser` ship linked
+  source maps, so other stack traces point at the source.
+- `ChangeGroup.before`/`after` document that `null` means the side didn't
+  record the property.
+
 ## 0.1.3 — 2026-10-06
 
 **Features**

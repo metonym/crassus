@@ -1,5 +1,5 @@
-// Needs Chrome, which Bun.WebView auto-detects (GitHub's ubuntu runners
-// ship it).
+// Needs Chrome: Playwright's chrome-headless-shell if installed, else what
+// Bun.WebView auto-detects (GitHub's ubuntu runners ship Chrome).
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,8 @@ import {
   serveFixtures,
   type UsageFile,
 } from "crassus/browser";
-import { View } from "../src/browser/view";
+import { checkDisk } from "../src/browser/snapshot";
+import { headlessShell, View, visitPages } from "../src/browser/view";
 import {
   parseSelectorList,
   resolveNested,
@@ -144,6 +145,64 @@ it("captures the same forced states via CDP and via selector rewrite", async () 
   expect(hovered?.[1].color).toBe("rgb(0, 128, 0)");
 }, 60_000);
 
+it("stops the pool at the first failure", async () => {
+  let started = 0;
+  const run = visitPages(
+    {
+      ...base(),
+      fixtures: ["page", "page", "page", "page"],
+      concurrency: 2,
+      emulate: "cdp",
+    },
+    async () => {
+      if (++started === 1) throw new Error("boom");
+      await Bun.sleep(50);
+    },
+  );
+  await expect(run).rejects.toThrow("boom");
+  // The other view finished its page and took no more.
+  await Bun.sleep(200);
+  expect(started).toBe(2);
+}, 60_000);
+
+it("checkDisk stops a capture that would fill the disk", async () => {
+  // 1 PB per page.
+  await expect(checkDisk(dir, 2 ** 50, 1, 2)).rejects.toMatchObject({
+    code: "ENOSPC",
+    message: expect.stringContaining("1 more page(s) need about"),
+  });
+  await checkDisk(dir, 1, 1, 2);
+  // Nothing left to write: no check.
+  await checkDisk(dir, 2 ** 50, 2, 2);
+});
+
+it("finds Playwright's newest chrome-headless-shell", async () => {
+  const cache = join(dir, "ms-playwright");
+  const exe = process.platform === "win32" ? ".exe" : "";
+  const shell = (rev: number) =>
+    join(
+      cache,
+      `chromium_headless_shell-${rev}`,
+      "chrome-headless-shell-x",
+      `chrome-headless-shell${exe}`,
+    );
+  await Promise.all([
+    Bun.write(shell(1100), ""),
+    Bun.write(shell(1243), ""),
+    Bun.write(join(cache, "chromium-1300", "chrome-mac", "Chromium"), ""),
+  ]);
+  const saved = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  try {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = cache;
+    expect(headlessShell()).toBe(shell(1243));
+    process.env.PLAYWRIGHT_BROWSERS_PATH = join(dir, "nowhere");
+    expect(headlessShell()).toBeUndefined();
+  } finally {
+    if (saved === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+    else process.env.PLAYWRIGHT_BROWSERS_PATH = saved;
+  }
+});
+
 it("diffSnapshots groups a seeded color change once and lists one-sided pages", async () => {
   // Two sites, so the second capture can't reuse a cached stylesheet.
   const sides = [
@@ -225,6 +284,7 @@ it("captures each viewport into its own file, and usage aggregates them", async 
     settleMs: 0,
   });
   expect((await readdir(outDir)).sort()).toEqual([
+    ".crassus-capture",
     "viewport.white.1280x900.json",
     "viewport.white.320x640.json",
   ]);

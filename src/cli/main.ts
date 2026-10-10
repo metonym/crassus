@@ -74,7 +74,7 @@ Browser options (capture, usage; override the config's \`browser\`):
   --no-states        skip forced :hover/:focus/:active states
   --engine <name>    chrome (default) or webkit
   --matcher <name>   usage: dom (default, any engine) or cdp (Chrome)
-  --concurrency <n>  tabs in parallel (default 8)
+  --concurrency <n>  tabs in parallel (default: half the cores, at most 4)
   --url <base>       use a running server instead of building and serving
   --out <dir>        usage: output directory (default .crassus/usage)
   -h, --help         show this help
@@ -82,6 +82,8 @@ Browser options (capture, usage; override the config's \`browser\`):
 
 Exit codes: 0 clean, 1 findings (snapshot-diff: any difference; capture: a
 page never matched readySelector), 2 usage error. usage always exits 0.`;
+
+const SYSTEM_ERROR_RE = /^E[A-Z]+$/;
 
 /** A Sass/Less partial: imported by entries, never compiled alone. */
 const PARTIAL_RE = /(?:^|\/)_[^/]+\.(?:scss|sass|less)$/;
@@ -105,12 +107,21 @@ export async function main(
   try {
     return await run(argv, io);
   } catch (e) {
-    const err = e as Error & { code?: string };
+    const err = e as Error & { code?: string; path?: string };
     const expected =
       e instanceof UsageError ||
       e instanceof FixCheckError ||
       err.code?.startsWith("ERR_PARSE_ARGS");
-    io.err(`crassus: ${expected ? err.message : (err.stack ?? e)}`);
+    // A system error (ENOSPC, EACCES) is about the machine, not crassus.
+    const system =
+      typeof err.code === "string" && SYSTEM_ERROR_RE.test(err.code);
+    const where =
+      system && err.path && !err.message.includes(err.path)
+        ? ` (${err.path})`
+        : "";
+    io.err(
+      `crassus: ${expected || system ? err.message + where : (err.stack ?? e)}`,
+    );
     return 2;
   }
 }

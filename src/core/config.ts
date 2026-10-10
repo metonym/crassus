@@ -79,9 +79,9 @@ export interface BrowserConfig {
   settleMs?: number;
   /** Default `chrome`. `webkit` is the system WebKit (macOS). */
   engine?: "chrome" | "webkit";
-  /** Tabs in parallel. Default 8. */
+  /** Tabs in parallel. Default: half the cores, at most 4. */
   concurrency?: number;
-  /** Chrome or Chromium binary. Default: auto-detected. */
+  /** Chrome or Chromium binary. Default: Playwright's `chrome-headless-shell` if installed, else auto-detected. */
   chromePath?: string;
 }
 

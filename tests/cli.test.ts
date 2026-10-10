@@ -493,6 +493,7 @@ describe("crassus dead --fix", () => {
   });
 });
 
+const SYSTEM_ERROR_RE = /^crassus: E[A-Z]+: /;
 const CAPTURED_RE =
   /^crassus: captured 8 pages \(2 fixtures × 2 themes × 2 viewports\) into snap\/a in /;
 
@@ -533,6 +534,7 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(a.code).toBe(0);
     expect(a.out).toMatch(CAPTURED_RE);
     expect((await readdir(join(root, "snap/a"))).sort()).toEqual([
+      ".crassus-capture",
       "button.g100.1280x900.json",
       "button.g100.320x640.json",
       "button.white.1280x900.json",
@@ -582,7 +584,32 @@ describe("crassus capture, snapshot-diff and usage", () => {
     });
     expect(json.groups).toHaveLength(1);
     expect(json.onlyBase).toHaveLength(4);
+
+    // Only the last capture's files count, not what an earlier one left.
+    await cli(root, "capture", "snap/a", "--only", "button");
+    expect((await readdir(join(root, "snap/a"))).length).toBe(9);
+    expect(
+      (await cli(root, "snapshot-diff", "snap/a", "snap/b")).out,
+    ).toContain("4 snapshot file(s)");
+    // Without the manifest, the capture didn't finish.
+    await rm(join(root, "snap/b/.crassus-capture"));
+    const partial = await cli(root, "snapshot-diff", "snap/a", "snap/b");
+    expect(partial.code).toBe(2);
+    expect(partial.err).toContain(
+      "snap/b isn't a complete capture (no .crassus-capture)",
+    );
   }, 60_000);
+
+  it("prints a system error in one line", async () => {
+    const root = await project({
+      "crassus.config.ts": `export default { browser: { fixtures: "site" } };`,
+      ...(await site()),
+    });
+    const r = await cli(root, "capture", "site/lib.css/out");
+    expect(r.code).toBe(2);
+    expect(r.err).toMatch(SYSTEM_ERROR_RE);
+    expect(r.err.split("\n")).toHaveLength(1);
+  });
 
   it("captures a git ref's fixtures in a worktree with --base", async () => {
     const root = await project({

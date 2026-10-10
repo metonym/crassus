@@ -1,6 +1,7 @@
 // crassus/browser loads on first use, so `dead` and `diff` don't pay for it.
 import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { join, relative, resolve } from "node:path";
 import type { UsageFile } from "../browser/usage";
 import type { BrowserConfig, Config } from "../core/config";
@@ -27,6 +28,10 @@ const ENGINES = ["chrome", "webkit"] as const;
 const MATCHERS = ["cdp", "dom"] as const;
 const EMULATE = { chrome: "cdp", webkit: "cssom" } as const;
 
+/** Half the cores, at most 4: each tab is a renderer process. */
+const defaultConcurrency = () =>
+  Math.min(4, Math.max(1, Math.floor(availableParallelism() / 2)));
+
 function parseViewport(text: string) {
   const m = VIEWPORT_RE.exec(text);
   if (!m || Number(m[1]) < 1 || Number(m[2]) < 1)
@@ -43,7 +48,9 @@ function settings(config: Config, flags: BrowserFlags) {
   const engine = flags.engine ?? browser.engine ?? "chrome";
   if (!isOneOf(ENGINES, engine))
     throw new UsageError(`unknown engine ${engine} (chrome or webkit)`);
-  const concurrency = Number(flags.concurrency ?? browser.concurrency ?? 8);
+  const concurrency = Number(
+    flags.concurrency ?? browser.concurrency ?? defaultConcurrency(),
+  );
   if (!Number.isInteger(concurrency) || concurrency < 1)
     throw new UsageError(`--concurrency takes a positive integer`);
   const themes = flags.themes
@@ -181,8 +188,15 @@ export async function snapshotDiffCommand(opts: {
     if (!existsSync(path)) throw new UsageError(`no such directory: ${d}`);
     return path;
   });
-  const { diffSnapshots } = await import("../browser/snapshot-diff");
-  const diff = await diffSnapshots(base, head);
+  const { diffSnapshots, IncompleteCaptureError } = await import(
+    "../browser/snapshot-diff"
+  );
+  const diff = await diffSnapshots(base, head).catch((e) => {
+    if (!(e instanceof IncompleteCaptureError)) throw e;
+    throw new UsageError(
+      e.message.replace(e.dir, relative(opts.io.cwd, e.dir) || "."),
+    );
+  });
   await opts.summary?.(`crassus snapshot-diff ${opts.dirs.join(" ")}`, () =>
     formatSnapshotDiff(diff, "human"),
   );

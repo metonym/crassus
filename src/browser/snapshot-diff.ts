@@ -1,4 +1,3 @@
-import { readdir } from "node:fs/promises";
 import path from "node:path";
 import {
   type ChangeGroup,
@@ -7,7 +6,7 @@ import {
   type PageDiff,
   type Snapshot,
 } from "../core/snapshot-diff";
-import { parseSnapshotFile } from "./snapshot";
+import { type CaptureManifest, MANIFEST, parseSnapshotFile } from "./snapshot";
 
 export interface SnapshotPageDiff extends PageDiff {
   /** `<name>.<theme>[.<W>x<H>].json` */
@@ -36,10 +35,28 @@ export interface SnapshotDiffOptions {
   examples?: number;
 }
 
-const snapshotFiles = async (dir: string) =>
-  (await readdir(dir)).filter((f) => f.endsWith(".json")).sort();
+/** Thrown for a directory without `capture`'s manifest. */
+export class IncompleteCaptureError extends Error {
+  readonly dir: string;
+  constructor(dir: string) {
+    super(
+      `${dir} isn't a complete capture (no ${MANIFEST}): the capture failed or is still running, or crassus 0.1 made it. Capture it again.`,
+    );
+    this.dir = dir;
+  }
+}
 
-/** Diffs two `capture` output directories; a file on one side only is listed, not diffed. */
+async function snapshotFiles(dir: string): Promise<string[]> {
+  const manifest = Bun.file(path.join(dir, MANIFEST));
+  if (!(await manifest.exists())) throw new IncompleteCaptureError(dir);
+  return ((await manifest.json()) as CaptureManifest).files;
+}
+
+/**
+ * Diffs two `capture` output directories; a file on one side only is listed,
+ * not diffed. Throws `IncompleteCaptureError` for a directory `capture`
+ * didn't finish.
+ */
 export async function diffSnapshots(
   baseDir: string,
   headDir: string,
