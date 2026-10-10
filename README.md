@@ -278,8 +278,10 @@ Measured against carbon-components-svelte's original tooling (css-tree, source-m
 | `parseRules` + positions, Tailwind 2, 3.5 MB | 242.0 ms | **97.9 ms** (2.5×) |
 | `deadDeclarations`, Primer 1 MB | 1,773 ms | **25.2 ms** (70×) |
 | Source-map lookups, 6,594 rules | 16.1 ms | **2.7 ms** (6×) |
-| Computed-style snapshot, 218 pages | 471.7 s | **43.9 s** (CDP, 8 tabs, identical output) |
+| Computed-style snapshot, 218 pages | 471.7 s | **43.9 s** (CDP, 8 tabs, identical output\*) |
 | Cascade usage, 218 pages | 1,171.7 s | **22.3 s** (`dom` engine, 8 tabs) |
+
+\* Identical to the Playwright tool when every state is forced. By default `capture` skips states no user can reach (on 228 pages: 6,144 of the old tool's 55,222 entries, mostly inside a closed, `inert` modal), so those entries are missing, and an element under several forced ones keeps the state of the last one that can reach it (770 values differ). Run `eval/carbon/snapshot.ts` to see it.
 
 Coming from scripts of your own built on css-tree and Playwright? See [Migrating from css-tree-based cascade tools](docs/migrating-from-css-tree-tools.md).
 
