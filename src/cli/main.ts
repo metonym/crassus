@@ -5,6 +5,7 @@ import { baseStylesheets } from "./baseline";
 import {
   type BrowserFlags,
   captureCommand,
+  compareCommand,
   snapshotDiffCommand,
   usageCommand,
 } from "./browser";
@@ -40,8 +41,13 @@ Usage:
   crassus diff <base.css> <head.css>
   crassus capture <outDir>       computed styles of every fixture page
   crassus capture --base <ref> <outDir>
+  crassus capture --css <file> <outDir>
   crassus snapshot-diff <baseDir> <headDir>
                                  compare two captures (ground truth)
+  crassus compare [--base <ref>] today's fixtures with the library
+                                 stylesheet at a ref and now, diffed page
+                                 by page; no snapshots kept (ground truth)
+  crassus compare <base.css> <head.css>
   crassus usage                  declarations that match but never win on
                                  the fixtures (evidence)
 
@@ -64,10 +70,10 @@ Options:
   --dry-run          with --fix: print the edits as a patch, write nothing
   --no-cache         rebuild the base
   --verbose          show every rule in review sections
-  --summary <file>   dead, diff, snapshot-diff: also append the human report
+  --summary <file>   dead, diff, snapshot-diff, compare: also append the human report
                      to this file ($GITHUB_STEP_SUMMARY), whatever --format
 
-Browser options (capture, usage; override the config's \`browser\`):
+Browser options (capture, compare, usage; override the config's \`browser\`):
   --only <text>      only fixtures whose name contains this
   --themes <a,b>     themes to load each page in
   --viewport <WxH>   viewport (repeatable)
@@ -75,6 +81,8 @@ Browser options (capture, usage; override the config's \`browser\`):
   --engine <name>    chrome (default) or webkit
   --matcher <name>   usage: dom (default, any engine) or cdp (Chrome)
   --concurrency <n>  tabs in parallel (default: half the cores, at most 4)
+  --css <file>       capture: serve this CSS in place of the stylesheet that
+                     contains \`browser.sheetMarker\`
   --url <base>       use a running server instead of building and serving
   --out <dir>        usage: output directory (default .crassus/usage)
   -h, --help         show this help
@@ -149,6 +157,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       matcher: { type: "string" },
       concurrency: { type: "string" },
       url: { type: "string" },
+      css: { type: "string" },
       out: { type: "string" },
       summary: { type: "string" },
       help: { type: "boolean", short: "h" },
@@ -181,7 +190,11 @@ async function run(argv: string[], io: Io): Promise<number> {
         appendSummary(resolve(cwd, summaryFile), title, uncolored(report))
     : undefined;
   if (summary && (values.fix || command === "capture" || command === "usage"))
-    throw new UsageError("--summary goes with dead, diff and snapshot-diff");
+    throw new UsageError(
+      "--summary goes with dead, diff, snapshot-diff and compare",
+    );
+  if (values.css && command !== "capture")
+    throw new UsageError("--css goes with capture");
   if (command === "dead") {
     const { config } = await loadConfig(cwd, values.config);
     const load = () =>
@@ -296,6 +309,23 @@ async function run(argv: string[], io: Io): Promise<number> {
       throw new UsageError("snapshot-diff reports as human or json");
     return snapshotDiffCommand({ dirs: files, format, io, summary });
   }
+  if (command === "compare") {
+    if (format !== "human" && format !== "json")
+      throw new UsageError("compare reports as human or json");
+    const { config, file } = await loadConfig(cwd, values.config);
+    return compareCommand({
+      config,
+      configFile: file,
+      flags,
+      files,
+      base: values.base,
+      entry: only,
+      cache: !values["no-cache"],
+      format,
+      io,
+      summary,
+    });
+  }
   if (command === "capture" || command === "usage") {
     if (format !== "human")
       throw new UsageError(`${command} writes files; drop --format`);
@@ -310,7 +340,14 @@ async function run(argv: string[], io: Io): Promise<number> {
     const outDir = files[0] ?? values.out;
     if (!outDir || files.length > 1 || (files[0] && values.out))
       throw new UsageError("capture takes one output directory");
-    return captureCommand({ config, flags, outDir, base: values.base, io });
+    return captureCommand({
+      config,
+      flags,
+      outDir,
+      base: values.base,
+      css: values.css,
+      io,
+    });
   }
 
   throw new UsageError(`unknown command ${command} (run crassus --help)`);

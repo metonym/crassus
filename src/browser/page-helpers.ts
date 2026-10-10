@@ -4,7 +4,8 @@ export const PAGE_HELPERS = `
   (() => {
     // Only longhands the stylesheets set, so diffs stay about the cascade.
     // Custom properties are theme tokens: skipped.
-    const declared = new Set();
+    // Plus any the caller adds, so two captures can record the same set.
+    const declared = new Set(window.__crProps || []);
     for (const sheet of document.styleSheets) {
       let rules;
       try { rules = sheet.cssRules; } catch { continue; }

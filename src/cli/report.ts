@@ -393,11 +393,12 @@ const props = (list: string[]) =>
 export function formatSnapshotDiff(
   diff: SnapshotDiff,
   format: "human" | "json",
+  command: "snapshot-diff" | "compare" = "snapshot-diff",
 ): string {
   if (format === "json")
-    return json({ command: "snapshot-diff", claim: "ground truth", ...diff });
+    return json({ command, claim: "ground truth", ...diff });
   const lines = [
-    `${diff.files} snapshot file(s), ${diff.entries} element entries compared ${dim("(ground truth for the captured fixtures, themes, viewports and states)")}`,
+    `${diff.files} page(s), ${diff.entries} element entries compared ${dim("(ground truth for the captured fixtures, themes, viewports and states)")}`,
   ];
   for (const f of diff.onlyBase) lines.push(yellow(`only in base: ${f}`));
   for (const f of diff.onlyHead) lines.push(yellow(`only in head: ${f}`));

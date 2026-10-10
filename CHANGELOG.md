@@ -42,6 +42,20 @@
 
 **Features**
 
+- `crassus compare [--base <ref>]` (or `compare <base.css> <head.css>`)
+  checks a CSS change against today's markup: it builds the library
+  stylesheet at the ref and now (the config's `css`/`build` or `compile`;
+  `--entry` picks one of several), serves today's fixtures with each
+  swapped in for the stylesheet containing `sheetMarker`, and captures
+  both sides of each page in the same tab, diffing as it goes. Nothing is
+  written, and both sides record every property either stylesheet
+  declares. Output and exit codes are `snapshot-diff`'s. On Carbon's 218
+  pages it matches two captures and a `snapshot-diff` exactly, in about
+  the same time, with no snapshots on disk. `compareCss(options)` in
+  `crassus/browser` is the same run.
+- `capture --css <file>` captures today's fixtures with that CSS in place
+  of the library stylesheet, and `serveFixtures(dir, { swap })` serves
+  one swapped.
 - Browser runs prefer Playwright's newest cached `chrome-headless-shell`
   over Bun's auto-detection, which picks an installed Chrome first and
   starts its helpers beside the user's own browser. `chromePath` still

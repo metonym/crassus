@@ -8,7 +8,8 @@ export type {
   Snapshot,
   Uncompared,
 } from "../core/snapshot-diff";
-export { serveFixtures } from "./serve";
+export { type CompareOptions, compareCss } from "./compare";
+export { type ServeOptions, serveFixtures } from "./serve";
 export { type CaptureOptions, capture, readSnapshot } from "./snapshot";
 export {
   diffSnapshots,
