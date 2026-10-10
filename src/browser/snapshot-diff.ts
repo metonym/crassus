@@ -4,12 +4,16 @@ import {
   diffSnapshot,
   groupChanges,
   type PageDiff,
-  type Snapshot,
 } from "../core/snapshot-diff";
-import { type CaptureManifest, MANIFEST, parseSnapshotFile } from "./snapshot";
+import {
+  type CaptureManifest,
+  MANIFEST,
+  parseSnapshotFile,
+  readSnapshot,
+} from "./snapshot";
 
 export interface SnapshotPageDiff extends PageDiff {
-  /** `<name>.<theme>[.<W>x<H>].json` */
+  /** `<name>.<theme>[.<W>x<H>].json.gz` */
   file: string;
   fixture: string;
   theme: string;
@@ -81,8 +85,8 @@ export async function diffSnapshots(
     // One pair in memory at a time: a page's snapshot can be megabytes.
     // biome-ignore lint/performance/noAwaitInLoops: bounded memory
     const [a, b] = await Promise.all([
-      Bun.file(path.join(baseDir, file)).json() as Promise<Snapshot>,
-      Bun.file(path.join(headDir, file)).json() as Promise<Snapshot>,
+      readSnapshot(path.join(baseDir, file)),
+      readSnapshot(path.join(headDir, file)),
     ]);
     out.files++;
     out.entries += Object.keys(a).length;

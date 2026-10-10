@@ -8,7 +8,7 @@ export type {
   Snapshot,
 } from "../core/snapshot-diff";
 export { serveFixtures } from "./serve";
-export { type CaptureOptions, capture } from "./snapshot";
+export { type CaptureOptions, capture, readSnapshot } from "./snapshot";
 export {
   diffSnapshots,
   IncompleteCaptureError,

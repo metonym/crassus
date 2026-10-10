@@ -7,8 +7,8 @@ import { parseRules } from "crassus";
 import {
   capture,
   diffSnapshots,
+  readSnapshot,
   runUsage,
-  type Snapshot,
   serveFixtures,
   type UsageFile,
 } from "crassus/browser";
@@ -134,9 +134,10 @@ it("captures the same forced states via CDP and via selector rewrite", async () 
       settleMs: 50,
     });
   }
-  const [file] = await readdir(join(dir, "cdp"));
-  const cdp = await readJson<Snapshot>(dir, "cdp", file);
-  const rewrite = await readJson<Snapshot>(dir, "rewrite", file);
+  const cdp = await readSnapshot(join(dir, "cdp", "page.white.json.gz"));
+  const rewrite = await readSnapshot(
+    join(dir, "rewrite", "page.white.json.gz"),
+  );
   expect(rewrite).toEqual(cdp);
   const hovered = Object.entries(cdp).find(([key]) =>
     key.endsWith("button.bx--btn@hover"),
@@ -238,7 +239,7 @@ it("diffSnapshots groups a seeded color change once and lists one-sided pages", 
     join(dir, "snap-head"),
   );
   expect(diff.onlyBase).toEqual([]);
-  expect(diff.onlyHead).toEqual(["extra.white.json"]);
+  expect(diff.onlyHead).toEqual(["extra.white.json.gz"]);
   expect(diff.files).toBe(1);
   expect(diff.groups).toEqual([
     {
@@ -246,17 +247,17 @@ it("diffSnapshots groups a seeded color change once and lists one-sided pages", 
       before: "rgb(0, 0, 255)",
       after: "rgb(128, 0, 128)",
       count: 3,
-      pages: ["diff.white.json"],
+      pages: ["diff.white.json.gz"],
       examples: [
-        { page: "diff.white.json", path: "body>div.bx--d" },
-        { page: "diff.white.json", path: "body>div.bx--d>p.bx--d" },
-        { page: "diff.white.json", path: "body>div.bx--d>p.bx--d[1]" },
+        { page: "diff.white.json.gz", path: "body>div.bx--d" },
+        { page: "diff.white.json.gz", path: "body>div.bx--d>p.bx--d" },
+        { page: "diff.white.json.gz", path: "body>div.bx--d>p.bx--d[1]" },
       ],
     },
   ]);
   expect(diff.pages).toMatchObject([
     {
-      file: "diff.white.json",
+      file: "diff.white.json.gz",
       fixture: "diff",
       theme: "white",
       removed: [],
@@ -285,13 +286,13 @@ it("captures each viewport into its own file, and usage aggregates them", async 
   });
   expect((await readdir(outDir)).sort()).toEqual([
     ".crassus-capture",
-    "viewport.white.1280x900.json",
-    "viewport.white.320x640.json",
+    "viewport.white.1280x900.json.gz",
+    "viewport.white.320x640.json.gz",
   ]);
   const style = async (file: string, out = outDir) =>
-    (await readJson<Snapshot>(out, file))["body>p.bx--v"];
-  const narrow = await style("viewport.white.320x640.json");
-  const wide = await style("viewport.white.1280x900.json");
+    (await readSnapshot(join(out, file)))["body>p.bx--v"];
+  const narrow = await style("viewport.white.320x640.json.gz");
+  const wide = await style("viewport.white.1280x900.json.gz");
   expect(narrow.color).toBe("rgb(0, 0, 255)");
   expect(wide.color).toBe("rgb(255, 0, 0)");
   // The page gets the whole viewport: Chrome's window size includes its UI.
@@ -306,7 +307,7 @@ it("captures each viewport into its own file, and usage aggregates them", async 
     settleMs: 0,
   });
   expect(
-    (await style("viewport.white.json", join(dir, "snap-default-viewport")))
+    (await style("viewport.white.json.gz", join(dir, "snap-default-viewport")))
       .height,
   ).toBe("900px");
 
@@ -341,7 +342,7 @@ it("waits for readySelector, and lists pages that never get there", async () => 
   const outDir = join(dir, "snap-late");
   const ready = await capture({ ...opts, outDir, readySelector: ".bx--late" });
   expect(ready.notReady).toEqual([]);
-  const snap = await readJson<Snapshot>(outDir, "late.white.json");
+  const snap = await readSnapshot(join(outDir, "late.white.json.gz"));
   expect(snap["body>p.bx--late"]?.color).toBe("rgb(255, 0, 0)");
 
   const never = await capture({
