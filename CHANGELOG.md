@@ -34,6 +34,11 @@
   `tabindex`, a link without `href`, hidden), and no state inside `inert`.
   On carbon-components-svelte's 109 fixture pages that drops 2,668 of
   15,338 state entries (17%), all of them changes no user could see.
+  Against the original Playwright tool (`eval/carbon/snapshot.ts`, 228
+  pages) captures were identical before; now 6,144 of 55,222 entries are
+  skipped (most inside a closed, `inert` modal) and 770 values differ
+  where an element sits under several forced elements and keeps the last
+  reachable one's state. With the checks off, they're identical again.
 - `capture` files are gzipped `<page>.json.gz`, with each distinct computed
   style stored once (`{ props, styles, elements }`): most elements share
   theirs, so Carbon's 12 data-table pages take 154 kB instead of 48.6 MB
