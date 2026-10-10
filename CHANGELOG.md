@@ -11,6 +11,19 @@
   in the CLI) instead of being compared partially. Recapture 0.1
   directories.
 - The CLI's default `--concurrency` is half the cores, at most 4, not 8.
+- `diffSnapshots` compares only the properties both sides recorded. Each
+  capture records the properties its own stylesheets declare, so a
+  property only one side declares used to read as a change to or from
+  `null` on every element (366 groups when a refactor stopped declaring
+  `inset-inline-*`). It's now listed in `uncompared: { onlyBase, onlyHead }`
+  (per page and overall), shown under "Not compared" and not failed on.
+  `PropertyChange` and `ChangeGroup` `before`/`after` are `string`, never
+  `null`.
+- `capture` forces only states a user can reach: no `:focus` or `:active`
+  on a disabled element, no `:focus` on one that can't take focus (no
+  `tabindex`, a link without `href`, hidden), and no state inside `inert`.
+  On carbon-components-svelte's 109 fixture pages that drops 2,668 of
+  15,338 state entries (17%), all of them changes no user could see.
 - `capture` files are gzipped `<page>.json.gz`, with each distinct computed
   style stored once (`{ props, styles, elements }`): most elements share
   theirs, so Carbon's 12 data-table pages take 154 kB instead of 48.6 MB
@@ -29,13 +42,15 @@
 
 **Fixes**
 
+- `capture` freezes running animations before reading styles: infinite
+  ones (spinners, indeterminate progress bars) pause at their start, the
+  others finish. They made two captures of the same CSS differ, and
+  `prefers-reduced-motion` emulation doesn't stop CSS animations.
 - A failed page stops every tab from taking new pages, instead of the
   others running on against closed views.
 - The CLI prints system errors (`ENOSPC`, `EACCES`) in one line, not a
   stack trace, and the published CLI and `crassus/browser` ship linked
   source maps, so other stack traces point at the source.
-- `ChangeGroup.before`/`after` document that `null` means the side didn't
-  record the property.
 
 ## 0.1.3 — 2026-10-06
 

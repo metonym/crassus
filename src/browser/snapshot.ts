@@ -79,12 +79,49 @@ const CR_HELPERS = `
         }
         return n;
       },
-      allStates(n) {
-        const out = {};
+      // Running animations make two captures of one page differ: infinite
+      // ones are paused at their start, finite ones finished, as if settled.
+      freezeAnimations() {
+        let n = 0;
+        for (const a of document.getAnimations()) {
+          if (a.playState === "finished") continue;
+          try {
+            if (a.effect?.getComputedTiming().endTime === Infinity) {
+              a.pause();
+              a.currentTime = 0;
+            } else a.finish();
+            n++;
+          } catch {}
+        }
+        return n;
+      },
+      // The states a user can put each tagged element in: no :focus or
+      // :active when disabled, no :focus when it can't take focus, and none
+      // when inert. Read statically: focus() would run the page's handlers.
+      reachable(n) {
+        const out = [];
         for (let i = 0; i < n; i++) {
+          const el = document.querySelector('[data-ccs-idx="' + i + '"]');
+          if (!el || el.closest("[inert]")) {
+            out.push([]);
+            continue;
+          }
+          const disabled = el.matches(":disabled");
+          const visible = !el.checkVisibility || el.checkVisibility({ visibilityProperty: true });
+          // tabIndex is 0 on a link without href, which can't take focus.
+          const focusable = !disabled && visible && (el.hasAttribute("tabindex") || el.isContentEditable ||
+            (el.tabIndex >= 0 && !el.matches("a:not([href]), area:not([href]), input[type=hidden i]")));
+          out.push(Object.keys(STATES).filter((s) => s === "hover" || (s === "active" ? !disabled : focusable)));
+        }
+        return out;
+      },
+      allStates(reach) {
+        const out = {};
+        for (let i = 0; i < reach.length; i++) {
           const el = document.querySelector('[data-ccs-idx="' + i + '"]');
           if (!el) continue;
           for (const [state, names] of Object.entries(STATES)) {
+            if (!reach[i].includes(state)) continue;
             // As in CDP, forced focus also matches :focus-within up the tree.
             const within = [];
             if (state === "focus") for (let a = el; a; a = a.parentElement) within.push(a);
@@ -207,6 +244,7 @@ async function capturePage(
   if (opts.emulate === "cssom")
     await view.evaluate("window.__cr.reducedMotion()");
   await Bun.sleep(opts.settleMs ?? 500);
+  await view.evaluate("window.__cr.freezeAnimations()");
   const snap = await view.evaluate<Snapshot>("window.__ccs.snapshot()");
   if (!opts.states) return snap;
 
@@ -216,12 +254,15 @@ async function capturePage(
   const n = await view.evaluate<number>(
     `window.__ccs.tagInteractive(${JSON.stringify(INTERACTIVE)}, ${MAX_STATE_ELEMENTS})`,
   );
+  const reach = await view.evaluate<string[][]>(`window.__cr.reachable(${n})`);
 
   if (opts.states === "rewrite") {
     await view.evaluate("window.__cr.twinStates()");
     Object.assign(
       snap,
-      await view.evaluate<Snapshot>(`window.__cr.allStates(${n})`),
+      await view.evaluate<Snapshot>(
+        `window.__cr.allStates(${JSON.stringify(reach)})`,
+      ),
     );
     return snap;
   }
@@ -240,6 +281,7 @@ async function capturePage(
     });
     if (!nodeId) continue;
     for (const [state, forced] of Object.entries(STATE_SETS)) {
+      if (!reach[i].includes(state)) continue;
       // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
       await view.cdp("CSS.forcePseudoState", {
         nodeId,

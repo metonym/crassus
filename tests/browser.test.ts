@@ -47,6 +47,7 @@ const LAYERS_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="lay
 <body><div class="bx--r"><p id="a" class="bx--x">x</p></div></body></html>`;
 
 const IMPORTANT_RE = /\s*!important$/;
+const STATE_KEY_RE = /\.bx--s\.(\w+)@(\w+)$/;
 const BOM_RE = /^\uFEFF/;
 
 // Nested rules resolve `&` against their parent; declarations after a nested
@@ -80,7 +81,25 @@ const DIFF_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="diff.
 const diffCss = (color: string) =>
   `.bx--d { color: ${color}; margin: 0; } .bx--e { color: green; }`;
 
+// Forced states only where a user can reach them.
+const STATES_PAGE = `<!doctype html><html><head><style>.bx--s { color: red; }</style></head>
+<body><button class="bx--s ok">x</button><button class="bx--s disabled" disabled>x</button>
+<a class="bx--s nohref">x</a><a class="bx--s href" href="#">x</a><ul><li class="bx--s li">x</li></ul>
+<div class="bx--s tab" tabindex="-1">x</div><div inert><button class="bx--s inert">x</button></div>
+<button class="bx--s hidden" style="visibility: hidden">x</button></body></html>`;
+
+// A spinner, a fade-in that has ended, and one that runs for 100 s.
+const ANIMATED_PAGE = `<!doctype html><html><head><style>
+@keyframes bx-spin { to { transform: rotate(360deg); } }
+@keyframes bx-fade { from { opacity: 0; } to { opacity: 1; } }
+.bx--spin { animation: bx-spin 690ms linear infinite; transform: none; }
+.bx--fade { animation: bx-fade 1ms forwards; opacity: 0.5; }
+.bx--slow { animation: bx-fade 100s; opacity: 0.5; }
+</style></head><body><p class="bx--spin">x</p><p class="bx--fade">x</p><p class="bx--slow">x</p></body></html>`;
+
 const SITE = {
+  "states.html": STATES_PAGE,
+  "animated.html": ANIMATED_PAGE,
   "lib.css": LIB_CSS,
   "page.html": PAGE,
   "layers.css": LAYERS_CSS,
@@ -144,6 +163,61 @@ it("captures the same forced states via CDP and via selector rewrite", async () 
   );
   expect(hovered).toBeDefined();
   expect(hovered?.[1].color).toBe("rgb(0, 128, 0)");
+}, 60_000);
+
+it("forces only the states a user can reach, in both modes", async () => {
+  const reached: Record<string, string[]>[] = [];
+  for (const states of ["cdp", "rewrite"] as const) {
+    const outDir = join(dir, `snap-states-${states}`);
+    // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential captures
+    await capture({
+      ...base(),
+      fixtures: ["states"],
+      outDir,
+      states,
+      emulate: "cdp",
+      settleMs: 0,
+    });
+    const snap = await readSnapshot(join(outDir, "states.white.json.gz"));
+    const by: Record<string, string[]> = {};
+    for (const key of Object.keys(snap)) {
+      const m = STATE_KEY_RE.exec(key);
+      if (m) by[m[1]] = [...(by[m[1]] ?? []), m[2]];
+    }
+    reached.push(by);
+  }
+  expect(reached[0]).toEqual({
+    ok: ["hover", "focus", "active"],
+    disabled: ["hover"],
+    nohref: ["hover", "active"],
+    href: ["hover", "focus", "active"],
+    li: ["hover", "active"],
+    tab: ["hover", "focus", "active"],
+    hidden: ["hover", "active"],
+  });
+  expect(reached[1]).toEqual(reached[0]);
+}, 60_000);
+
+it("freezes running animations before reading styles", async () => {
+  const read = async (settleMs: number) => {
+    const outDir = join(dir, `snap-animated-${settleMs}`);
+    await capture({
+      ...base(),
+      fixtures: ["animated"],
+      outDir,
+      states: false,
+      emulate: "cdp",
+      settleMs,
+    });
+    return readSnapshot(join(outDir, "animated.white.json.gz"));
+  };
+  const early = await read(20);
+  // Half a turn later.
+  const late = await read(365);
+  expect(late).toEqual(early);
+  expect(early["body>p.bx--spin"].transform).toBe("matrix(1, 0, 0, 1, 0, 0)");
+  expect(early["body>p.bx--fade"].opacity).toBe("1");
+  expect(early["body>p.bx--slow"].opacity).toBe("0.5");
 }, 60_000);
 
 it("stops the pool at the first failure", async () => {

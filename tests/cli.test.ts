@@ -602,6 +602,25 @@ describe("crassus capture, snapshot-diff and usage", () => {
     );
   }, 60_000);
 
+  it("lists properties only one side declares, without failing", async () => {
+    const root = await project({
+      "crassus.config.ts": CONFIG,
+      ...(await site()),
+    });
+    const flags = ["--only", "button", "--themes", "white", "--no-states"];
+    await cli(root, "capture", "snap/a", ...flags);
+    // Nothing declares `top` any more; its computed value is still auto.
+    await Bun.write(
+      join(root, "site/lib.css"),
+      (await read(SITE, "lib.css")).replace(".bx--unused {\n  top: 0;\n}", ""),
+    );
+    await cli(root, "capture", "snap/b", ...flags);
+    const diff = await cli(root, "snapshot-diff", "snap/a", "snap/b");
+    expect(diff.out).toContain("only base recorded top");
+    expect(diff.out).toContain("No computed-style differences.");
+    expect(diff.code).toBe(0);
+  }, 60_000);
+
   it("prints a system error in one line", async () => {
     const root = await project({
       "crassus.config.ts": `export default { browser: { fixtures: "site" } };`,

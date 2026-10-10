@@ -56,7 +56,7 @@ There are two entry points with different runtime rules.
 | `tests/overrides.test.ts` | `deadDeclarations` and shorthand coverage |
 | `tests/align.test.ts` | CSSOM alignment, engine declaration handling and cascade order for the `dom` engine, without a browser |
 | `tests/usage.test.ts` | Cascade replay, aggregation, CDP declaration handling |
-| `tests/browser.test.ts` | Real Chrome: the page pool stopping at a failure, the disk guard, the `chrome-headless-shell` lookup, both snapshot state modes, the `cdp` and `dom` usage engines against each other (including `@layer`, `@scope` and nesting), and the Chrome fuzzer: generated sheets must give the same rules, placement and resolved selectors as Chrome's CSSOM |
+| `tests/browser.test.ts` | Real Chrome: the page pool stopping at a failure, the disk guard, the `chrome-headless-shell` lookup, both snapshot state modes (only on elements that can reach each state), frozen animations, the `cdp` and `dom` usage engines against each other (including `@layer`, `@scope` and nesting), and the Chrome fuzzer: generated sheets must give the same rules, placement and resolved selectors as Chrome's CSSOM |
 | `tests/fuzz.test.ts` | The seeded fuzzer against css-tree (rule and declaration structure), and invariants on every sheet: nothing throws, positions are in range |
 | `tests/fuzz-gen.ts` | The seeded stylesheet generator both fuzzers share |
 | `tests/cli.test.ts` | The CLI in-process against throwaway projects: every format and exit code, config `build` and `compile`, source maps (sibling, inline), `diff --base` through a real git worktree and its cache, and `dead --fix` on CSS, mapped sources and real Sass (mixins, loops), including the undo when the check fails |
