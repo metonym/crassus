@@ -36,6 +36,7 @@ There are two entry points with different runtime rules.
 - `view.ts` wraps a WebView. Each view allows one operation per slot and throws instead of queueing, so `View` serializes calls. `runPool` spreads jobs over tabs, and each tab is its own renderer process.
 - `serve.ts` serves fixture pages and injects a theme attribute before first paint (WebView has no init-script API).
 - `snapshot.ts` captures computed styles into gzipped files that store each distinct style once (`encodeSnapshot`, `readSnapshot`), and writes the manifest `snapshot-diff.ts` requires only after the last page. Forced states use CDP (`CSS.forcePseudoState`) or an in-place `selectorText` rewrite (`:hover` → `[data-cr-hover]`, same specificity and order) that works on any engine.
+- `inspect.ts` explains (CDP matched styles through `cascadeWinners`) and screenshots the changed elements of a page for `compare --explain`/`--visual`; it finds them with `resolvePath` (`src/page/resolve-path.ts`, self-contained so it runs in the page).
 - `compare.ts` serves the fixtures twice, each with a library stylesheet swapped in (`serve.ts`), and captures both sides of a page in one tab, keeping only the diff.
 - `usage-cdp.ts` asks Chrome for matched rules per element. `usage-dom.ts` plus `src/page/usage-dom.ts` match in the page instead; the pure half (aligning the CSSOM with the parsed sheet, cascade order) is `src/core/align.ts`. The page script is plain DOM code, bundled to an IIFE by a Bun macro (`page-script.ts`) and inlined at build time.
 
@@ -54,14 +55,14 @@ There are two entry points with different runtime rules.
 | `tests/parser.test.ts` | Parser and selector-engine behavior, including the spec fixes over css-tree and browser error recovery |
 | `tests/cascade.test.ts` | `parseRules`, specificity, subjects, layers and scopes, co-matchability, `wins`, histograms |
 | `tests/diff.test.ts` | `cascadeDiff` flips, including attribute-styled subjects |
-| `tests/snapshot-diff.test.ts` | `diffSnapshot`, grouping and folding (aliases, shorthands, currentColor followers, invisible changes), and the snapshot file encoding |
+| `tests/snapshot-diff.test.ts` | `diffSnapshot`, grouping and folding (aliases, shorthands, currentColor followers, invisible changes), the snapshot file encoding, and `resolvePath` |
 | `tests/overrides.test.ts` | `deadDeclarations` and shorthand coverage |
 | `tests/align.test.ts` | CSSOM alignment, engine declaration handling and cascade order for the `dom` engine, without a browser |
 | `tests/usage.test.ts` | Cascade replay, aggregation, CDP declaration handling |
-| `tests/browser.test.ts` | Real Chrome: the page pool stopping at a failure, the disk guard, the `chrome-headless-shell` lookup, both snapshot state modes (only on elements that can reach each state), frozen animations, the `cdp` and `dom` usage engines against each other (including `@layer`, `@scope` and nesting), and the Chrome fuzzer: generated sheets must give the same rules, placement and resolved selectors as Chrome's CSSOM |
+| `tests/browser.test.ts` | Real Chrome: the page pool stopping at a failure, the disk guard, the `chrome-headless-shell` lookup, `compareCss` with `explain` and `visual`, `resolvePath` on every captured path, both snapshot state modes (only on elements that can reach each state), frozen animations, the `cdp` and `dom` usage engines against each other (including `@layer`, `@scope` and nesting), and the Chrome fuzzer: generated sheets must give the same rules, placement and resolved selectors as Chrome's CSSOM |
 | `tests/fuzz.test.ts` | The seeded fuzzer against css-tree (rule and declaration structure), and invariants on every sheet: nothing throws, positions are in range |
 | `tests/fuzz-gen.ts` | The seeded stylesheet generator both fuzzers share |
-| `tests/cli.test.ts` | The CLI in-process against throwaway projects: every format and exit code, config `build` and `compile`, source maps (sibling, inline), `diff --base` through a real git worktree and its cache, `compare` at a ref and between files, `capture --css`, and `dead --fix` on CSS, mapped sources and real Sass (mixins, loops), including the undo when the check fails |
+| `tests/cli.test.ts` | The CLI in-process against throwaway projects: every format and exit code, config `build` and `compile`, source maps (sibling, inline), `diff --base` through a real git worktree and its cache, `compare` at a ref and between files (with `--explain` through a source map, and `--visual`), `capture --css`, and `dead --fix` on CSS, mapped sources and real Sass (mixins, loops), including the undo when the check fails |
 | `tests/hostile.test.ts` | Hostile inputs (`tests/hostile-inputs.ts`): deep nesting, unterminated tokens, huge lists, each parsed fast without throwing |
 | `tests/corpora.test.ts` | Selector-for-selector parity with css-tree on the corpora in `bench/corpora.ts` |
 | `scripts/test-package.ts` | `bun run test:package`: packs `dist/`, installs it into a scratch project, runs the core in Node, type-checks a consumer, and loads `crassus/browser` in Bun |

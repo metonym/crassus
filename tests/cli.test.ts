@@ -674,6 +674,38 @@ describe("crassus capture, snapshot-diff and usage", () => {
     ]);
   }, 60_000);
 
+  it("explains winners at their source and compares screenshots", async () => {
+    const root = await project({
+      "crassus.config.ts": `export default {
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
+      };`,
+      "site/lib.css": ".a { color: red; }",
+      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a</div></body></html>`,
+      "dist/base.css": MAPPED_CSS,
+      "dist/base.css.map": MAP,
+      "dist/head.css": MAPPED_CSS.replace("blue", "green"),
+      "dist/head.css.map": MAP,
+    });
+    const r = await cli(
+      root,
+      "compare",
+      "dist/base.css",
+      "dist/head.css",
+      "--no-states",
+      "--explain",
+      "--visual",
+    );
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      "Element screenshots: pixels differ on 1 of 1 changed element(s)",
+    );
+    expect(r.out).toContain(
+      "1×  color: rgb(0, 0, 255) -> rgb(0, 128, 0)  pixels differ on 1 of 1",
+    );
+    // The second `.a {` is line 4 of the CSS, mapped to line 4 of src/a.scss.
+    expect(r.out).toContain("won by .a (src/a.scss:4) on both sides");
+  }, 60_000);
+
   it("captures with another stylesheet swapped in with --css", async () => {
     const root = await project({
       "crassus.config.ts": CONFIG,
@@ -839,6 +871,17 @@ describe("crassus capture, snapshot-diff and usage", () => {
       "pick one",
     ],
     [["dead", "--css", "x.css"], "{}", "--css goes with capture"],
+    [["snapshot-diff", "a", "b", "--explain"], "{}", "use crassus compare"],
+    [
+      ["capture", "o", "--visual"],
+      "{}",
+      "--explain and --visual go with compare",
+    ],
+    [
+      ["compare", "a.css", "b.css", "--engine", "webkit", "--visual"],
+      `{ browser: { fixtures: "site", sheetMarker: ".bx--" } }`,
+      "need --engine chrome",
+    ],
   ])("%j exits 2", async (argv, config, message) => {
     const root = await project({
       "crassus.config.ts": `export default ${config};`,

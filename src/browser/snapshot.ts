@@ -1,6 +1,7 @@
 import { mkdir, rm, statfs } from "node:fs/promises";
 import path from "node:path";
 import type { Snapshot } from "../core/snapshot-diff";
+import { resolvePath } from "../page/resolve-path";
 import {
   INTERACTIVE,
   MAX_STATE_ELEMENTS,
@@ -30,6 +31,7 @@ const FREEZE =
 const CR_HELPERS = `
   (() => {
     const STATES = ${JSON.stringify(STATE_SETS)};
+    const resolvePath = ${resolvePath.toString()};
     const each = (fn) => {
       const visit = (list) => {
         for (let i = list.length - 1; i >= 0; i--) {
@@ -113,7 +115,46 @@ const CR_HELPERS = `
             (el.tabIndex >= 0 && !el.matches("a:not([href]), area:not([href]), input[type=hidden i]")));
           out.push(Object.keys(STATES).filter((s) => s === "hover" || (s === "active" ? !disabled : focusable)));
         }
+        window.__crReach = out;
         return out;
+      },
+      // Marks the element a snapshot key names (data-cr-target) and, for a
+      // state key, the element whose forced state recorded it (data-cr-forced):
+      // the last tagged one that reaches the state and is the element, an
+      // ancestor of it, or (for \`^\`) its child.
+      target(key) {
+        for (const a of ["data-cr-target", "data-cr-forced"])
+          for (const e of document.querySelectorAll("[" + a + "]")) e.removeAttribute(a);
+        const el = resolvePath(key, document.documentElement);
+        if (!el) return null;
+        el.setAttribute("data-cr-target", "");
+        const m = /@(hover|focus|active)(\\^?)(?:::before|::after)?$/.exec(key);
+        if (!m) return { state: null };
+        let forced = null;
+        for (const t of document.querySelectorAll("[data-ccs-idx]")) {
+          const reach = (window.__crReach || [])[Number(t.getAttribute("data-ccs-idx"))] || [];
+          if (!reach.includes(m[1])) continue;
+          if (m[2] ? t.parentElement === el : t === el || t.contains(el)) forced = t;
+        }
+        if (!forced) return null;
+        forced.setAttribute("data-cr-forced", "");
+        return { state: m[1] };
+      },
+      // The target's box in document coordinates, padded to at least 24 × 16
+      // and by 8 px for outlines and shadows; null when it renders no box
+      // (its 0 × 0 rect would sit at the page's origin, over other content).
+      rect() {
+        const el = document.querySelector("[data-cr-target]");
+        if (el.getClientRects().length === 0) return null;
+        const r = el.getBoundingClientRect();
+        const w = Math.max(r.width, 24) + 16;
+        const h = Math.max(r.height, 16) + 16;
+        return {
+          x: Math.max(0, r.left + window.scrollX + r.width / 2 - w / 2),
+          y: Math.max(0, r.top + window.scrollY + r.height / 2 - h / 2),
+          width: w,
+          height: h,
+        };
       },
       allStates(reach) {
         const out = {};
@@ -235,12 +276,15 @@ export async function readSnapshot(file: string): Promise<Snapshot> {
   return decodeSnapshot(await Bun.file(file).bytes());
 }
 
-export async function capturePage(
+type PageOptions = Pick<CaptureOptions, "states" | "emulate" | "settleMs">;
+
+/** Loads the helpers, waits `settleMs` and freezes animations: the page as `capture` reads it. */
+export async function preparePage(
   view: View,
-  opts: Pick<CaptureOptions, "states" | "emulate" | "settleMs">,
+  opts: PageOptions,
   /** Longhands to record beyond those the page's stylesheets declare. */
   extraProps: string[] = [],
-): Promise<Snapshot> {
+): Promise<void> {
   if (extraProps.length)
     await view.evaluate(`window.__crProps = ${JSON.stringify(extraProps)}`);
   await view.evaluate(PAGE_HELPERS);
@@ -249,16 +293,29 @@ export async function capturePage(
     await view.evaluate("window.__cr.reducedMotion()");
   await Bun.sleep(opts.settleMs ?? 500);
   await view.evaluate("window.__cr.freezeAnimations()");
-  const snap = await view.evaluate<Snapshot>("window.__ccs.snapshot()");
-  if (!opts.states) return snap;
+}
 
+/** Stops transitions and tags the elements whose states are forced: per element, the states it can reach. */
+export async function tagStates(view: View): Promise<string[][]> {
   await view.evaluate(
     `(() => { const s = document.createElement("style"); s.textContent = ${JSON.stringify(FREEZE)}; document.head.append(s); })()`,
   );
   const n = await view.evaluate<number>(
     `window.__ccs.tagInteractive(${JSON.stringify(INTERACTIVE)}, ${MAX_STATE_ELEMENTS})`,
   );
-  const reach = await view.evaluate<string[][]>(`window.__cr.reachable(${n})`);
+  return view.evaluate<string[][]>(`window.__cr.reachable(${n})`);
+}
+
+export async function capturePage(
+  view: View,
+  opts: PageOptions,
+  extraProps: string[] = [],
+): Promise<Snapshot> {
+  await preparePage(view, opts, extraProps);
+  const snap = await view.evaluate<Snapshot>("window.__ccs.snapshot()");
+  if (!opts.states) return snap;
+  const reach = await tagStates(view);
+  const n = reach.length;
 
   if (opts.states === "rewrite") {
     await view.evaluate("window.__cr.twinStates()");

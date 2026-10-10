@@ -3,6 +3,7 @@
 // not diffed; changes group by (property, before -> after), most frequent
 // first, ties in first-seen order, with the first three paths as examples.
 // Unlike it, a property one side didn't record is listed, not a change.
+
 import {
   decodeSnapshot,
   encodeSnapshot,
@@ -13,6 +14,7 @@ import {
   groupChanges,
   type Snapshot,
 } from "../src/core/snapshot-diff";
+import { resolvePath } from "../src/page/resolve-path";
 
 const WHITE = "rgb(255, 255, 255)";
 
@@ -390,5 +392,42 @@ describe("folding", () => {
       [2, ["caret-color", "outline-color"], undefined],
       [1, undefined, "display: none"],
     ]);
+  });
+});
+
+describe("resolvePath", () => {
+  interface Node {
+    tagName: string;
+    className: unknown;
+    children: Node[];
+  }
+  const el = (tagName: string, className: unknown, ...children: Node[]) => ({
+    tagName,
+    className,
+    children,
+  });
+  const second = el("P", "b  a");
+  // A class name with `>` in it, as Tailwind's arbitrary variants have.
+  const odd = el("I", "[&>*]:p-4");
+  const svg = el("svg", { baseVal: "icon" });
+  const html = el(
+    "HTML",
+    "",
+    el("HEAD", ""),
+    el(
+      "BODY",
+      "",
+      el("DIV", "", el("P", "a b"), second, el("SPAN", ""), odd, svg),
+    ),
+  );
+
+  it("finds the element a snapshot path names", () => {
+    expect(resolvePath("body>div>p.a.b[1]", html)).toBe(second);
+    expect(resolvePath("body>div>p.a.b[1]@hover^", html)).toBe(second);
+    expect(resolvePath("body>div>p.a.b[1]@focus::before", html)).toBe(second);
+    expect(resolvePath("body>div>i.[&>*]:p-4", html)).toBe(odd);
+    // An SVG className isn't a string: no classes, as `capture` records it.
+    expect(resolvePath("body>div>svg", html)).toBe(svg);
+    expect(resolvePath("body>div>p.a.b[2]", html)).toBeNull();
   });
 });

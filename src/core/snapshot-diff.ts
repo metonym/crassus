@@ -78,6 +78,25 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
   };
 }
 
+/** The declaration a property's computed value comes from. */
+export interface Winner {
+  selector: string;
+  /** The stylesheet's path, `user agent`, `style attribute` or `inline <style>`. */
+  sheet: string;
+  /** 1-based line in the stylesheet (or, mapped, its source). */
+  line?: number;
+  /** 0-based column. */
+  column?: number;
+  /** Set when an ancestor's declaration was inherited. */
+  inherited?: true;
+}
+
+/** Per side, the winning declaration (`null`: none declared, an initial value). */
+export interface Explained {
+  base: Winner | null;
+  head: Winner | null;
+}
+
 export interface ChangeGroup {
   property: string;
   before: string;
@@ -90,8 +109,17 @@ export interface ChangeGroup {
   count: number;
   /** Pages it occurs on, in first-seen order. */
   pages: string[];
-  /** The first few occurrences. */
-  examples: { page: string; path: string }[];
+  /** The first few occurrences, with the winners when explained. */
+  examples: { page: string; path: string; explain?: Explained }[];
+  /** With element screenshots: how many of its elements' pixels differ. */
+  pixels?: { differ: number; same: number };
+}
+
+/** What a page's changes were inspected for, by path. */
+export interface Inspected {
+  explain?: Record<string, Record<string, Explained>>;
+  /** Whether the element's screenshots differ. */
+  pixels?: Record<string, boolean>;
 }
 
 /**
@@ -100,11 +128,11 @@ export interface ChangeGroup {
  * Invisible changes group apart from visible ones, by reason.
  */
 export function groupChanges(
-  pages: Iterable<{ page: string; changed: PageDiff["changed"] }>,
+  pages: Iterable<{ page: string; changed: PageDiff["changed"] } & Inspected>,
   examples = 3,
 ): ChangeGroup[] {
   const groups = new Map<string, ChangeGroup>();
-  for (const { page, changed } of pages) {
+  for (const { page, changed, explain, pixels } of pages) {
     for (const [path, changes] of Object.entries(changed)) {
       for (const { property, before, after, aliases, invisible } of changes) {
         const key = JSON.stringify([property, before, after, invisible]);
@@ -118,7 +146,14 @@ export function groupChanges(
           g.aliases = [...new Set([...(g.aliases ?? []), ...aliases])].sort();
         g.count++;
         if (g.pages.at(-1) !== page) g.pages.push(page);
-        if (g.examples.length < examples) g.examples.push({ page, path });
+        const why = explain?.[path]?.[property];
+        if (g.examples.length < examples)
+          g.examples.push({ page, path, ...(why && { explain: why }) });
+        const differ = pixels?.[path];
+        if (differ !== undefined) {
+          g.pixels ??= { differ: 0, same: 0 };
+          g.pixels[differ ? "differ" : "same"]++;
+        }
       }
     }
   }

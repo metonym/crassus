@@ -83,6 +83,10 @@ Browser options (capture, compare, usage; override the config's \`browser\`):
   --concurrency <n>  tabs in parallel (default: half the cores, at most 4)
   --css <file>       capture: serve this CSS in place of the stylesheet that
                      contains \`browser.sheetMarker\`
+  --explain          compare: the rule that won each changed property, on
+                     each side, for the example elements (Chrome)
+  --visual           compare: screenshot each changed element on both sides
+                     and count those whose pixels differ (Chrome)
   --url <base>       use a running server instead of building and serving
   --out <dir>        usage: output directory (default .crassus/usage)
   -h, --help         show this help
@@ -158,6 +162,8 @@ async function run(argv: string[], io: Io): Promise<number> {
       concurrency: { type: "string" },
       url: { type: "string" },
       css: { type: "string" },
+      explain: { type: "boolean" },
+      visual: { type: "boolean" },
       out: { type: "string" },
       summary: { type: "string" },
       help: { type: "boolean", short: "h" },
@@ -195,6 +201,12 @@ async function run(argv: string[], io: Io): Promise<number> {
     );
   if (values.css && command !== "capture")
     throw new UsageError("--css goes with capture");
+  if ((values.explain || values.visual) && command !== "compare")
+    throw new UsageError(
+      command === "snapshot-diff"
+        ? "--explain and --visual reopen both sides of a page, which a capture directory can't: use crassus compare"
+        : "--explain and --visual go with compare",
+    );
   if (command === "dead") {
     const { config } = await loadConfig(cwd, values.config);
     const load = () =>
@@ -321,6 +333,8 @@ async function run(argv: string[], io: Io): Promise<number> {
       base: values.base,
       entry: only,
       cache: !values["no-cache"],
+      explain: values.explain,
+      visual: values.visual,
       format,
       io,
       summary,

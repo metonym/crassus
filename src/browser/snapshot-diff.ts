@@ -3,6 +3,7 @@ import {
   type ChangeGroup,
   diffSnapshot,
   groupChanges,
+  type Inspected,
   type PageDiff,
   type Uncompared,
 } from "../core/snapshot-diff";
@@ -13,7 +14,7 @@ import {
   readSnapshot,
 } from "./snapshot";
 
-export interface SnapshotPageDiff extends PageDiff {
+export interface SnapshotPageDiff extends PageDiff, Inspected {
   /** `<name>.<theme>[.<W>x<H>].json.gz` */
   file: string;
   fixture: string;
@@ -61,7 +62,7 @@ async function snapshotFiles(dir: string): Promise<string[]> {
 
 /** Builds a `SnapshotDiff` from page diffs, added in file order. */
 export function summarizePages(
-  pages: { file: string; diff: PageDiff; entries: number }[],
+  pages: { file: string; diff: PageDiff & Inspected; entries: number }[],
   onlyBase: string[],
   onlyHead: string[],
   examples?: number,
@@ -94,7 +95,7 @@ export function summarizePages(
     onlyHead: [...props.onlyHead].sort(),
   };
   out.groups = groupChanges(
-    out.pages.map((p) => ({ page: p.file, changed: p.changed })),
+    out.pages.map((p) => ({ ...p, page: p.file })),
     examples,
   );
   return out;

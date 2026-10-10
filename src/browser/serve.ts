@@ -22,7 +22,7 @@ function cssFiles(dir: string, at = ""): string[] {
 }
 
 /** The fixture file `swap` replaces, relative to `dir`. */
-function swappedSheet(dir: string, marker: string): string {
+export function swappedSheet(dir: string, marker: string): string {
   // As `librarySheet` picks it in the page. Largest first: only those
   // before the first match are read.
   const files = cssFiles(dir)
