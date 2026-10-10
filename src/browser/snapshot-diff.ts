@@ -4,6 +4,7 @@ import {
   diffSnapshot,
   groupChanges,
   type PageDiff,
+  type Uncompared,
 } from "../core/snapshot-diff";
 import {
   type CaptureManifest,
@@ -32,6 +33,8 @@ export interface SnapshotDiff {
   pages: SnapshotPageDiff[];
   /** Style changes grouped by `(property, before -> after)`, most frequent first. */
   groups: ChangeGroup[];
+  /** Over all compared pages: properties one side never recorded, so not compared. */
+  uncompared: Uncompared;
 }
 
 export interface SnapshotDiffOptions {
@@ -79,7 +82,10 @@ export async function diffSnapshots(
     onlyHead: head.filter((f) => !inBase.has(f)),
     pages: [],
     groups: [],
+    uncompared: { onlyBase: [], onlyHead: [] },
   };
+  const onlyBase = new Set<string>();
+  const onlyHead = new Set<string>();
   for (const file of base) {
     if (!inHead.has(file)) continue;
     // One pair in memory at a time: a page's snapshot can be megabytes.
@@ -91,13 +97,21 @@ export async function diffSnapshots(
     out.files++;
     out.entries += Object.keys(a).length;
     const diff = diffSnapshot(a, b);
+    for (const p of diff.uncompared.onlyBase) onlyBase.add(p);
+    for (const p of diff.uncompared.onlyHead) onlyHead.add(p);
     if (
       Object.keys(diff.changed).length ||
       diff.removed.length ||
-      diff.added.length
+      diff.added.length ||
+      diff.uncompared.onlyBase.length ||
+      diff.uncompared.onlyHead.length
     )
       out.pages.push({ file, ...parseSnapshotFile(file), ...diff });
   }
+  out.uncompared = {
+    onlyBase: [...onlyBase].sort(),
+    onlyHead: [...onlyHead].sort(),
+  };
   out.groups = groupChanges(
     out.pages.map((p) => ({ page: p.file, changed: p.changed })),
     options.examples,

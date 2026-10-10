@@ -1,13 +1,23 @@
-// Paths on one side only are DOM or forced-state changes: counted, not diffed.
+// Paths on one side only are DOM or forced-state changes, and properties one
+// side only recorded have no value to compare: listed, not diffed.
 
 /** Element path (with `::before`, `@hover` and similar suffixes) → longhand → computed value. */
 export type Snapshot = Record<string, Record<string, string>>;
 
 export interface PropertyChange {
   property: string;
-  /** `null` when that side didn't record the property: its stylesheets don't declare it. */
-  before: string | null;
-  after: string | null;
+  before: string;
+  after: string;
+}
+
+/**
+ * Properties one side recorded and the other didn't, because only that
+ * side's stylesheets declare them. They aren't compared: the other side has
+ * no value, and its computed one may well be the same.
+ */
+export interface Uncompared {
+  onlyBase: string[];
+  onlyHead: string[];
 }
 
 export interface PageDiff {
@@ -16,37 +26,46 @@ export interface PageDiff {
   removed: string[];
   /** Paths only in head. */
   added: string[];
+  uncompared: Uncompared;
 }
 
 export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
-  const out: PageDiff = { changed: {}, removed: [], added: [] };
+  const changed: PageDiff["changed"] = {};
+  const removed: string[] = [];
+  const onlyBase = new Set<string>();
+  const onlyHead = new Set<string>();
   for (const [path, before] of Object.entries(base)) {
     const after = head[path];
     if (!after) {
-      out.removed.push(path);
+      removed.push(path);
       continue;
     }
     const changes: PropertyChange[] = [];
     for (const [property, value] of Object.entries(before)) {
-      const next = after[property] ?? null;
-      if (next !== value)
+      const next = after[property];
+      if (next === undefined) onlyBase.add(property);
+      else if (next !== value)
         changes.push({ property, before: value, after: next });
     }
-    for (const [property, value] of Object.entries(after)) {
-      if (!(property in before))
-        changes.push({ property, before: null, after: value });
-    }
-    if (changes.length) out.changed[path] = changes;
+    for (const property of Object.keys(after))
+      if (!(property in before)) onlyHead.add(property);
+    if (changes.length) changed[path] = changes;
   }
-  for (const path of Object.keys(head)) if (!base[path]) out.added.push(path);
-  return out;
+  return {
+    changed,
+    removed,
+    added: Object.keys(head).filter((path) => !base[path]),
+    uncompared: {
+      onlyBase: [...onlyBase].sort(),
+      onlyHead: [...onlyHead].sort(),
+    },
+  };
 }
 
 export interface ChangeGroup {
   property: string;
-  /** `null` when that side didn't record the property, as in `PropertyChange`. */
-  before: string | null;
-  after: string | null;
+  before: string;
+  after: string;
   /** Element paths with this change, over all pages. */
   count: number;
   /** Pages it occurs on, in first-seen order. */

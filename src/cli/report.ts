@@ -383,7 +383,10 @@ export function formatFix(
 }
 
 const MAX_PAGES = 6;
-const shown = (v: string | null) => v ?? "(not recorded)";
+const MAX_PROPS = 8;
+const props = (list: string[]) =>
+  list.slice(0, MAX_PROPS).join(", ") +
+  (list.length > MAX_PROPS ? ` (+${list.length - MAX_PROPS})` : "");
 
 export function formatSnapshotDiff(
   diff: SnapshotDiff,
@@ -407,6 +410,17 @@ export function formatSnapshotDiff(
         `  ${p.file}: ${p.removed.length} only in base, ${p.added.length} only in head`,
       );
   }
+  const { onlyBase, onlyHead } = diff.uncompared;
+  if (onlyBase.length || onlyHead.length) {
+    lines.push(
+      "",
+      bold(
+        "Not compared (one side's stylesheets don't declare them, so it didn't record them)",
+      ),
+    );
+    if (onlyBase.length) lines.push(`  only base recorded ${props(onlyBase)}`);
+    if (onlyHead.length) lines.push(`  only head recorded ${props(onlyHead)}`);
+  }
   if (diff.groups.length === 0) {
     lines.push("", "No computed-style differences.");
     return lines.join("\n");
@@ -422,7 +436,7 @@ export function formatSnapshotDiff(
     const more = g.pages.length - MAX_PAGES;
     lines.push(
       "",
-      `${g.count}×  ${g.property}: ${red(shown(g.before))} -> ${red(shown(g.after))}`,
+      `${g.count}×  ${g.property}: ${red(g.before)} -> ${red(g.after)}`,
       `     ${dim("pages:")} ${g.pages.slice(0, MAX_PAGES).join(", ")}${more > 0 ? ` (+${more})` : ""}`,
       ...g.examples.map((e) => `     ${dim("e.g.")} ${e.page}  ${e.path}`),
     );

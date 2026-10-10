@@ -1,8 +1,8 @@
 // Expectations follow carbon-components-svelte's `e2e/cascade-snapshot.ts
 // diff`, run on seeded capture pairs: paths on one side only are counted,
-// not diffed; a property gone in head reads as a change to nothing; changes
-// group by (property, before -> after), most frequent first, ties in
-// first-seen order, with the first three paths as examples.
+// not diffed; changes group by (property, before -> after), most frequent
+// first, ties in first-seen order, with the first three paths as examples.
+// Unlike it, a property one side didn't record is listed, not a change.
 import {
   decodeSnapshot,
   encodeSnapshot,
@@ -23,6 +23,7 @@ describe("diffSnapshot", () => {
       changed: {},
       removed: [],
       added: [],
+      uncompared: { onlyBase: [], onlyHead: [] },
     });
   });
 
@@ -39,24 +40,28 @@ describe("diffSnapshot", () => {
       changed: {},
       removed: ["body>div>p"],
       added: ["body>div>span"],
+      uncompared: { onlyBase: [], onlyHead: [] },
     });
   });
 
-  it("reports changed, dropped and new properties", () => {
+  it("compares only the properties both sides recorded", () => {
+    // Head's stylesheets stopped declaring margin-top and started declaring
+    // text-wrap: neither side has a value for the other's.
     const base: Snapshot = {
       a: { color: WHITE, "margin-top": "0px", top: "0px" },
+      b: { color: WHITE, "margin-top": "0px", top: "0px" },
     };
     const head: Snapshot = {
       a: { color: "rgb(1, 2, 3)", top: "0px", "text-wrap": "balance" },
+      b: { color: WHITE, top: "0px", "text-wrap": "wrap" },
     };
-    expect(diffSnapshot(base, head).changed).toEqual({
-      a: [
-        { property: "color", before: WHITE, after: "rgb(1, 2, 3)" },
-        { property: "margin-top", before: "0px", after: null },
-        // Not in the original tool, which only reads base's properties: a
-        // property head's stylesheets start declaring is a change too.
-        { property: "text-wrap", before: null, after: "balance" },
-      ],
+    expect(diffSnapshot(base, head)).toEqual({
+      changed: {
+        a: [{ property: "color", before: WHITE, after: "rgb(1, 2, 3)" }],
+      },
+      removed: [],
+      added: [],
+      uncompared: { onlyBase: ["margin-top"], onlyHead: ["text-wrap"] },
     });
   });
 });
@@ -81,7 +86,7 @@ describe("groupChanges", () => {
           ...recolor("body>div>button.bx--btn--primary@hover"),
           ...recolor("body>div>button.bx--btn--primary@focus"),
           "body>div>button.bx--btn--disabled": [
-            { property: "color", before: "rgb(141, 141, 141)", after: null },
+            { property: "color", before: "rgb(141, 141, 141)", after: WHITE },
           ],
         },
       },
@@ -120,7 +125,7 @@ describe("groupChanges", () => {
       {
         property: "color",
         before: "rgb(141, 141, 141)",
-        after: null,
+        after: WHITE,
         count: 1,
         pages: ["button.white.json"],
         examples: [
