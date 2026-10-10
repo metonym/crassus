@@ -1,12 +1,67 @@
+import { existsSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 export type EngineName = "chrome" | "webkit";
 
 export interface ViewOptions {
   engine: EngineName;
   width?: number;
   height?: number;
-  /** Chrome/Chromium binary. Default: Bun's auto-detection. */
+  /**
+   * Chrome/Chromium binary. Default: Playwright's newest
+   * `chrome-headless-shell`, if installed, else Bun's auto-detection.
+   */
   chromePath?: string;
 }
+
+const HEADLESS_SHELL_RE = /^chromium_headless_shell-(\d+)$/;
+
+function playwrightCache(): string | undefined {
+  const env = process.env.PLAYWRIGHT_BROWSERS_PATH;
+  // "0" means browsers live in node_modules, per project.
+  if (env && env !== "0") return env;
+  if (process.platform === "darwin")
+    return join(homedir(), "Library/Caches/ms-playwright");
+  if (process.platform === "win32")
+    return process.env.LOCALAPPDATA
+      ? join(process.env.LOCALAPPDATA, "ms-playwright")
+      : undefined;
+  return join(
+    process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"),
+    "ms-playwright",
+  );
+}
+
+/**
+ * Playwright's newest cached `chrome-headless-shell`. Bun prefers an
+ * installed Chrome, which starts the user's browser helpers beside their own
+ * windows; the shell is lighter and gives the exact viewport.
+ */
+export function headlessShell(): string | undefined {
+  const cache = playwrightCache();
+  if (!cache || !existsSync(cache)) return undefined;
+  const exe = process.platform === "win32" ? ".exe" : "";
+  const revisions = readdirSync(cache)
+    .map((d) => [d, Number(HEADLESS_SHELL_RE.exec(d)?.[1] ?? -1)] as const)
+    .filter(([, rev]) => rev >= 0)
+    .sort((a, b) => b[1] - a[1]);
+  for (const [dir] of revisions) {
+    const root = join(cache, dir);
+    for (const sub of readdirSync(root)) {
+      const bin = join(root, sub, `chrome-headless-shell${exe}`);
+      if (sub.startsWith("chrome-headless-shell-") && existsSync(bin))
+        return bin;
+    }
+  }
+  return undefined;
+}
+
+let defaultChrome: { path?: string } | undefined;
+const defaultChromePath = () => {
+  defaultChrome ??= { path: headlessShell() };
+  return defaultChrome.path;
+};
 
 export interface Viewport {
   width: number;
@@ -48,7 +103,7 @@ export class View {
           : {
               type: "chrome",
               url: false,
-              path: opts.chromePath,
+              path: opts.chromePath ?? defaultChromePath(),
               // As Playwright: scrollbars take no width. One Chrome per
               // process: the first view's options win.
               argv: ["--hide-scrollbars"],
@@ -144,20 +199,28 @@ async function runPool<J, R>(
 ): Promise<R[]> {
   const results: R[] = new Array(jobs.length);
   let next = 0;
+  // The first failure stops every view taking new jobs; views close once
+  // their current job settles.
+  const errors: unknown[] = [];
   const views = Array.from({ length: Math.min(size, jobs.length) }, makeView);
   try {
     await Promise.all(
       views.map(async (view, slot) => {
-        while (next < jobs.length) {
+        while (errors.length === 0 && next < jobs.length) {
           const i = next++;
-          // biome-ignore lint/performance/noAwaitInLoops: one job at a time per view
-          results[i] = await work(view, jobs[i], slot);
+          try {
+            // biome-ignore lint/performance/noAwaitInLoops: one job at a time per view
+            results[i] = await work(view, jobs[i], slot);
+          } catch (e) {
+            errors.push(e);
+          }
         }
       }),
     );
   } finally {
     for (const v of views) v.close();
   }
+  if (errors.length > 0) throw errors[0];
   return results;
 }
 

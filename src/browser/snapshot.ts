@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rm, statfs } from "node:fs/promises";
 import path from "node:path";
 import type { Snapshot } from "../core/snapshot-diff";
 import {
@@ -208,16 +208,76 @@ async function capturePage(
   return snap;
 }
 
+/** Written last by `capture`: a directory without it is incomplete. */
+export const MANIFEST = ".crassus-capture";
+
+export interface CaptureManifest {
+  format: 1;
+  /** Snapshot files, sorted: what `diffSnapshots` reads. */
+  files: string[];
+  notReady: string[];
+  engine: EngineName;
+  states: CaptureOptions["states"];
+  themes: string[];
+  viewports: Viewport[];
+}
+
+/** Free space a capture leaves on its disk. */
+const DISK_RESERVE = 512 * 1024 * 1024;
+const mb = (bytes: number) => `${Math.ceil(bytes / 1024 / 1024)} MB`;
+
+/** Stops before the disk fills, projecting the pages written so far over the rest. */
+export async function checkDisk(
+  dir: string,
+  written: number,
+  done: number,
+  total: number,
+) {
+  if (done >= total) return;
+  const { bavail, bsize } = await statfs(dir);
+  const free = bavail * bsize;
+  const needed = (written / done) * (total - done);
+  if (needed + DISK_RESERVE > free)
+    throw Object.assign(
+      new Error(
+        `not enough disk space for ${dir}: ${total - done} more page(s) need about ${mb(needed)}, and ${mb(free)} is free (keeping ${mb(DISK_RESERVE)})`,
+      ),
+      { code: "ENOSPC" },
+    );
+}
+
 export async function capture(
   opts: CaptureOptions,
 ): Promise<{ pages: number; ms: number; notReady: string[] }> {
   await mkdir(opts.outDir, { recursive: true });
-  const several = viewportsOf(opts).length > 1;
-  return visitPages(opts, async (view, job) => {
+  // A stale manifest would vouch for a capture that fails.
+  await rm(path.join(opts.outDir, MANIFEST), { force: true });
+  const viewports = viewportsOf(opts);
+  const several = viewports.length > 1;
+  const total = opts.fixtures.length * opts.themes.length * viewports.length;
+  const files: string[] = [];
+  let written = 0;
+  const r = await visitPages(opts, async (view, job) => {
     const snap = await capturePage(view, opts);
-    await Bun.write(
-      path.join(opts.outDir, snapshotFile(job, several)),
+    const file = snapshotFile(job, several);
+    written += await Bun.write(
+      path.join(opts.outDir, file),
       JSON.stringify(snap),
     );
+    files.push(file);
+    await checkDisk(opts.outDir, written, files.length, total);
   });
+  await Bun.write(
+    path.join(opts.outDir, MANIFEST),
+    JSON.stringify({
+      format: 1,
+      files: files.sort(),
+      notReady: r.notReady,
+      engine: opts.engine,
+      states: opts.states,
+      themes: opts.themes,
+      viewports,
+    } satisfies CaptureManifest),
+  );
+  return r;
 }

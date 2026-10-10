@@ -44,6 +44,7 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
 
 export interface ChangeGroup {
   property: string;
+  /** `null` when that side didn't record the property, as in `PropertyChange`. */
   before: string | null;
   after: string | null;
   /** Element paths with this change, over all pages. */

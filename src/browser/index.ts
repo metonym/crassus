@@ -11,6 +11,7 @@ export { serveFixtures } from "./serve";
 export { type CaptureOptions, capture } from "./snapshot";
 export {
   diffSnapshots,
+  IncompleteCaptureError,
   type SnapshotDiff,
   type SnapshotDiffOptions,
   type SnapshotPageDiff,

@@ -25,6 +25,8 @@ for (const [name, { entry, target }] of Object.entries(entries)) {
     format: "esm",
     target,
     minify: true,
+    // Readable stack traces from the minified CLI and browser runs.
+    ...(target === "bun" && { sourcemap: "linked" as const }),
   });
   if (!result.success) {
     console.error(result.logs.join("\n"));

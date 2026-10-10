@@ -54,6 +54,8 @@ crassus snapshot-diff <base> <head>  # compare two captures (ground truth)
 crassus usage                     # declarations that match but never win (rung 2, evidence)
 ```
 
+Browser runs open one tab (a renderer process) per `--concurrency`, by default half the cores and at most 4, in Playwright's `chrome-headless-shell` when it's installed (`bunx playwright install chromium-headless-shell`) and otherwise the Chrome Bun finds, which may be your own. Raise it on a dedicated machine, lower it beside other work.
+
 | Option | Description |
 |:---|:---|
 | `--base <ref>` | Git ref to diff against (default `HEAD`). The base is built in a temporary `git worktree` with your own build, and cached by commit under `node_modules/.cache/crassus`. |
@@ -77,7 +79,7 @@ crassus usage                     # declarations that match but never win (rung 
 | `--no-states` | Skip forced `:hover`/`:focus`/`:active` states. |
 | `--engine <name>` | `chrome` (default) or `webkit`. |
 | `--matcher <name>` | `usage`: `dom` (default, any engine) or `cdp` (Chrome, exact per element). |
-| `--concurrency <n>` | Tabs in parallel (default 8). |
+| `--concurrency <n>` | Tabs in parallel (default half the cores, at most 4). |
 | `--url <base>` | Use a running server instead of building and serving the fixtures. |
 | `--out <dir>` | `usage`: output directory (default `.crassus/usage`). |
 
@@ -85,7 +87,7 @@ Exit codes: `0` clean, `1` findings (dead declarations, cascade flips; for `snap
 
 Findings point at the authoring source (`css/_button.scss:42`) when the stylesheet has a source map: a sibling `.map`, a `sourceMappingURL` comment, or the map a `compile` hook returns. Without one they point at the CSS.
 
-`capture` writes one JSON file per page (`<fixture>.<theme>.json`, or `<fixture>.<theme>.<W>x<H>.json` with several viewports). `snapshot-diff` compares two such directories: pages on one side only and elements on one side only (DOM or state changes) are listed, and computed-style changes are grouped by `property: before -> after`, so a systematic change reads as one line with its pages and example elements. `--format json` gives the full diff.
+`capture` writes one JSON file per page (`<fixture>.<theme>.json`, or `<fixture>.<theme>.<W>x<H>.json` with several viewports) and, once every page is written, a `.crassus-capture` manifest listing them. It stops with an error before a capture would leave less than 512 MB free, projecting the pages written so far over the rest. `snapshot-diff` compares two such directories, reading only the files their manifests list, and refuses a directory without one (a capture that failed or is still running). Pages on one side only and elements on one side only (DOM or state changes) are listed, and computed-style changes are grouped by `property: before -> after`, so a systematic change reads as one line with its pages and example elements. A `null` side (`none` in the human report) means that capture didn't record the property, because its stylesheets don't declare it. `--format json` gives the full diff.
 
 `usage` writes `usage.json` (every matched declaration with its counts, never-matched rules, dead declarations and fold candidates) and `report.md`: declarations that matched and never won, with what they lost to, by size (losses only to `prefers-reduced-motion`, `prefers-contrast` or `forced-colors` rules are left out, as alternatives for a user preference); fold candidates, which always lose to the same single rule; and rules that never matched. All of it is bounded by the fixtures, themes, viewports and states the run covered.
 
@@ -219,12 +221,12 @@ Types: `Rule`, `DeadDeclaration`, `CascadeDiff`, `Flip`, `Config`, `BrowserConfi
 
 ### `crassus/browser` (Bun)
 
-Real-browser rungs on [`Bun.WebView`](https://bun.sh/docs/runtime/webview): Chrome or Chromium over CDP (auto-detected, including Playwright's cached `chrome-headless-shell`), or the system WebKit on macOS. No Playwright and no browser download.
+Real-browser rungs on [`Bun.WebView`](https://bun.sh/docs/runtime/webview): Chrome or Chromium over CDP (Playwright's cached `chrome-headless-shell` when installed, else auto-detected), or the system WebKit on macOS. No Playwright and no browser download.
 
 | Export | Description |
 |:---|:---|
 | `capture(options)` | Computed-style snapshot of every element, `::before`/`::after` and forced `:hover`/`:focus`/`:active`, per theme and viewport, one JSON file per page. States come from CDP (exact) or from rewriting state selectors in place (any engine). |
-| `diffSnapshots(baseDir, headDir, { examples? })` | Compares two `capture` directories: changed element paths per page, and every change grouped by `(property, before -> after)` with counts and example paths. Pages and paths on one side only are listed, not diffed. |
+| `diffSnapshots(baseDir, headDir, { examples? })` | Compares two `capture` directories: changed element paths per page, and every change grouped by `(property, before -> after)` with counts and example paths. Pages and paths on one side only are listed, not diffed. `before` or `after` is `null` when that side didn't record the property. Throws `IncompleteCaptureError` for a directory without a manifest. |
 | `runUsage(options)` | Which declarations of the library stylesheet (the one containing `sheetMarker`) match and win on every element, over all themes and viewports. `matcher: "cdp"` asks Chrome per element; `matcher: "dom"` matches in the page with `Element.matches()` in one round trip per page, on Chrome or WebKit. |
 | `serveFixtures(dir)` | Static fixture server that sets a theme attribute before first paint. |
 
@@ -233,7 +235,7 @@ Both browser runs take:
 - `viewports: { width, height }[]`: every page at each size (default one, 1280 × 900; `width`/`height` still set a single one). Use enough to cover the stylesheet's `min-width`/`max-width` breakpoints, or rules outside them read as never matched. With several, capture files are named `<name>.<theme>.<W>x<H>.json`.
 - `readySelector` (and `readyTimeoutMs`, default 5000): wait after load until the selector matches, for content that mounts late. A page that never matches is still read, and returned in `notReady`.
 
-Types: `CaptureOptions`, `UsageOptions`, `UsageFile`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`.
+`IncompleteCaptureError` is exported too. Types: `CaptureOptions`, `UsageOptions`, `UsageFile`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`.
 
 ## Features
 
