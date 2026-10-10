@@ -19,7 +19,7 @@
     "bench:ab": "ostia ab bench/core.bench.ts",
     "eval:carbon": "bun eval/carbon/parity.ts",
     "gen:shorthands": "bun scripts/gen-shorthands.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "bun check",
     "lint": "biome ci --error-on-warnings",
     "knip": "knip-bun",
     "lint:fix": "biome check --write --unsafe ."
