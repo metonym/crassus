@@ -97,6 +97,16 @@ const ANIMATED_PAGE = `<!doctype html><html><head><style>
 .bx--slow { animation: bx-fade 100s; opacity: 0.5; }
 </style></head><body><p class="bx--spin">x</p><p class="bx--fade">x</p><p class="bx--slow">x</p></body></html>`;
 
+// One color change, as an audit saw it: a border declared both ways, color
+// with its currentColor followers, a border of width 0, a hidden subtree.
+const foldCss = (c: string) => `
+.bx--f { border: 1px solid ${c}; border-block-start-color: ${c}; border-inline-end-color: ${c}; color: black; }
+.bx--g { color: ${c}; outline: 0 none; caret-color: currentColor; }
+.bx--h { border-top-color: ${c}; }
+.bx--x { display: none; } .bx--x p { color: ${c}; }`;
+const FOLD_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="fold.css"></head>
+<body><div class="bx--f">a</div><div class="bx--g">b</div><div class="bx--h">c</div><div class="bx--x"><p>d</p></div></body></html>`;
+
 const SITE = {
   "states.html": STATES_PAGE,
   "animated.html": ANIMATED_PAGE,
@@ -218,6 +228,72 @@ it("freezes running animations before reading styles", async () => {
   expect(early["body>p.bx--spin"].transform).toBe("matrix(1, 0, 0, 1, 0, 0)");
   expect(early["body>p.bx--fade"].opacity).toBe("1");
   expect(early["body>p.bx--slow"].opacity).toBe("0.5");
+}, 60_000);
+
+it("diffSnapshots folds one cause into one change, and marks what no one sees", async () => {
+  const sides = [
+    ["fold-base", "red"],
+    ["fold-head", "blue"],
+  ] as const;
+  await Promise.all(
+    sides.flatMap(([side, color]) => [
+      Bun.write(join(dir, side, "fold.css"), foldCss(color)),
+      Bun.write(join(dir, side, "fold.html"), FOLD_PAGE),
+    ]),
+  );
+  for (const [side] of sides) {
+    const site = serveFixtures(join(dir, side));
+    try {
+      // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential captures
+      await capture({
+        ...base(),
+        baseUrl: site.url,
+        fixtures: ["fold"],
+        outDir: join(dir, `snap-${side}`),
+        states: false,
+        emulate: "cdp",
+        settleMs: 0,
+      });
+    } finally {
+      site.stop();
+    }
+  }
+  const diff = await diffSnapshots(
+    join(dir, "snap-fold-base"),
+    join(dir, "snap-fold-head"),
+  );
+  const RED = "rgb(255, 0, 0)";
+  const BLUE = "rgb(0, 0, 255)";
+  expect(
+    diff.groups.map((g) => [
+      g.property,
+      g.before,
+      g.after,
+      g.invisible,
+      g.examples[0].path,
+    ]),
+  ).toEqual([
+    ["border-color", RED, BLUE, undefined, "body>div.bx--f"],
+    ["color", RED, BLUE, undefined, "body>div.bx--g"],
+    ["border-top-color", RED, BLUE, "no border", "body>div.bx--h"],
+    ["color", RED, BLUE, "display: none", "body>div.bx--x>p"],
+  ]);
+  // The physical sides, and the logical ones the stylesheet declares.
+  expect(diff.groups[0].aliases).toEqual([
+    "border-block-start-color",
+    "border-bottom-color",
+    "border-inline-end-color",
+    "border-left-color",
+    "border-right-color",
+    "border-top-color",
+  ]);
+  expect(diff.groups[1].aliases).toEqual(
+    expect.arrayContaining([
+      "caret-color",
+      "outline-color",
+      "border-top-color",
+    ]),
+  );
 }, 60_000);
 
 it("stops the pool at the first failure", async () => {

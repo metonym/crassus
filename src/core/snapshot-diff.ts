@@ -1,5 +1,6 @@
 // Paths on one side only are DOM or forced-state changes, and properties one
 // side only recorded have no value to compare: listed, not diffed.
+import { foldChanges } from "./fold";
 
 /** Element path (with `::before`, `@hover` and similar suffixes) → longhand → computed value. */
 export type Snapshot = Record<string, Record<string, string>>;
@@ -8,6 +9,21 @@ export interface PropertyChange {
   property: string;
   before: string;
   after: string;
+  /**
+   * Properties that changed the same way, folded into this one: logical
+   * twins under the physical name (`padding-block-start` under
+   * `padding-top`, assuming a horizontal writing mode), every longhand of
+   * a shorthand under its name (`border-color`), and properties that
+   * follow `color` (currentColor) under `color`.
+   */
+  aliases?: string[];
+  /**
+   * Why no one can see the change on either side, when no one can:
+   * `display: none` (on it or an ancestor), `visibility: hidden` (painted
+   * properties), `no border` (a side's color at width 0 or style none),
+   * `outline-style: none`, `text-decoration-line: none`.
+   */
+  invisible?: string;
 }
 
 /**
@@ -49,7 +65,7 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
     }
     for (const property of Object.keys(after))
       if (!(property in before)) onlyHead.add(property);
-    if (changes.length) changed[path] = changes;
+    if (changes.length) changed[path] = foldChanges(changes, path, base, head);
   }
   return {
     changed,
@@ -66,6 +82,10 @@ export interface ChangeGroup {
   property: string;
   before: string;
   after: string;
+  /** Over all its occurrences. */
+  aliases?: string[];
+  /** The reason, for a group of changes no one can see. */
+  invisible?: string;
   /** Element paths with this change, over all pages. */
   count: number;
   /** Pages it occurs on, in first-seen order. */
@@ -77,6 +97,7 @@ export interface ChangeGroup {
 /**
  * Groups changes by `(property, before, after)` across pages, so a systematic
  * change reads as one line: most frequent first, ties in first-seen order.
+ * Invisible changes group apart from visible ones, by reason.
  */
 export function groupChanges(
   pages: Iterable<{ page: string; changed: PageDiff["changed"] }>,
@@ -85,13 +106,16 @@ export function groupChanges(
   const groups = new Map<string, ChangeGroup>();
   for (const { page, changed } of pages) {
     for (const [path, changes] of Object.entries(changed)) {
-      for (const { property, before, after } of changes) {
-        const key = JSON.stringify([property, before, after]);
+      for (const { property, before, after, aliases, invisible } of changes) {
+        const key = JSON.stringify([property, before, after, invisible]);
         let g = groups.get(key);
         if (!g) {
           g = { property, before, after, count: 0, pages: [], examples: [] };
+          if (invisible) g.invisible = invisible;
           groups.set(key, g);
         }
+        if (aliases)
+          g.aliases = [...new Set([...(g.aliases ?? []), ...aliases])].sort();
         g.count++;
         if (g.pages.at(-1) !== page) g.pages.push(page);
         if (g.examples.length < examples) g.examples.push({ page, path });

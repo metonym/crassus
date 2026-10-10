@@ -2,6 +2,7 @@ import { version } from "../../package.json";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { Histogram } from "../core/cascade";
 import type { Specificity } from "../core/selector";
+import type { ChangeGroup } from "../core/snapshot-diff";
 import { pushTo } from "../core/util";
 import type { DeadResult, DiffResult, FlipFinding, RuleRef } from "./commands";
 import type { FixReport } from "./fix";
@@ -384,6 +385,7 @@ export function formatFix(
 
 const MAX_PAGES = 6;
 const MAX_PROPS = 8;
+const MAX_INVISIBLE = 10;
 const props = (list: string[]) =>
   list.slice(0, MAX_PROPS).join(", ") +
   (list.length > MAX_PROPS ? ` (+${list.length - MAX_PROPS})` : "");
@@ -421,25 +423,51 @@ export function formatSnapshotDiff(
     if (onlyBase.length) lines.push(`  only base recorded ${props(onlyBase)}`);
     if (onlyHead.length) lines.push(`  only head recorded ${props(onlyHead)}`);
   }
-  if (diff.groups.length === 0) {
-    lines.push("", "No computed-style differences.");
-    return lines.join("\n");
-  }
-  const total = diff.groups.reduce((n, g) => n + g.count, 0);
-  lines.push(
-    "",
-    bold(
-      `${diff.groups.length} distinct change(s), ${total} in all, on ${diff.pages.filter((p) => Object.keys(p.changed).length).length} page(s):`,
-    ),
-  );
-  for (const g of diff.groups) {
+  const visible = diff.groups.filter((g) => !g.invisible);
+  const invisible = diff.groups.filter((g) => g.invisible);
+  const group = (g: ChangeGroup, color: (s: string) => string) => {
     const more = g.pages.length - MAX_PAGES;
     lines.push(
       "",
-      `${g.count}×  ${g.property}: ${red(g.before)} -> ${red(g.after)}`,
+      `${g.count}×  ${g.property}: ${color(g.before)} -> ${color(g.after)}${g.invisible ? dim(` (${g.invisible})`) : ""}`,
+      ...(g.aliases ? [`     ${dim("also:")} ${props(g.aliases)}`] : []),
       `     ${dim("pages:")} ${g.pages.slice(0, MAX_PAGES).join(", ")}${more > 0 ? ` (+${more})` : ""}`,
       ...g.examples.map((e) => `     ${dim("e.g.")} ${e.page}  ${e.path}`),
     );
+  };
+  const total = (gs: ChangeGroup[]) => gs.reduce((n, g) => n + g.count, 0);
+  if (visible.length === 0)
+    lines.push(
+      "",
+      invisible.length
+        ? "No visible computed-style differences."
+        : "No computed-style differences.",
+    );
+  else {
+    const pages = new Set(visible.flatMap((g) => g.pages)).size;
+    lines.push(
+      "",
+      bold(
+        `${visible.length} distinct change(s), ${total(visible)} in all, on ${pages} page(s):`,
+      ),
+    );
+    for (const g of visible) group(g, red);
+  }
+  if (invisible.length > 0) {
+    lines.push(
+      "",
+      bold(
+        `${invisible.length} invisible change(s), ${total(invisible)} in all (no one can see them on either side; not failed on):`,
+      ),
+    );
+    for (const g of invisible.slice(0, MAX_INVISIBLE)) group(g, dim);
+    if (invisible.length > MAX_INVISIBLE)
+      lines.push(
+        "",
+        dim(
+          `(+${invisible.length - MAX_INVISIBLE} more; --format json lists them)`,
+        ),
+      );
   }
   return lines.join("\n");
 }

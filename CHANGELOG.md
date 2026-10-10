@@ -19,6 +19,16 @@
   (per page and overall), shown under "Not compared" and not failed on.
   `PropertyChange` and `ChangeGroup` `before`/`after` are `string`, never
   `null`.
+- `diffSnapshots` folds one cause into one change per element: logical
+  twins into the physical property, a full longhand set that changed the
+  same way into its shorthand, and currentColor followers into `color`,
+  listed in `aliases`. Changes no one can see on either side carry
+  `invisible` with the reason (`display: none`, `visibility: hidden`,
+  `no border`, `outline-style: none`, `text-decoration-line: none`), group
+  apart, print in their own section and don't fail `snapshot-diff`.
+  Recoloring Carbon's primary blue over 218 pages: 4,559 property changes
+  before, 1,473 after (1,275 visible in 16 groups, 198 invisible); one
+  border color reads as `border-color` instead of 8 changes.
 - `capture` forces only states a user can reach: no `:focus` or `:active`
   on a disabled element, no `:focus` on one that can't take focus (no
   `tabindex`, a link without `href`, hidden), and no state inside `inert`.
