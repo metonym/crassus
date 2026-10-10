@@ -53,6 +53,7 @@ crassus capture --base main <dir> # the same at a git ref, in a worktree
 crassus capture --css new.css <dir>  # today's fixtures with another library stylesheet
 crassus snapshot-diff <base> <head>  # compare two captures (ground truth)
 crassus compare --base main       # today's fixtures, library CSS at main vs now, page by page
+crassus bisect main..HEAD         # which commits in a range changed what users see
 crassus usage                     # declarations that match but never win (rung 2, evidence)
 ```
 
@@ -68,17 +69,19 @@ Browser runs open one tab (a renderer process) per `--concurrency`, by default h
 | `--dry-run` | With `--fix`: print the edits as a unified diff and write nothing. |
 | `--no-cache` | Rebuild the base. |
 | `--verbose` | List every rule in review sections. |
-| `--summary <file>` | `dead`, `diff`, `snapshot-diff`, `compare`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB. |
+| `--summary <file>` | `dead`, `diff`, `snapshot-diff`, `compare`, `bisect`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB. |
 
-`capture`, `compare` and `usage` load the fixture pages from the config's [`browser`](#fixture-pages) block, and take:
+`capture`, `compare`, `bisect` and `usage` load the fixture pages from the config's [`browser`](#fixture-pages) block, and take:
 
 | Option | Description |
 |:---|:---|
 | `--base <ref>` | `capture`: build and capture the fixtures of a git ref, in a temporary worktree. `compare`: build the stylesheet at that ref (default `HEAD`). |
 | `--css <file>` | `capture`: serve this CSS in place of the library stylesheet (the largest fixture `.css` file containing `sheetMarker`). |
 | `--entry <name>` | `compare`: the configured stylesheet the fixtures load, when there are several. |
-| `--explain` | `compare` (Chrome): for each changed property, the declaration that won on each side, at its source through the stylesheet's source map. |
-| `--visual` | `compare` (Chrome): screenshot every changed element on both sides, in its forced state, and count those whose pixels differ. |
+| `--group-by <how>` | `bisect`: segments of consecutive commits of one conventional-commit type (`type`, default) or one per commit (`commit`). |
+| `--no-split` | `bisect`: report a segment with visible changes as it is, instead of halving it down to the commits that made them. |
+| `--explain` | `compare`, `bisect` (Chrome): for each changed property, the declaration that won on each side, at its source through the stylesheet's source map. |
+| `--visual` | `compare`, `bisect` (Chrome): screenshot every changed element on both sides, in its forced state, and count those whose pixels differ. |
 | `--only <text>` | Only fixtures whose name contains this. |
 | `--themes <a,b>` | Themes to load each page in. |
 | `--viewport <WxH>` | Viewport (repeatable), as `320x640`. |
@@ -98,6 +101,8 @@ Findings point at the authoring source (`css/_button.scss:42`) when the styleshe
 `compare` answers "did this CSS change regress today's markup": it builds the library stylesheet at `--base` (default `HEAD`) and now, through the config's `css`/`build` or `compile` (or takes two CSS files), serves today's fixtures twice with each one swapped in for the stylesheet that contains `sheetMarker`, and captures both sides of every page in the same tab, diffing as it goes. It keeps no snapshots, and both sides record every property either stylesheet declares, so nothing is left uncompared. The report, JSON and exit codes are `snapshot-diff`'s. `capture --base` instead rebuilds the ref's fixtures, so its DOM changes too. On Carbon's 218 pages (2 themes, forced states) a `compare` takes about as long as two captures (85 s at 4 tabs) and writes nothing.
 
 `compare --explain` reopens each changed page on both sides and asks Chrome which declaration each changed property's value comes from: the selector and its source line (through the stylesheet's source map, as `dead` and `diff` report), following `inherit` and inheritance up to the ancestor that set it. Each example in the report says `won by .bx--btn (css/_button.scss:42) on both sides` or `base: … -> head: …`; `--format json` has it for every changed element. `compare --visual` screenshots each changed element on both sides (its box padded to at least 24 × 16, plus 8 px for outlines and shadows; nothing for an element that renders no box) and compares the bytes: the report counts how many changed elements' pixels differ, overall and per change. Pixels are per element, so a change on an element where another change shows counts as differing. Neither changes the exit code. On Carbon's 218 pages, recoloring the primary blue changed 1,320 elements; pixels differ on 950, and on 2 of the 198 changes marked invisible (both on elements with other, visible changes). Both options together took 127 s, against 85 s without.
+
+`bisect <from>..<to>` runs `compare` along a range of first-parent commits: it cuts the range into segments (consecutive commits of one conventional-commit type, or one per commit), builds the library stylesheet at each boundary (in a worktree, cached by commit, as `diff --base` does), skips a segment whose stylesheet is byte-identical at both ends, and compares the rest on today's fixtures. A segment with visible changes is halved, and the halves compared, down to the commits that made them. The report lists every segment and half with its result, then the changes each responsible commit (or segment, when its halves cancel out) made, as `compare` prints them. It exits 1 when a commit changed what users see. On carbon-components-svelte, 7 commits (`430e4fe6b~1..ee4dcf506`) took 4 minutes: a `refactor(css)` that built identical CSS, two `feat` commits with no visible change on the fixtures, and 4 `docs` commits.
 
 Before reading styles, `capture` pauses infinite animations at their start and finishes the others, so a spinner doesn't differ between two runs of the same CSS. It forces only states a user can reach: no `:focus` or `:active` on a disabled element, no `:focus` on one that can't take focus (a `<li>`, a link without `href`, a hidden element), and none inside `inert`.
 

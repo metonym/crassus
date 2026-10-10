@@ -53,6 +53,15 @@
   pages it matches two captures and a `snapshot-diff` exactly, in about
   the same time, with no snapshots on disk. `compareCss(options)` in
   `crassus/browser` is the same run.
+- `crassus bisect <from>..<to>` finds the commits in a range that changed
+  computed styles on today's fixtures: segments of consecutive commits of
+  one conventional-commit type (`--group-by type`, default, or `commit`),
+  the library stylesheet built at each boundary (cached by commit), a
+  segment skipped when its stylesheet is byte-identical at both ends and
+  compared otherwise, and a segment with visible changes halved down to
+  the commits that made them (`--no-split` keeps segments whole). It takes
+  `compare`'s options, including `--explain` and `--visual`, and exits 1
+  when a commit changed what users see.
 - `compare --explain` (Chrome) names, for every changed property, the
   declaration that won on each side: selector and source line, through
   the stylesheet's source map, following `inherit` and inheritance to the

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
 import { readSnapshot, type UsageFile } from "crassus/browser";
+import { type BisectResult, found, segments } from "../src/cli/bisect";
 import { main } from "../src/cli/main";
 import { appendSummary } from "../src/cli/report";
 
@@ -493,6 +494,8 @@ describe("crassus dead --fix", () => {
   });
 });
 
+const RECOLOR_FINDING_RE = /== \w+\.\.\w+ {2}\w+ perf: recolor/;
+const SEGMENT_FINDING_RE = /== \w+\.\.\w+ {2}3 commits \(perf\)/;
 const SYSTEM_ERROR_RE = /^crassus: E[A-Z]+: /;
 const CAPTURED_RE =
   /^crassus: captured 8 pages \(2 fixtures × 2 themes × 2 viewports\) into snap\/a in /;
@@ -706,6 +709,84 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(r.out).toContain("won by .a (src/a.scss:4) on both sides");
   }, 60_000);
 
+  it("bisects a range down to the commit that changed what users see", async () => {
+    const root = await project({
+      "crassus.config.ts": CONFIG.replace(
+        "browser: {",
+        'css: "site/lib.css",\n    browser: {',
+      ),
+      ...(await site()),
+    });
+    await commitAll(root);
+    const git = (...args: string[]) =>
+      $`git -c user.email=t@t -c user.name=t ${args}`.cwd(root).quiet();
+    let css = await read(SITE, "lib.css");
+    const commit = async (subject: string, next: string) => {
+      css = next;
+      await Bun.write(join(root, "site/lib.css"), css);
+      await git("commit", "-q", "-am", subject, "--allow-empty");
+    };
+    await commit("refactor: comment", `/* lib */\n${css}`);
+    await commit(
+      "perf: drop the unused rule",
+      css.replace(".bx--unused {\n  top: 0;\n}\n", ""),
+    );
+    await commit("perf: recolor", css.replace("color: blue", "color: purple"));
+    await commit("perf: nothing", css);
+    await commit("docs: readme", css);
+
+    const flags = [
+      "--themes",
+      "white",
+      "--viewport",
+      "1280x900",
+      "--no-states",
+    ];
+    const r = await cli(root, "bisect", "HEAD~5..", ...flags);
+    expect(r.code).toBe(1);
+    expect(r.err).toContain(
+      "crassus: bisecting 5 commit(s) in 3 segment(s) by type",
+    );
+    // refactor, perf ×3 (halved twice), docs.
+    expect(r.out).toContain(
+      "5 commit(s) in HEAD~5..HEAD, in 3 segment(s) by type",
+    );
+    expect(r.out).toContain("refactor: comment  no visible change");
+    expect(r.out).toContain("3 commits (perf)  1 visible change(s)");
+    expect(r.out).toContain("2 commits (perf)  1 visible change(s)");
+    expect(r.out).toContain("perf: drop the unused rule  no visible change");
+    expect(r.out).toContain("perf: nothing  CSS unchanged");
+    expect(r.out).toContain("perf: recolor  1 visible change(s)");
+    expect(r.out).toContain("docs: readme  CSS unchanged");
+    expect(r.out).toMatch(RECOLOR_FINDING_RE);
+    expect(r.out).toContain("1×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)");
+
+    const json = JSON.parse(
+      (
+        await cli(
+          root,
+          "bisect",
+          "HEAD~5..HEAD",
+          ...flags,
+          "--group-by",
+          "commit",
+          "--json",
+        )
+      ).out,
+    );
+    expect(json).toMatchObject({
+      command: "bisect",
+      groupBy: "commit",
+      commits: 5,
+    });
+    expect(
+      found(json.segments).map((s: BisectResult) => s.commits[0].subject),
+    ).toEqual(["perf: recolor"]);
+    // Without splitting, the segment is the finding.
+    const whole = await cli(root, "bisect", "HEAD~5..", ...flags, "--no-split");
+    expect(whole.out).toMatch(SEGMENT_FINDING_RE);
+  }, 120_000);
+
   it("captures with another stylesheet swapped in with --css", async () => {
     const root = await project({
       "crassus.config.ts": CONFIG,
@@ -871,6 +952,21 @@ describe("crassus capture, snapshot-diff and usage", () => {
       "pick one",
     ],
     [["dead", "--css", "x.css"], "{}", "--css goes with capture"],
+    [
+      ["bisect", "main"],
+      `{ browser: { fixtures: "site", sheetMarker: ".bx--" } }`,
+      "bisect takes one range",
+    ],
+    [
+      ["bisect", "a..b", "--group-by", "day"],
+      `{ browser: { fixtures: "site", sheetMarker: ".bx--" } }`,
+      "--group-by takes type or commit",
+    ],
+    [
+      ["compare", "--no-split"],
+      "{}",
+      "--group-by and --no-split go with bisect",
+    ],
     [["snapshot-diff", "a", "b", "--explain"], "{}", "use crassus compare"],
     [
       ["capture", "o", "--visual"],
@@ -890,5 +986,77 @@ describe("crassus capture, snapshot-diff and usage", () => {
     const r = await cli(root, ...argv);
     expect(r.code).toBe(2);
     expect(r.err).toContain(message);
+  });
+});
+
+describe("bisect segments", () => {
+  const c = (sha: string, type: string) => ({
+    sha,
+    subject: `${type}: x`,
+    type,
+  });
+  const commits = [
+    c("a", "perf"),
+    c("b", "perf"),
+    c("c", "fix"),
+    c("d", "perf"),
+  ];
+
+  it("groups consecutive commits of one type, or each commit", () => {
+    expect(
+      segments("0", commits, "type").map((s) => [
+        s.from,
+        s.to,
+        s.commits.length,
+      ]),
+    ).toEqual([
+      ["0", "b", 2],
+      ["b", "c", 1],
+      ["c", "d", 1],
+    ]);
+    expect(segments("0", commits, "commit")).toHaveLength(4);
+  });
+
+  it("finds the narrowest results with visible changes", () => {
+    const diff = (visible: boolean) => ({
+      files: 1,
+      entries: 1,
+      onlyBase: [],
+      onlyHead: [],
+      pages: [],
+      uncompared: { onlyBase: [], onlyHead: [] },
+      groups: visible
+        ? [
+            {
+              property: "color",
+              before: "a",
+              after: "b",
+              count: 1,
+              pages: [],
+              examples: [],
+            },
+          ]
+        : [],
+    });
+    const r = (
+      name: string,
+      visible: boolean,
+      parts?: BisectResult[],
+    ): BisectResult => ({
+      from: name,
+      to: name,
+      commits: [],
+      css: "changed",
+      diff: diff(visible),
+      ...(parts && { parts }),
+    });
+    expect(
+      found([
+        r("a", true, [r("a1", false), r("a2", true)]),
+        r("b", false),
+        // Halves that cancel out: the segment itself is the finding.
+        r("c", true, [r("c1", false), r("c2", false)]),
+      ]).map((x) => x.from),
+    ).toEqual(["a2", "c"]);
   });
 });

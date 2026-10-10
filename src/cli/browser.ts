@@ -142,7 +142,7 @@ const pagesLine = (
   viewports: number,
 ) =>
   `${plural(pages, "page")} (${plural(fixtures, "fixture")} × ${plural(themes, "theme")} × ${plural(viewports, "viewport")})`;
-const notReadyLine = (
+export const notReadyLine = (
   pages: string[],
   readySelector: string | undefined,
   anyway: string,
@@ -235,7 +235,7 @@ export async function captureCommand(opts: {
 
 // Properties one side didn't record, and changes no one can see, are listed
 // for review, not failed on.
-const differs = (diff: SnapshotDiff) =>
+export const differs = (diff: SnapshotDiff) =>
   diff.groups.some((g) => !g.invisible) ||
   diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
   diff.onlyBase.length > 0 ||
@@ -304,7 +304,10 @@ function attribute(
 }
 
 /** The stylesheet the fixtures load, among the configured ones. */
-function pick<T extends { name: string }>(sheets: T[], entry: string[]): T {
+export function pick<T extends { name: string }>(
+  sheets: T[],
+  entry: string[],
+): T {
   if (entry.length > 1)
     throw new UsageError("compare swaps one stylesheet: give one --entry");
   const name = entry[0];
@@ -320,6 +323,56 @@ function pick<T extends { name: string }>(sheets: T[], entry: string[]): T {
         : `pick the stylesheet the fixtures load with --entry (${sheets.map((s) => s.name).join(", ")})`,
     );
   return sheet;
+}
+
+/** What `compare` and `bisect` share: checks first, then a run per stylesheet pair. */
+export function comparer(opts: {
+  config: Config;
+  flags: BrowserFlags;
+  cwd: string;
+  explain?: boolean;
+  visual?: boolean;
+}) {
+  const { flags, cwd } = opts;
+  const { browser, states, pages } = settings(opts.config, flags);
+  const marker = needMarker(browser, "compare");
+  if (flags.url)
+    throw new UsageError("compare serves the fixtures twice: drop --url");
+  if ((opts.explain || opts.visual) && pages.engine !== "chrome")
+    throw new UsageError("--explain and --visual need --engine chrome");
+  // Today's fixtures, built once, on the first run.
+  let built: Promise<{ path: string; fixtures: string[] }> | undefined;
+  return {
+    pages,
+    /** `pages × fixtures × themes × viewports`, for a summary line. */
+    describe: (n: number, fixtures: number) =>
+      pagesLine(n, fixtures, pages.themes.length, pages.viewports?.length ?? 1),
+    async run(sides: { base: Sheet; head: Sheet }) {
+      built ??= fixturePages(cwd, browser, flags);
+      const { path, fixtures } = await built;
+      const { compareCss } = await import("../browser/compare");
+      const diff = await compareCss({
+        ...pages,
+        dir: path,
+        fixtures,
+        sheetMarker: marker,
+        base: sides.base.css,
+        head: sides.head.css,
+        states: states
+          ? pages.engine === "chrome"
+            ? "cdp"
+            : "rewrite"
+          : false,
+        emulate: EMULATE[pages.engine],
+        settleMs: browser.settleMs,
+        explain: opts.explain,
+        visual: opts.visual,
+      });
+      if (opts.explain) attribute(diff, diff.library, sides);
+      const { ms, notReady, library: _, ...result } = diff;
+      return { result, ms, notReady, fixtures: fixtures.length };
+    },
+  };
 }
 
 /**
@@ -341,14 +394,9 @@ export async function compareCommand(opts: {
   io: Io;
   summary?: Summary;
 }): Promise<number> {
-  const { flags, io, files } = opts;
+  const { io, files } = opts;
   const { cwd } = io;
-  const { browser, states, pages } = settings(opts.config, flags);
-  const marker = needMarker(browser, "compare");
-  if (flags.url)
-    throw new UsageError("compare serves the fixtures twice: drop --url");
-  if ((opts.explain || opts.visual) && pages.engine !== "chrome")
-    throw new UsageError("--explain and --visual need --engine chrome");
+  const cmp = comparer({ ...opts, cwd });
   let label: string;
   let sides: { base: Sheet; head: Sheet };
   if (files.length > 0) {
@@ -381,33 +429,17 @@ export async function compareCommand(opts: {
         `crassus: base ${refLabel(ref, b.sha)} ${b.cached ? "from cache" : `built in ${seconds(performance.now() - started)}`}`,
       );
   }
-  const { path, fixtures } = await fixturePages(cwd, browser, flags);
-  const { compareCss } = await import("../browser/compare");
-  const diff = await compareCss({
-    ...pages,
-    dir: path,
-    fixtures,
-    sheetMarker: marker,
-    base: sides.base.css,
-    head: sides.head.css,
-    states: states ? (pages.engine === "chrome" ? "cdp" : "rewrite") : false,
-    emulate: EMULATE[pages.engine],
-    settleMs: browser.settleMs,
-    explain: opts.explain,
-    visual: opts.visual,
-  });
-  if (opts.explain) attribute(diff, diff.library, sides);
+  const { result, ms, notReady, fixtures } = await cmp.run(sides);
   if (opts.format === "human")
     io.err(
-      `crassus: compared ${pagesLine(diff.files, fixtures.length, pages.themes.length, pages.viewports?.length ?? 1)} against ${label} in ${seconds(diff.ms)}`,
+      `crassus: compared ${cmp.describe(result.files, fixtures)} against ${label} in ${seconds(ms)}`,
     );
-  const { ms: _, notReady, library: __, ...result } = diff;
   await opts.summary?.(`crassus compare against ${label}`, () =>
     formatSnapshotDiff(result, "human", "compare"),
   );
   io.out(formatSnapshotDiff(result, opts.format, "compare"));
   if (notReady.length)
-    io.err(notReadyLine(notReady, pages.readySelector, "compared"));
+    io.err(notReadyLine(notReady, cmp.pages.readySelector, "compared"));
   return differs(result) || notReady.length > 0 ? 1 : 0;
 }
 

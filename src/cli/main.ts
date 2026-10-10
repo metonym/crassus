@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { version } from "../../package.json";
 import { baseStylesheets } from "./baseline";
+import { bisectCommand } from "./bisect";
 import {
   type BrowserFlags,
   captureCommand,
@@ -48,6 +49,8 @@ Usage:
                                  stylesheet at a ref and now, diffed page
                                  by page; no snapshots kept (ground truth)
   crassus compare <base.css> <head.css>
+  crassus bisect <from>..<to>    the commits in a range that changed computed
+                                 styles on today's fixtures (ground truth)
   crassus usage                  declarations that match but never win on
                                  the fixtures (evidence)
 
@@ -70,10 +73,10 @@ Options:
   --dry-run          with --fix: print the edits as a patch, write nothing
   --no-cache         rebuild the base
   --verbose          show every rule in review sections
-  --summary <file>   dead, diff, snapshot-diff, compare: also append the human report
+  --summary <file>   dead, diff, snapshot-diff, compare, bisect: also append the human report
                      to this file ($GITHUB_STEP_SUMMARY), whatever --format
 
-Browser options (capture, compare, usage; override the config's \`browser\`):
+Browser options (capture, compare, bisect, usage; override the config's \`browser\`):
   --only <text>      only fixtures whose name contains this
   --themes <a,b>     themes to load each page in
   --viewport <WxH>   viewport (repeatable)
@@ -83,10 +86,14 @@ Browser options (capture, compare, usage; override the config's \`browser\`):
   --concurrency <n>  tabs in parallel (default: half the cores, at most 4)
   --css <file>       capture: serve this CSS in place of the stylesheet that
                      contains \`browser.sheetMarker\`
-  --explain          compare: the rule that won each changed property, on
-                     each side, for the example elements (Chrome)
-  --visual           compare: screenshot each changed element on both sides
-                     and count those whose pixels differ (Chrome)
+  --explain          compare, bisect: the rule that won each changed property,
+                     on each side, for the example elements (Chrome)
+  --visual           compare, bisect: screenshot each changed element on both
+                     sides and count those whose pixels differ (Chrome)
+  --group-by <how>   bisect: segments of consecutive commits of one
+                     conventional type (type, default) or one per commit
+  --no-split         bisect: report segments with visible changes as they
+                     are, instead of halving them down to the commits
   --url <base>       use a running server instead of building and serving
   --out <dir>        usage: output directory (default .crassus/usage)
   -h, --help         show this help
@@ -163,6 +170,8 @@ async function run(argv: string[], io: Io): Promise<number> {
       url: { type: "string" },
       css: { type: "string" },
       explain: { type: "boolean" },
+      "group-by": { type: "string" },
+      "no-split": { type: "boolean" },
       visual: { type: "boolean" },
       out: { type: "string" },
       summary: { type: "string" },
@@ -197,15 +206,19 @@ async function run(argv: string[], io: Io): Promise<number> {
     : undefined;
   if (summary && (values.fix || command === "capture" || command === "usage"))
     throw new UsageError(
-      "--summary goes with dead, diff, snapshot-diff and compare",
+      "--summary goes with dead, diff, snapshot-diff, compare and bisect",
     );
   if (values.css && command !== "capture")
     throw new UsageError("--css goes with capture");
-  if ((values.explain || values.visual) && command !== "compare")
+  if (
+    (values.explain || values.visual) &&
+    command !== "compare" &&
+    command !== "bisect"
+  )
     throw new UsageError(
       command === "snapshot-diff"
         ? "--explain and --visual reopen both sides of a page, which a capture directory can't: use crassus compare"
-        : "--explain and --visual go with compare",
+        : "--explain and --visual go with compare and bisect",
     );
   if (command === "dead") {
     const { config } = await loadConfig(cwd, values.config);
@@ -320,6 +333,28 @@ async function run(argv: string[], io: Io): Promise<number> {
     if (format !== "human" && format !== "json")
       throw new UsageError("snapshot-diff reports as human or json");
     return snapshotDiffCommand({ dirs: files, format, io, summary });
+  }
+  if ((values["group-by"] || values["no-split"]) && command !== "bisect")
+    throw new UsageError("--group-by and --no-split go with bisect");
+  if (command === "bisect") {
+    if (format !== "human" && format !== "json")
+      throw new UsageError("bisect reports as human or json");
+    const { config, file } = await loadConfig(cwd, values.config);
+    return bisectCommand({
+      config,
+      configFile: file,
+      flags,
+      range: files,
+      groupBy: values["group-by"] ?? "type",
+      split: !values["no-split"],
+      entry: only,
+      cache: !values["no-cache"],
+      explain: values.explain,
+      visual: values.visual,
+      format,
+      io,
+      summary,
+    });
   }
   if (command === "compare") {
     if (format !== "human" && format !== "json")
