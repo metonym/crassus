@@ -2,7 +2,7 @@ import { version } from "../../package.json";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { Histogram } from "../core/cascade";
 import type { Specificity } from "../core/selector";
-import type { ChangeGroup } from "../core/snapshot-diff";
+import type { ChangeGroup, Explained, Winner } from "../core/snapshot-diff";
 import { pushTo } from "../core/util";
 import type { DeadResult, DiffResult, FlipFinding, RuleRef } from "./commands";
 import type { FixReport } from "./fix";
@@ -386,6 +386,15 @@ export function formatFix(
 const MAX_PAGES = 6;
 const MAX_PROPS = 8;
 const MAX_INVISIBLE = 10;
+
+const winner = (w: Winner | null) =>
+  w
+    ? `${w.selector} (${w.sheet}${w.line ? `:${w.line}` : ""}${w.inherited ? ", inherited" : ""})`
+    : "no declaration (initial value)";
+const explained = ({ base, head }: Explained) =>
+  winner(base) === winner(head)
+    ? `${dim("won by")} ${winner(base)} ${dim("on both sides")}`
+    : `${dim("base:")} ${winner(base)} ${dim("-> head:")} ${winner(head)}`;
 const props = (list: string[]) =>
   list.slice(0, MAX_PROPS).join(", ") +
   (list.length > MAX_PROPS ? ` (+${list.length - MAX_PROPS})` : "");
@@ -428,14 +437,28 @@ export function formatSnapshotDiff(
   const invisible = diff.groups.filter((g) => g.invisible);
   const group = (g: ChangeGroup, color: (s: string) => string) => {
     const more = g.pages.length - MAX_PAGES;
+    const pixels = g.pixels
+      ? dim(
+          `  pixels differ on ${g.pixels.differ} of ${g.pixels.differ + g.pixels.same}`,
+        )
+      : "";
     lines.push(
       "",
-      `${g.count}×  ${g.property}: ${color(g.before)} -> ${color(g.after)}${g.invisible ? dim(` (${g.invisible})`) : ""}`,
+      `${g.count}×  ${g.property}: ${color(g.before)} -> ${color(g.after)}${g.invisible ? dim(` (${g.invisible})`) : ""}${pixels}`,
       ...(g.aliases ? [`     ${dim("also:")} ${props(g.aliases)}`] : []),
       `     ${dim("pages:")} ${g.pages.slice(0, MAX_PAGES).join(", ")}${more > 0 ? ` (+${more})` : ""}`,
-      ...g.examples.map((e) => `     ${dim("e.g.")} ${e.page}  ${e.path}`),
+      ...g.examples.flatMap((e) => [
+        `     ${dim("e.g.")} ${e.page}  ${e.path}`,
+        ...(e.explain ? [`          ${explained(e.explain)}`] : []),
+      ]),
     );
   };
+  const checked = diff.pages.flatMap((p) => Object.values(p.pixels ?? {}));
+  if (checked.length > 0)
+    lines.push(
+      "",
+      `Element screenshots: pixels differ on ${checked.filter(Boolean).length} of ${checked.length} changed element(s) ${dim("(each in its forced state, at the captured viewport)")}`,
+    );
   const total = (gs: ChangeGroup[]) => gs.reduce((n, g) => n + g.count, 0);
   if (visible.length === 0)
     lines.push(

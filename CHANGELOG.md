@@ -53,6 +53,21 @@
   pages it matches two captures and a `snapshot-diff` exactly, in about
   the same time, with no snapshots on disk. `compareCss(options)` in
   `crassus/browser` is the same run.
+- `compare --explain` (Chrome) names, for every changed property, the
+  declaration that won on each side: selector and source line, through
+  the stylesheet's source map, following `inherit` and inheritance to the
+  ancestor that set it. Report examples read `won by .a (css/_a.scss:4) on
+  both sides` or `base: … -> head: …`; JSON has it per element
+  (`pages[].explain`, `groups[].examples[].explain`).
+- `compare --visual` (Chrome) screenshots every changed element on both
+  sides in its forced state and compares the bytes: the report counts the
+  elements whose pixels differ, overall and per change (`pages[].pixels`,
+  `groups[].pixels`). On Carbon's 218 pages, a primary-blue recolor
+  changed 1,320 elements, 950 of them in pixels; 196 of the 198 changes
+  marked invisible had identical pixels, and the other 2 sat on elements
+  with visible changes too. With `--explain`: 127 s against 85 s.
+- `resolvePath(path, root)` in `crassus` turns a snapshot path back into
+  its element in any DOM, and is self-contained for `page.evaluate`.
 - `capture --css <file>` captures today's fixtures with that CSS in place
   of the library stylesheet, and `serveFixtures(dir, { swap })` serves
   one swapped.

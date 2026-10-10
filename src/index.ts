@@ -12,3 +12,4 @@ export { type DeadDeclaration, deadDeclarations } from "./core/overrides";
 export { canonicalContext } from "./core/placement";
 export { canonicalSelector } from "./core/selector";
 export { SHORTHANDS } from "./core/shorthands";
+export { type PathElement, resolvePath } from "./page/resolve-path";

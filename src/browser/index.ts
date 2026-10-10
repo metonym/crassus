@@ -3,10 +3,12 @@
 
 export type {
   ChangeGroup,
+  Explained,
   PageDiff,
   PropertyChange,
   Snapshot,
   Uncompared,
+  Winner,
 } from "../core/snapshot-diff";
 export { type CompareOptions, compareCss } from "./compare";
 export { type ServeOptions, serveFixtures } from "./serve";

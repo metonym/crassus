@@ -3,7 +3,7 @@
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseRules } from "crassus";
+import { parseRules, resolvePath } from "crassus";
 import {
   capture,
   compareCss,
@@ -352,6 +352,145 @@ it("swaps the largest stylesheet that contains the marker", async () => {
     serveFixtures(root, { swap: { marker: ".nope--", css: "" } }),
   ).toThrow("no .css file under");
 });
+
+it("resolves every captured path to its element", async () => {
+  const outDir = join(dir, "snap-resolve");
+  await capture({
+    ...base(),
+    fixtures: ["states"],
+    outDir,
+    states: false,
+    emulate: "cdp",
+    settleMs: 0,
+  });
+  const snap = await readSnapshot(join(outDir, "states.white.json.gz"));
+  const view = new View({ engine: "chrome" });
+  try {
+    await view.navigate(`${server.url}/states.html`);
+    const colors = await view.evaluate<(string | null)[]>(
+      `${JSON.stringify(Object.keys(snap))}.map((key) => {
+        const el = (${resolvePath})(key, document.documentElement);
+        return el && getComputedStyle(el).color;
+      })`,
+    );
+    expect(colors).toEqual(Object.values(snap).map((r) => r.color));
+  } finally {
+    view.close();
+  }
+}, 60_000);
+
+it("compareCss explains winners and compares element screenshots", async () => {
+  const css = (wrap: string, btn: string, hover: string) => `
+.bx--wrap { color: ${wrap}; padding: 4px; }
+.bx--btn { color: ${btn}; border: 2px solid currentColor; }
+.bx--btn.bx--btn { color: inherit; }
+.bx--btn:hover { background-color: ${hover}; }
+.bx--hidden { visibility: hidden; color: ${btn}; }
+.bx--none { display: none; }`;
+  const root = join(dir, "explain");
+  await Promise.all([
+    Bun.write(join(root, "lib.css"), css("black", "red", "yellow")),
+    Bun.write(
+      join(root, "page.html"),
+      `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="bx--wrap"><button class="bx--btn">Go</button></div><p class="bx--hidden">x</p><div class="bx--none"><button class="bx--btn">No</button></div></body></html>`,
+    ),
+  ]);
+  const diff = await compareCss({
+    ...base(),
+    dir: root,
+    base: css("black", "red", "yellow"),
+    // The button's color now comes from its own rule, not inheritance.
+    head: css("black", "red", "orange").replace(
+      ".bx--btn.bx--btn { color: inherit; }",
+      ".bx--btn.bx--btn { color: green; }",
+    ),
+    states: "cdp",
+    emulate: "cdp",
+    settleMs: 0,
+    explain: true,
+    visual: true,
+  });
+  expect(diff.library).toBe("lib.css");
+  // Not rendered: no screenshot to differ (its 0 × 0 box sits at the origin).
+  expect(
+    diff.groups.find((g) => g.invisible === "display: none")?.pixels,
+  ).toEqual({ differ: 0, same: 3 });
+  const visible = (property: string) =>
+    diff.groups.find((g) => g.property === property && !g.invisible);
+  const color = visible("color");
+  const background = visible("background-color");
+  expect(color).toMatchObject({
+    property: "color",
+    after: "rgb(0, 128, 0)",
+    // The button, and its forced :hover, :focus and :active.
+    pixels: { differ: 4, same: 0 },
+  });
+  expect(color?.examples[0]).toEqual({
+    page: "page.white",
+    path: "body>div.bx--wrap>button.bx--btn",
+    explain: {
+      // `color: inherit` hands it to the wrapper.
+      base: {
+        selector: ".bx--wrap",
+        sheet: "lib.css",
+        line: 2,
+        column: 0,
+        inherited: true,
+      },
+      head: {
+        selector: ".bx--btn.bx--btn",
+        sheet: "lib.css",
+        line: 4,
+        column: 0,
+      },
+    },
+  });
+  expect(background).toMatchObject({
+    property: "background-color",
+    pixels: { differ: 1, same: 0 },
+    examples: [
+      {
+        path: "body>div.bx--wrap>button.bx--btn@hover",
+        explain: {
+          base: { selector: ".bx--btn:hover", line: 5 },
+          head: { selector: ".bx--btn:hover", line: 5 },
+        },
+      },
+    ],
+  });
+  // Unchanged CSS with an inherited winner, for the record.
+  const same = await compareCss({
+    ...base(),
+    dir: root,
+    base: css("black", "red", "yellow"),
+    head: css("blue", "red", "yellow"),
+    states: false,
+    emulate: "cdp",
+    settleMs: 0,
+    explain: true,
+    visual: true,
+  });
+  const wrap = same.groups.find((g) => g.property === "color");
+  expect(wrap?.pixels).toEqual({ differ: 2, same: 0 });
+  expect(same.pages[0].explain?.["body>div.bx--wrap>button.bx--btn"]).toEqual({
+    color: {
+      base: {
+        selector: ".bx--wrap",
+        sheet: "lib.css",
+        line: 2,
+        column: 0,
+        inherited: true,
+      },
+      head: {
+        selector: ".bx--wrap",
+        sheet: "lib.css",
+        line: 2,
+        column: 0,
+        inherited: true,
+      },
+    },
+  });
+}, 60_000);
 
 it("stops the pool at the first failure", async () => {
   let started = 0;

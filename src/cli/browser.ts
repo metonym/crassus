@@ -8,8 +8,15 @@ import type { UsageFile } from "../browser/usage";
 import type { BrowserConfig, Config } from "../core/config";
 import { atRef, baseStylesheets } from "./baseline";
 import type { Io } from "./main";
-import { build, isOneOf, stylesheets, UsageError } from "./project";
+import {
+  build,
+  filesAsSheets,
+  isOneOf,
+  stylesheets,
+  UsageError,
+} from "./project";
 import { formatSnapshotDiff, refLabel, type Summary, seconds } from "./report";
+import { mappedLocator, type Sheet } from "./sources";
 
 /** Command-line overrides of `browser` in the config. */
 export interface BrowserFlags {
@@ -264,6 +271,38 @@ export async function snapshotDiffCommand(opts: {
   return differs(diff) ? 1 : 0;
 }
 
+/**
+ * Points winners in the swapped library stylesheet at their source (through
+ * each side's source map), or at least at the stylesheet they came from.
+ */
+function attribute(
+  diff: SnapshotDiff,
+  library: string,
+  sides: { base: Sheet; head: Sheet },
+) {
+  const locate = {
+    base: mappedLocator(sides.base),
+    head: mappedLocator(sides.head),
+  };
+  for (const page of diff.pages)
+    for (const props of Object.values(page.explain ?? {}))
+      for (const explained of Object.values(props))
+        for (const side of ["base", "head"] as const) {
+          const w = explained[side];
+          if (!w || w.sheet !== library) continue;
+          const at = locate[side](
+            w.line === undefined
+              ? undefined
+              : { line: w.line, column: w.column ?? 0 },
+          );
+          w.sheet = at?.file ?? sides[side].file ?? sides[side].name;
+          if (at) {
+            w.line = at.line;
+            w.column = at.column;
+          }
+        }
+}
+
 /** The stylesheet the fixtures load, among the configured ones. */
 function pick<T extends { name: string }>(sheets: T[], entry: string[]): T {
   if (entry.length > 1)
@@ -296,6 +335,8 @@ export async function compareCommand(opts: {
   base?: string;
   entry: string[];
   cache: boolean;
+  explain?: boolean;
+  visual?: boolean;
   format: "human" | "json";
   io: Io;
   summary?: Summary;
@@ -306,21 +347,17 @@ export async function compareCommand(opts: {
   const marker = needMarker(browser, "compare");
   if (flags.url)
     throw new UsageError("compare serves the fixtures twice: drop --url");
+  if ((opts.explain || opts.visual) && pages.engine !== "chrome")
+    throw new UsageError("--explain and --visual need --engine chrome");
   let label: string;
-  let css: { base: string; head: string };
+  let sides: { base: Sheet; head: Sheet };
   if (files.length > 0) {
     if (files.length !== 2 || opts.base)
       throw new UsageError(
         "compare takes two CSS files (base, head), or --base <ref> with the config",
       );
-    const [base, head] = await Promise.all(
-      files.map((f) => {
-        const path = resolve(cwd, f);
-        if (!existsSync(path)) throw new UsageError(`no such file: ${f}`);
-        return Bun.file(path).text();
-      }),
-    );
-    css = { base, head };
+    const [base, head] = await filesAsSheets(cwd, files);
+    sides = { base, head };
     label = files[0];
   } else {
     const ref = opts.base ?? "HEAD";
@@ -337,8 +374,7 @@ export async function compareCommand(opts: {
       only: [sheet.name],
       cache: opts.cache,
     });
-    const baseSheet = pick(b.sheets, [sheet.name]);
-    css = { base: baseSheet.css, head: sheet.css };
+    sides = { base: pick(b.sheets, [sheet.name]), head: sheet };
     label = `${sheet.name} at ${refLabel(ref, b.sha)}`;
     if (opts.format === "human")
       io.err(
@@ -352,16 +388,20 @@ export async function compareCommand(opts: {
     dir: path,
     fixtures,
     sheetMarker: marker,
-    ...css,
+    base: sides.base.css,
+    head: sides.head.css,
     states: states ? (pages.engine === "chrome" ? "cdp" : "rewrite") : false,
     emulate: EMULATE[pages.engine],
     settleMs: browser.settleMs,
+    explain: opts.explain,
+    visual: opts.visual,
   });
+  if (opts.explain) attribute(diff, diff.library, sides);
   if (opts.format === "human")
     io.err(
       `crassus: compared ${pagesLine(diff.files, fixtures.length, pages.themes.length, pages.viewports?.length ?? 1)} against ${label} in ${seconds(diff.ms)}`,
     );
-  const { ms: _, notReady, ...result } = diff;
+  const { ms: _, notReady, library: __, ...result } = diff;
   await opts.summary?.(`crassus compare against ${label}`, () =>
     formatSnapshotDiff(result, "human", "compare"),
   );
