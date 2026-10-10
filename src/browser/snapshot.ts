@@ -19,7 +19,7 @@ import {
 } from "./view";
 
 const VIEWPORT_RE = /^\d+x\d+$/;
-const JSON_EXT_RE = /\.json$/;
+const SNAPSHOT_EXT_RE = /\.json(?:\.gz)?$/;
 
 const FREEZE =
   "*, *::before, *::after { transition: none !important; animation: none !important; }";
@@ -116,7 +116,7 @@ export interface CaptureOptions {
   /** One viewport (default 1280 × 900). Prefer `viewports`. */
   width?: number;
   height?: number;
-  /** With several, files are named `<name>.<theme>.<W>x<H>.json`. */
+  /** With several, files are named `<name>.<theme>.<W>x<H>.json.gz`. */
   viewports?: Viewport[];
   /**
    * Polled after load (up to `readyTimeoutMs`), before `settleMs`. A page it
@@ -130,7 +130,7 @@ export interface CaptureOptions {
 }
 
 const snapshotFile = (job: PageJob, several: boolean) =>
-  `${job.name}.${job.theme}${several ? `.${viewportName(job.viewport)}` : ""}.json`;
+  `${job.name}.${job.theme}${several ? `.${viewportName(job.viewport)}` : ""}.json.gz`;
 
 /** Reverses `snapshotFile`. */
 export function parseSnapshotFile(file: string): {
@@ -138,13 +138,64 @@ export function parseSnapshotFile(file: string): {
   theme: string;
   viewport?: string;
 } {
-  const parts = file.replace(JSON_EXT_RE, "").split(".");
+  const parts = file.replace(SNAPSHOT_EXT_RE, "").split(".");
   const viewport =
     parts.length > 2 && VIEWPORT_RE.test(parts.at(-1) ?? "")
       ? parts.pop()
       : undefined;
   const theme = parts.length > 1 ? (parts.pop() ?? "") : "";
   return { fixture: parts.join("."), theme, ...(viewport && { viewport }) };
+}
+
+/**
+ * A snapshot file's JSON, before gzip. Most elements share their computed
+ * style with others, so each distinct style is stored once.
+ */
+interface SnapshotFile {
+  props: string[];
+  /** Values in `props` order; `null` where the record lacks the property. */
+  styles: (string | null)[][];
+  /** Element path and its index in `styles`, in document order. */
+  elements: [string, number][];
+}
+
+export function encodeSnapshot(snap: Snapshot): Uint8Array<ArrayBuffer> {
+  const props = [...new Set(Object.values(snap).flatMap(Object.keys))];
+  const index = new Map<string, number>();
+  const file: SnapshotFile = { props, styles: [], elements: [] };
+  for (const [path, record] of Object.entries(snap)) {
+    const style = props.map((p) => record[p] ?? null);
+    const key = JSON.stringify(style);
+    let i = index.get(key);
+    if (i === undefined) {
+      i = file.styles.push(style) - 1;
+      index.set(key, i);
+    }
+    file.elements.push([path, i]);
+  }
+  return Bun.gzipSync(JSON.stringify(file));
+}
+
+/** Elements with the same style share one record object. */
+export function decodeSnapshot(bytes: Uint8Array<ArrayBuffer>): Snapshot {
+  const file: SnapshotFile = JSON.parse(
+    new TextDecoder().decode(Bun.gunzipSync(bytes)),
+  );
+  const records = file.styles.map((style) => {
+    const record: Record<string, string> = {};
+    style.forEach((value, i) => {
+      if (value !== null) record[file.props[i]] = value;
+    });
+    return record;
+  });
+  const snap: Snapshot = {};
+  for (const [path, i] of file.elements) snap[path] = records[i];
+  return snap;
+}
+
+/** Reads one `capture` file (`.json.gz`). */
+export async function readSnapshot(file: string): Promise<Snapshot> {
+  return decodeSnapshot(await Bun.file(file).bytes());
 }
 
 async function capturePage(
@@ -262,7 +313,7 @@ export async function capture(
     const file = snapshotFile(job, several);
     written += await Bun.write(
       path.join(opts.outDir, file),
-      JSON.stringify(snap),
+      encodeSnapshot(snap),
     );
     files.push(file);
     await checkDisk(opts.outDir, written, files.length, total);

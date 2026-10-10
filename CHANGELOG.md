@@ -11,6 +11,11 @@
   in the CLI) instead of being compared partially. Recapture 0.1
   directories.
 - The CLI's default `--concurrency` is half the cores, at most 4, not 8.
+- `capture` files are gzipped `<page>.json.gz`, with each distinct computed
+  style stored once (`{ props, styles, elements }`): most elements share
+  theirs, so Carbon's 12 data-table pages take 154 kB instead of 48.6 MB
+  (315×). `readSnapshot(file)` in `crassus/browser` reads one into the
+  same `Snapshot` as before.
 
 **Features**
 

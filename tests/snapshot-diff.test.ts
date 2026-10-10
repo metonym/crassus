@@ -3,7 +3,11 @@
 // not diffed; a property gone in head reads as a change to nothing; changes
 // group by (property, before -> after), most frequent first, ties in
 // first-seen order, with the first three paths as examples.
-import { parseSnapshotFile } from "../src/browser/snapshot";
+import {
+  decodeSnapshot,
+  encodeSnapshot,
+  parseSnapshotFile,
+} from "../src/browser/snapshot";
 import {
   diffSnapshot,
   groupChanges,
@@ -146,10 +150,38 @@ describe("parseSnapshotFile", () => {
       fixture: "button",
       theme: "g100",
     });
-    expect(parseSnapshotFile("data-table.white.320x640.json")).toEqual({
+    expect(parseSnapshotFile("data-table.white.320x640.json.gz")).toEqual({
       fixture: "data-table",
       theme: "white",
       viewport: "320x640",
     });
+  });
+});
+
+describe("encodeSnapshot", () => {
+  it("round-trips, storing each distinct style once", () => {
+    const red = { color: "red", "margin-top": "0px" };
+    const snap: Snapshot = {
+      "body>div": red,
+      "body>div>p": { ...red },
+      "body>div>p::before": { color: "blue", content: '"x"' },
+      "body>div>p[1]": { ...red },
+    };
+    const bytes = encodeSnapshot(snap);
+    const decoded = decodeSnapshot(bytes);
+    expect(decoded).toEqual(snap);
+    expect(Object.keys(decoded)).toEqual(Object.keys(snap));
+    const file = JSON.parse(new TextDecoder().decode(Bun.gunzipSync(bytes)));
+    expect(file.props).toEqual(["color", "margin-top", "content"]);
+    expect(file.styles).toEqual([
+      ["red", "0px", null],
+      ["blue", null, '"x"'],
+    ]);
+    expect(file.elements).toEqual([
+      ["body>div", 0],
+      ["body>div>p", 0],
+      ["body>div>p::before", 1],
+      ["body>div>p[1]", 0],
+    ]);
   });
 });

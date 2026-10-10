@@ -9,7 +9,11 @@ import { readdir } from "node:fs/promises";
 import { loadavg } from "node:os";
 import path from "node:path";
 import { serveFixtures } from "../../src/browser/serve";
-import { type CaptureOptions, capture } from "../../src/browser/snapshot";
+import {
+  type CaptureOptions,
+  capture,
+  readSnapshot,
+} from "../../src/browser/snapshot";
 import type { Snapshot } from "../../src/core/snapshot-diff";
 import {
   args,
@@ -55,8 +59,21 @@ function nearlyEqual(a: string, b: string): boolean {
   return na.every((x, i) => Math.abs(Number(x) - Number(nb[i])) < 0.01);
 }
 
+// The old tool writes `<page>.json`; crassus `<page>.json.gz`.
+const SNAPSHOT_RE = /\.json(?:\.gz)?$/;
+async function snapshots(dir: string): Promise<Map<string, string>> {
+  const files = (await readdir(dir).catch(() => [])).filter((f) =>
+    SNAPSHOT_RE.test(f),
+  );
+  return new Map(
+    files.map((f) => [f.replace(SNAPSHOT_RE, ""), path.join(dir, f)]),
+  );
+}
+const load = (file: string): Promise<Snapshot> =>
+  file.endsWith(".gz") ? readSnapshot(file) : Bun.file(file).json();
+
 async function compare(a: string, b: string): Promise<Compare> {
-  const files = (await readdir(a)).filter((f) => f.endsWith(".json")).sort();
+  const [inA, inB] = await Promise.all([snapshots(a), snapshots(b)]);
   const groups = new Map<string, number>();
   const r: Compare = {
     unsupported: 0,
@@ -69,13 +86,12 @@ async function compare(a: string, b: string): Promise<Compare> {
     added: 0,
     groups: [],
   };
-  for (const f of files) {
-    const fb = Bun.file(path.join(b, f));
-    // biome-ignore lint/performance/noAwaitInLoops: ordered output
-    if (!(await fb.exists())) continue;
+  for (const [page, fa] of [...inA].sort()) {
+    const fb = inB.get(page);
+    if (!fb) continue;
     r.files++;
-    const sa: Snapshot = await Bun.file(path.join(a, f)).json();
-    const sb: Snapshot = await fb.json();
+    // biome-ignore lint/performance/noAwaitInLoops: ordered output
+    const [sa, sb] = await Promise.all([load(fa), load(fb)]);
     for (const key of Object.keys(sa)) {
       r.entries++;
       const va = sa[key];
@@ -200,7 +216,7 @@ for (const run of runs) {
   );
   for (const v of run.vs) {
     // biome-ignore lint/performance/noAwaitInLoops: ordered output
-    if (await Bun.file(path.join(out(v), `${fixtures[0]}.white.json`)).exists())
+    if ((await snapshots(out(v))).has(`${fixtures[0]}.white`))
       report(v, await compare(out(v), out(run.name)));
   }
 }

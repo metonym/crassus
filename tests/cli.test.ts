@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { $ } from "bun";
-import type { Snapshot, UsageFile } from "crassus/browser";
+import { readSnapshot, type UsageFile } from "crassus/browser";
 import { main } from "../src/cli/main";
 import { appendSummary } from "../src/cli/report";
 
@@ -535,27 +535,29 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(a.out).toMatch(CAPTURED_RE);
     expect((await readdir(join(root, "snap/a"))).sort()).toEqual([
       ".crassus-capture",
-      "button.g100.1280x900.json",
-      "button.g100.320x640.json",
-      "button.white.1280x900.json",
-      "button.white.320x640.json",
-      "tile.g100.1280x900.json",
-      "tile.g100.320x640.json",
-      "tile.white.1280x900.json",
-      "tile.white.320x640.json",
+      "button.g100.1280x900.json.gz",
+      "button.g100.320x640.json.gz",
+      "button.white.1280x900.json.gz",
+      "button.white.320x640.json.gz",
+      "tile.g100.1280x900.json.gz",
+      "tile.g100.320x640.json.gz",
+      "tile.white.1280x900.json.gz",
+      "tile.white.320x640.json.gz",
     ]);
     // The theme attribute and the viewport both reached the page.
     const tile = async (file: string) => {
-      const snap: Snapshot = JSON.parse(await read(root, `snap/a/${file}`));
+      const snap = await readSnapshot(join(root, "snap/a", file));
       return snap["body>div.bx--tile"];
     };
-    const narrow = await tile("tile.white.320x640.json");
-    expect((await tile("tile.g100.320x640.json")).color).toBe(
+    const narrow = await tile("tile.white.320x640.json.gz");
+    expect((await tile("tile.g100.320x640.json.gz")).color).toBe(
       "rgb(255, 255, 255)",
     );
     expect(narrow.color).toBe("rgb(0, 0, 0)");
     expect(narrow["padding-top"]).toBe("0px");
-    expect((await tile("tile.white.1280x900.json"))["padding-top"]).toBe("2px");
+    expect((await tile("tile.white.1280x900.json.gz"))["padding-top"]).toBe(
+      "2px",
+    );
 
     const same = await cli(root, "snapshot-diff", "snap/a", "snap/a");
     expect(same.code).toBe(0);
@@ -567,7 +569,7 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(b.out).toContain("4 pages (1 fixture × 2 themes × 2 viewports)");
     const diff = await cli(root, "snapshot-diff", "snap/a", "snap/b");
     expect(diff.code).toBe(1);
-    expect(diff.out).toContain("only in base: tile.white.320x640.json");
+    expect(diff.out).toContain("only in base: tile.white.320x640.json.gz");
     // One line for the change on every page it's on.
     expect(diff.out).toContain(
       "12×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)",

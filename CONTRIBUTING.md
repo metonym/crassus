@@ -35,7 +35,7 @@ There are two entry points with different runtime rules.
 
 - `view.ts` wraps a WebView. Each view allows one operation per slot and throws instead of queueing, so `View` serializes calls. `runPool` spreads jobs over tabs, and each tab is its own renderer process.
 - `serve.ts` serves fixture pages and injects a theme attribute before first paint (WebView has no init-script API).
-- `snapshot.ts` captures computed styles, and writes the manifest `snapshot-diff.ts` requires only after the last page. Forced states use CDP (`CSS.forcePseudoState`) or an in-place `selectorText` rewrite (`:hover` → `[data-cr-hover]`, same specificity and order) that works on any engine.
+- `snapshot.ts` captures computed styles into gzipped files that store each distinct style once (`encodeSnapshot`, `readSnapshot`), and writes the manifest `snapshot-diff.ts` requires only after the last page. Forced states use CDP (`CSS.forcePseudoState`) or an in-place `selectorText` rewrite (`:hover` → `[data-cr-hover]`, same specificity and order) that works on any engine.
 - `usage-cdp.ts` asks Chrome for matched rules per element. `usage-dom.ts` plus `src/page/usage-dom.ts` match in the page instead; the pure half (aligning the CSSOM with the parsed sheet, cascade order) is `src/core/align.ts`. The page script is plain DOM code, bundled to an IIFE by a Bun macro (`page-script.ts`) and inlined at build time.
 
 ## Rules every change must keep
