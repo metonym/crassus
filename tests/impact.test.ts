@@ -5,6 +5,7 @@ import {
   changedRules,
   impactProperties,
   relaxSelector,
+  stateTriggers,
 } from "../src/core/impact";
 
 describe("relaxSelector", () => {
@@ -195,5 +196,36 @@ describe("impactProperties", () => {
   it("reads everything for what other values are read through", () => {
     for (const p of ["font-size", "--token", "writing-mode", "line-height"])
       expect(impactProperties([p], universe).properties).toBeNull();
+  });
+});
+
+describe("stateTriggers", () => {
+  it.each([
+    [".a:hover .b", [{ state: "hover", prefix: ".a" }]],
+    [
+      ".x .a:focus-within>.c",
+      [{ state: "focus", prefix: ".x .a", within: true }],
+    ],
+    [".a:not(:active)::before", [{ state: "active", prefix: ".a" }]],
+    // A state in `:has()` is on another element: any.
+    [".p:has(.a:hover) .q", [{ state: "hover", prefix: "" }]],
+    [
+      ".a .b:hover:focus-visible",
+      [
+        { state: "hover", prefix: ".a .b" },
+        { state: "focus", prefix: ".a .b" },
+      ],
+    ],
+    // A rule's selector list, one by one.
+    [
+      ".t:hover,.u:active",
+      [
+        { state: "hover", prefix: ".t" },
+        { state: "active", prefix: ".u" },
+      ],
+    ],
+    ["button", []],
+  ])("%s", (selector, triggers) => {
+    expect(stateTriggers(selector)).toEqual(triggers);
   });
 });

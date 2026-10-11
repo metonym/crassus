@@ -62,6 +62,8 @@ Usage:
                                  styles on today's fixtures (ground truth)
   crassus usage                  declarations that match but never win on
                                  the fixtures (evidence)
+  crassus doctor                 check Chrome, the machine and the config
+                                 before a long browser run
   crassus tokens --tokens cds-   which design tokens drive which properties
                                  on the fixtures; unused tokens; hard-coded
                                  colors (evidence)
@@ -450,6 +452,11 @@ async function run(argv: string[], io: Io): Promise<number> {
       io,
       summary,
     });
+  }
+  if (command === "doctor") {
+    const { config, file } = await loadConfig(cwd, values.config);
+    const { doctorCommand } = await import("./doctor");
+    return doctorCommand({ config, configFile: file, io });
   }
   if (command === "tokens") {
     if (format !== "human" && format !== "json")

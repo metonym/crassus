@@ -158,6 +158,28 @@
   the fixtures, unused tokens and colors that follow none. On
   carbon-components-svelte: 356 tokens traced over 124 pages in 23.6 s,
   120 followed, 236 unused.
+- Cheaper forced states: `capture`, `compare` and `bisect` force a state
+  over CDP only on elements some rule's state applies to (a state selector
+  index from every stylesheet: the selector up to the compound holding the
+  state, `:focus-within` up the tree, `:has()` anywhere), and focus always,
+  `:active` on links and controls and `:hover` on options for the user
+  agent's styles. The other states' records are the plain ones, copied
+  with transitions and animations stopped as the state phase stops them.
+  `stateIndex: false` forces every reachable state. Measured with
+  `CCS_ROOT=… bun eval/carbon/states.ts` (124 fixture pages, white,
+  1280 × 900, 4 tabs): 10,698 → 6,201 CDP calls, 5,478 → 2,749 states
+  forced, state phase 20.1 s → 13.7 s (summed over tabs), capture 25.4 s →
+  23.1 s, and 0 of 26,191 records different. Rewrite mode stays off for
+  Chrome: 166 records differ from CDP (the user agent's focused-link
+  `outline-offset` and option backgrounds), so it isn't proven equal.
+- Browser runs back off under load: while the 1-minute load average is
+  above the core count, every tab but one waits. A run says so once on
+  stderr, and its summary line ends with the time spent on one tab;
+  `loadAverage` on the visit options replaces the reader.
+- `crassus doctor` checks the Chrome a run would use (and starts it), tabs
+  against cores, the load, free disk, the fixture pages, what
+  `sheetMarker` finds and `browser.tokens`, with a fix for each problem;
+  exit 1 on an error.
 - `compare` records a CSS selector for each changed element
   (`pages[].where[path].selector`, `nth-child` from `body`), and with
   `--explain` flags winners whose rule differs between the sides
