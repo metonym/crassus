@@ -231,6 +231,27 @@
   match without it, so a state under `:not()` no longer stops a rule
   matching.
 
+**Documentation**
+
+- `docs/design/state-matrix.md`: a design, not built, for the state and
+  data matrix. It covers factors and a fixture protocol, IPOG covering
+  arrays, a real-event crawl next to forced states, invariants with their
+  noise rules, shrinking, the output schema, resource limits and phases
+  with golden cases from carbon-components-svelte. It's sized with
+  scratch probes on that repo's 124 fixture pages: a pairwise array of 61
+  rows for a 12-factor Button model (1,290,240 combinations); 22 size
+  changes in 11,903 element-state pairs, all intended; and the contrast,
+  target-size and clipping probes' false positives, which the noise rules
+  remove.
+
+**Fixes**
+
+- The `crassus` bin is executable when installed from a directory.
+- A `compile` hook that throws prints one line (the error and where, with
+  paths as the project names them), naming the base ref when that's where
+  it failed, and a base builds only the entries asked for.
+- Paths outside the project print absolute, not as `../../../../tmp/…`.
+
 ## 0.2.0 — 2026-10-10
 
 **Breaking**
