@@ -554,11 +554,13 @@ it("compareCss explains winners and compares element screenshots", async () => {
         column: 0,
         inherited: true,
       },
+      // Edited between the sides: the card's root cause.
       head: {
         selector: ".bx--btn.bx--btn",
         sheet: "lib.css",
         line: 4,
         column: 0,
+        changed: true,
       },
     },
   });
@@ -599,6 +601,7 @@ it("compareCss explains winners and compares element screenshots", async () => {
         line: 2,
         column: 0,
         inherited: true,
+        changed: true,
       },
       head: {
         selector: ".bx--wrap",
@@ -606,6 +609,7 @@ it("compareCss explains winners and compares element screenshots", async () => {
         line: 2,
         column: 0,
         inherited: true,
+        changed: true,
       },
     },
   });

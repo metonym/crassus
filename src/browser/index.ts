@@ -2,6 +2,15 @@
 // or the system WebKit on macOS).
 
 export type {
+  Card,
+  CardChange,
+  CardElement,
+  Cause,
+  Fix,
+  Report,
+  Verdict,
+} from "../core/cards";
+export type {
   ChangeGroup,
   DeltaE,
   Explained,

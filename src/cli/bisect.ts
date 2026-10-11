@@ -2,17 +2,25 @@
 // styles on today's fixtures. The range is cut into segments, each segment's
 // end stylesheets are compared, and a segment with visible changes is halved
 // until the commits that made them are found.
+
+import { relative, resolve } from "node:path";
 import { $ } from "bun";
+import type { Crops } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { Config } from "../core/config";
 import { baseStylesheets } from "./baseline";
 import {
   type BrowserFlags,
+  type CompareFormat,
+  cardsWanted,
+  changeCards,
   comparer,
   differs,
+  formatCards,
   notReadyLine,
   pick,
 } from "./browser";
+import { formatCardsSummary } from "./cards";
 import type { Io } from "./main";
 import { UsageError } from "./project";
 import { formatSnapshotDiff, type Summary, seconds } from "./report";
@@ -128,18 +136,28 @@ export async function bisectCommand(opts: {
   explain?: boolean;
   visual?: boolean;
   scope?: boolean;
-  format: "human" | "json";
+  format: CompareFormat;
+  /** Write change cards to this directory. */
+  report?: string;
   io: Io;
   summary?: Summary;
 }): Promise<number> {
   const { io } = opts;
   const { cwd } = io;
+  const cards = cardsWanted(opts);
   const m = opts.range.length === 1 ? RANGE_RE.exec(opts.range[0]) : null;
   if (!m) throw new UsageError("bisect takes one range: <from>..<to>");
   const groupBy = opts.groupBy as GroupBy;
   if (!GROUP_BY.includes(groupBy))
     throw new UsageError(`--group-by takes ${GROUP_BY.join(" or ")}`);
-  const cmp = comparer({ ...opts, cwd });
+  const cmp = comparer({
+    ...opts,
+    cwd,
+    explain: opts.explain || cards,
+    visual: opts.visual || Boolean(opts.report),
+    report: Boolean(opts.report),
+  });
+  const crops = new Map<string, Crops | undefined>();
   const to = m[2] || "HEAD";
   const { from, commits } = await commitsIn(cwd, m[1], to);
   if (commits.length === 0)
@@ -188,6 +206,7 @@ export async function bisectCommand(opts: {
         : ` reaches ${impact.pages} of ${impact.total} page(s),`;
     });
     compared++;
+    crops.set(seg.to, run.crops);
     for (const p of run.notReady) notReady.add(p);
     progress(
       `${label} ${short(seg.from)}..${short(seg.to)}:${reach} ${count(run.result, false)} visible change(s) in ${seconds(run.ms)}`,
@@ -240,7 +259,45 @@ export async function bisectCommand(opts: {
       format,
     );
   await opts.summary?.(`crassus bisect ${m[1]}..${to}`, () => report("human"));
-  io.out(report(opts.format));
+  const hits = found(results);
+  const cardReport = cards
+    ? await changeCards({
+        runs: hits.map((h) => ({
+          pages: (h.diff as SnapshotDiff).pages,
+          crops: crops.get(h.to),
+          commits: h.commits,
+          commit: h.to,
+        })),
+        command: "bisect",
+        base: m[1],
+        head: to,
+        cwd,
+        shas: (card) => {
+          const hit = hits.find((h) => h.to === card.elements[0]?.commit);
+          return { base: hit?.from, head: hit?.to };
+        },
+        css: {
+          base: (await cssAt(from)).css,
+          head: (await cssAt(commits.at(-1)?.sha ?? from)).css,
+        },
+        dir: opts.report,
+        inputs: {
+          entry: opts.entry[0],
+          base: from,
+          themes: cmp.pages.themes,
+          viewports: cmp.pages.viewports,
+          flags: opts.flags,
+        },
+      })
+    : undefined;
+  io.out(
+    cardReport && opts.format !== "human" && opts.format !== "json"
+      ? formatCards(cardReport, opts.format)
+      : report(opts.format === "json" ? "json" : "human") +
+          (cardReport
+            ? `\n\n${formatCardsSummary(cardReport, opts.report && (relative(cwd, resolve(cwd, opts.report)) || "."))}`
+            : ""),
+  );
   if (notReady.size)
     io.err(notReadyLine([...notReady], cmp.pages.readySelector, "compared"));
   return found(results).length > 0 || notReady.size > 0 ? 1 : 0;

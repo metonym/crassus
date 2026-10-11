@@ -1,6 +1,6 @@
 // Decodes the PNGs Chrome's screenshots produce (8-bit RGB or RGBA,
 // non-interlaced) into RGBA pixels, to crop and compare in memory.
-import { inflateSync } from "node:zlib";
+import { deflateSync, inflateSync } from "node:zlib";
 import { ciede2000, lab } from "../core/color";
 
 export interface Image {
@@ -136,4 +136,104 @@ export function difference(a: Image, b: Image): Difference | null {
     if (d > max) max = d;
   }
   return pixels === 0 ? null : { pixels, max, mean: sum / pixels };
+}
+
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function crc32(bytes: Uint8Array): number {
+  let c = 0xffffffff;
+  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+function chunk(type: string, body: Uint8Array): Uint8Array {
+  const out = new Uint8Array(12 + body.length);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, body.length);
+  out.set(new TextEncoder().encode(type), 4);
+  out.set(body, 8);
+  view.setUint32(8 + body.length, crc32(out.subarray(4, 8 + body.length)));
+  return out;
+}
+
+/** An RGBA PNG of `image` (each row filtered with "up"). */
+export function encodePng(image: Image): Uint8Array {
+  const { width, height, data } = image;
+  const ihdr = new Uint8Array(13);
+  const view = new DataView(ihdr.buffer);
+  view.setUint32(0, width);
+  view.setUint32(4, height);
+  ihdr.set([8, 6, 0, 0, 0], 8);
+  const stride = width * 4;
+  const raw = new Uint8Array(height * (stride + 1));
+  for (let y = 0; y < height; y++) {
+    raw[y * (stride + 1)] = 2;
+    for (let i = 0; i < stride; i++)
+      raw[y * (stride + 1) + 1 + i] =
+        data[y * stride + i] - (y > 0 ? data[(y - 1) * stride + i] : 0);
+  }
+  return Buffer.concat([
+    new Uint8Array(SIGNATURE),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", new Uint8Array()),
+  ]);
+}
+
+/**
+ * `head` faded to gray, with the pixels that differ from `base` in red,
+ * stronger the farther apart they look. Sizes may differ: the overlap is
+ * compared, the rest marked.
+ */
+export function heatmap(base: Image, head: Image): Image {
+  const width = Math.max(base.width, head.width);
+  const height = Math.max(base.height, head.height);
+  const data = new Uint8Array(width * height * 4);
+  const px = (im: Image, x: number, y: number) =>
+    x < im.width && y < im.height ? (y * im.width + x) * 4 : -1;
+  for (let y = 0; y < height; y++)
+    for (let x = 0; x < width; x++) {
+      const o = (y * width + x) * 4;
+      const a = px(base, x, y);
+      const b = px(head, x, y);
+      const gray =
+        b < 0
+          ? 255
+          : Math.round(
+              (head.data[b] * 0.3 +
+                head.data[b + 1] * 0.59 +
+                head.data[b + 2] * 0.11) *
+                0.35 +
+                166,
+            );
+      let d = a < 0 || b < 0 ? 100 : 0;
+      if (
+        a >= 0 &&
+        b >= 0 &&
+        !(
+          base.data[a] === head.data[b] &&
+          base.data[a + 1] === head.data[b + 1] &&
+          base.data[a + 2] === head.data[b + 2]
+        )
+      )
+        d = ciede2000(
+          lab(base.data[a], base.data[a + 1], base.data[a + 2]),
+          lab(head.data[b], head.data[b + 1], head.data[b + 2]),
+        );
+      const t = d === 0 ? 0 : Math.min(1, 0.35 + d / 20);
+      data.set(
+        [
+          Math.round(gray * (1 - t) + 230 * t),
+          Math.round(gray * (1 - t) + 20 * t),
+          Math.round(gray * (1 - t) + 40 * t),
+          255,
+        ],
+        o,
+      );
+    }
+  return { width, height, data };
 }

@@ -9,6 +9,7 @@ import {
   type Explained,
   type Inspected,
   type PageDiff,
+  type Where,
 } from "../core/snapshot-diff";
 import { inspectPage, type PageInspection, type Shot } from "./inspect";
 import { matchPages, pageIndex } from "./page-index";
@@ -56,7 +57,15 @@ export interface CompareOptions
   indexDir?: string;
   /** Called with the change's reach, before any page is captured. */
   onImpact?: (impact: Impact) => void;
+  /** Keep what a report needs: changed elements' markup, and with `visual`, their crops. */
+  report?: boolean;
 }
+
+/** An element's crops on each side, kept for a report: `crops[page][path]`. */
+export type Crops = Record<
+  string,
+  Record<string, { base: Image; head: Image }>
+>;
 
 /** What a stylesheet change can reach on the fixtures. */
 export interface Impact {
@@ -166,13 +175,19 @@ export async function compareCss(opts: CompareOptions): Promise<
     /** The fixture file both sides replaced, relative to `dir`: `Winner.sheet` for its rules. */
     library: string;
     impact: Impact;
+    /** With `report` and `visual`. */
+    crops?: Crops;
   }
 > {
   if ((opts.explain || opts.visual) && opts.engine !== "chrome")
     throw new Error("explain and visual need Chrome (CDP)");
   const started = performance.now();
-  const changes =
-    opts.scope === false ? null : changedRules(opts.base, opts.head);
+  const rules = changedRules(opts.base, opts.head);
+  const changes = opts.scope === false ? null : rules;
+  const library = swappedSheet(opts.dir, opts.sheetMarker)
+    .split(path.sep)
+    .join("/");
+  const crops: Crops | undefined = opts.report && opts.visual ? {} : undefined;
   const plan = await planIn(
     opts,
     [opts.base, opts.head],
@@ -268,7 +283,20 @@ export async function compareCss(opts: CompareOptions): Promise<
           headNotReady.push(job.label);
         const b = await capturePage(view, opts, plan.declared, scope);
         const diff: PageDiff & Inspected = diffSnapshot(a.snapshot, b.snapshot);
-        if ((opts.explain || opts.visual) && Object.keys(diff.changed).length) {
+        const file = snapshotFile(job, several).replace(".json.gz", "");
+        const keys = Object.keys(diff.changed);
+        if (keys.length) {
+          const found = await view.evaluate<(Where | null)[]>(
+            `window.__cr.where(${JSON.stringify(keys)}, ${Boolean(opts.report)})`,
+          );
+          const where: Record<string, Where> = {};
+          keys.forEach((k, i) => {
+            const w = found[i];
+            if (w) where[k] = w;
+          });
+          diff.where = where;
+        }
+        if ((opts.explain || opts.visual) && keys.length) {
           // Head is loaded; base is loaded again, prepared the same way.
           const after = await inspectPage(view, diff.changed, opts);
           await loadPage(view, job.url, opts);
@@ -280,10 +308,12 @@ export async function compareCss(opts: CompareOptions): Promise<
             opts,
             after.batches,
           );
-          Object.assign(diff, combine(before, after));
+          if (crops) crops[file] = {};
+          Object.assign(diff, combine(before, after, crops?.[file]));
+          if (diff.explain) markChanged(diff.explain, library, rules.locations);
         }
         pages.push({
-          file: snapshotFile(job, several).replace(".json.gz", ""),
+          file,
           diff,
           entries: Object.keys(a.snapshot).length,
         });
@@ -307,9 +337,8 @@ export async function compareCss(opts: CompareOptions): Promise<
     return {
       ...summarizePages(pages, [], [], opts.examples),
       ms: performance.now() - started,
-      library: swappedSheet(opts.dir, opts.sheetMarker)
-        .split(path.sep)
-        .join("/"),
+      library,
+      ...(crops && { crops }),
       notReady: [
         ...new Set([...r.notReady, ...headNotReady, ...skippedNotReady]),
       ],
@@ -321,7 +350,30 @@ export async function compareCss(opts: CompareOptions): Promise<
   }
 }
 
-function combine(before: PageInspection, after: PageInspection): Inspected {
+/** Flags winners that are rules the two stylesheets differ in. */
+function markChanged(
+  explain: NonNullable<Inspected["explain"]>,
+  library: string,
+  locations: { base: Set<string>; head: Set<string> },
+) {
+  for (const props of Object.values(explain))
+    for (const e of Object.values(props))
+      for (const side of ["base", "head"] as const) {
+        const w = e[side];
+        if (
+          w?.sheet === library &&
+          locations[side].has(`${w.line}:${w.column ?? 0}`)
+        )
+          w.changed = true;
+      }
+}
+
+function combine(
+  before: PageInspection,
+  after: PageInspection,
+  /** Fills in each compared element's crops. */
+  kept?: Crops[string],
+): Inspected {
   const out: Inspected = {};
   if (before.explain && after.explain) {
     out.explain = {};
@@ -365,6 +417,7 @@ function combine(before: PageInspection, after: PageInspection): Inspected {
       const other = was.get(path);
       if (!other) continue;
       const [a, b] = [other(), get()];
+      if (kept && a && b) kept[path] = { base: a, head: b };
       if (!a || !b || a.width !== b.width || a.height !== b.height) {
         // No box on either side is the same nothing; a new size differs.
         out.pixels[path] = Boolean(a || b);
