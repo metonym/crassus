@@ -8,6 +8,7 @@
 import { relaxSelector, stateTriggers } from "../core/impact";
 import { synthesize, type Tree, vocabularyOf } from "../core/synth";
 import { STATE_RE, STATE_SETS } from "../page/states";
+import { matchable } from "./coverage";
 import type { PageIndex } from "./page-index";
 import { type EngineName, View } from "./view";
 
@@ -163,7 +164,10 @@ export async function confirmFlips(opts: {
         ),
       );
       const pseudo = PSEUDO_RE.exec(f.selectors.join(" "))?.[0] ?? null;
-      return view.evaluate(`((tree, at, relaxed, states, property, pseudo) => {
+      const exact = f.selectors.map((sel) =>
+        matchable(sel).replace(STATE_RE, "[data-cr-$1]"),
+      );
+      return view.evaluate(`((tree, at, relaxed, exact, states, property, pseudo) => {
         const root = (${BUILD})(tree, document);
         // By its place in the tree as built: before the style goes in.
         const el = at === null ? document.querySelector("[data-cr-target]") : document.querySelectorAll("*")[at];
@@ -173,17 +177,22 @@ export async function confirmFlips(opts: {
         head.append(style);
         let matched = false;
         try { matched = el.matches(relaxed[0]) && el.matches(relaxed[1]); } catch {}
-        for (const { prefix, names } of states) {
-          let hits = [];
-          try { hits = document.querySelectorAll(prefix); } catch {}
-          for (const h of hits) for (const n of names) h.setAttribute("data-cr-" + n, "");
-        }
+        // States on, unless the rules apply without them (a state under :not()).
+        const on = () => {
+          for (const { prefix, names } of states) {
+            let hits = [];
+            try { hits = document.querySelectorAll(prefix); } catch {}
+            for (const h of hits) for (const n of names) h.setAttribute("data-cr-" + n, "");
+          }
+        };
+        const apply = (sel) => { try { return el.matches(sel); } catch { return false; } };
+        if (!(apply(exact[0]) && apply(exact[1]))) on();
         const read = (css) => {
           style.textContent = css;
           return getComputedStyle(el, pseudo).getPropertyValue(property);
         };
         return { matched, before: read(window.__crSheets.base), after: read(window.__crSheets.head) };
-      })(${JSON.stringify(tree)}, ${at}, ${JSON.stringify(relaxed[opts.flips.indexOf(f)])}, ${JSON.stringify(states)}, ${JSON.stringify(f.property)}, ${JSON.stringify(pseudo)})`);
+      })(${JSON.stringify(tree)}, ${at}, ${JSON.stringify(relaxed[opts.flips.indexOf(f)])}, ${JSON.stringify(exact)}, ${JSON.stringify(states)}, ${JSON.stringify(f.property)}, ${JSON.stringify(pseudo)})`);
     };
 
     const out: FlipVerdict[] = [];

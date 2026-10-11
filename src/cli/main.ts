@@ -64,6 +64,8 @@ Usage:
                                  styles on today's fixtures (ground truth)
   crassus usage                  declarations that match but never win on
                                  the fixtures (evidence)
+  crassus coverage               mutation coverage: which declarations decide
+                                 a value the fixtures render (evidence)
   crassus doctor                 check Chrome, the machine and the config
                                  before a long browser run
   crassus tokens --tokens cds-   which design tokens drive which properties
@@ -496,6 +498,13 @@ async function run(argv: string[], io: Io): Promise<number> {
       io,
       summary,
     });
+  }
+  if (command === "coverage") {
+    if (format !== "human" && format !== "json")
+      throw new UsageError("coverage reports as human or json");
+    const { config } = await loadConfig(cwd, values.config);
+    const { coverageCommand } = await import("./coverage");
+    return coverageCommand({ config, flags, entry: only, format, io });
   }
   if (command === "doctor") {
     const { config, file } = await loadConfig(cwd, values.config);

@@ -206,6 +206,30 @@
   (`pages[].where[path].selector`, `nth-child` from `body`), and with
   `--explain` flags winners whose rule differs between the sides
   (`Winner.changed`).
+- `crassus coverage` is mutation testing for the library stylesheet: on
+  each fixture page it removes each declaration of each rule that styles
+  an element from the CSSOM, one at a time, and reads those elements
+  again. Each declaration is covered, decides nothing (its rule matches,
+  no value depends on it), unmatched, or under a `@media`/`@supports`
+  that never held; the report gives the percentage, the least covered
+  files and components, and the uncovered declarations at their source
+  line, with an element an unmatched rule would style. Always exit 0.
+  `crassus coverage --entry all --themes white --viewport 1280x900` on
+  carbon-components-svelte's 124 fixture pages: 4,363 of 13,023
+  declarations covered (33.5%), 6,447 unmatched, 1,731 deciding nothing,
+  482 under a condition that never held, in 390.7 s under load (184.1 s
+  in a quieter run). Cross-checked against `crassus usage` with
+  `CCS_ROOT=… bun eval/carbon/coverage.ts`: of the covered, 3,696 won
+  somewhere, 663 aren't in usage's records and 4 matched without winning;
+  of the unmatched, 6,446 never matched and 1 won; of those deciding
+  nothing, 1,476 won somewhere (usage counts a win whose value is what
+  wins without it, and merges a selector's `@media` copies) and 131
+  never won. In a sample of 12 unmatched declarations, 11 name a class no
+  fixture renders (`.bx--box-pl-12`, `.bx--col-lg-5`, the overflow
+  menu's options) and one an element none does (`sup`).
+- `diff --confirm` sets a state's attribute only when a rule doesn't
+  match without it, so a state under `:not()` no longer stops a rule
+  matching.
 
 ## 0.2.0 — 2026-10-10
 
