@@ -35,6 +35,8 @@ async function cli(cwd: string, ...argv: string[]) {
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
 
+const REACH_RE =
+  /crassus: the changed rules \(\d+ selectors?\) reach \d of 2 pages/;
 const read = (root: string, file: string) => Bun.file(join(root, file)).text();
 
 async function commitAll(root: string) {
@@ -656,13 +658,19 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(r.err).toContain(
       "crassus: compared 2 pages (2 fixtures × 1 theme × 1 viewport) against site/lib.css at HEAD (",
     );
-    expect(r.out).toContain("2 page(s)");
+    expect(r.err).toMatch(REACH_RE);
+    expect(r.out).toContain("2 page(s) compared");
     expect(r.out).toContain("1×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)");
     // Both sides record what either declares: the dropped `left` is a change.
     expect(r.out).toContain("1×  left: 1px -> auto");
     expect(r.out).not.toContain("Not compared");
     // Nothing was written.
     expect(await readdir(root)).not.toContain("snap");
+    // Reading everything finds the same.
+    const all = await cli(root, "compare", ...flags, "--no-scope");
+    expect(all.err).not.toContain("the changed rules");
+    expect(all.out).toContain("2 page(s), ");
+    expect(all.out.split("\n").slice(1)).toEqual(r.out.split("\n").slice(1));
 
     // Two files, and JSON.
     await Bun.write(join(root, "a.css"), await read(SITE, "lib.css"));
@@ -966,6 +974,11 @@ describe("crassus capture, snapshot-diff and usage", () => {
       ["compare", "--no-split"],
       "{}",
       "--group-by and --no-split go with bisect",
+    ],
+    [
+      ["capture", "out", "--no-scope"],
+      "{}",
+      "--no-scope goes with compare and bisect",
     ],
     [["snapshot-diff", "a", "b", "--explain"], "{}", "use crassus compare"],
     [

@@ -10,7 +10,7 @@ export type {
   Uncompared,
   Winner,
 } from "../core/snapshot-diff";
-export { type CompareOptions, compareCss } from "./compare";
+export { type CompareOptions, compareCss, type Impact } from "./compare";
 export { type ServeOptions, serveFixtures } from "./serve";
 export { type CaptureOptions, capture, readSnapshot } from "./snapshot";
 export {

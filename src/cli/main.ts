@@ -94,6 +94,8 @@ Browser options (capture, compare, bisect, usage; override the config's \`browse
                      conventional type (type, default) or one per commit
   --no-split         bisect: report segments with visible changes as they
                      are, instead of halving them down to the commits
+  --no-scope         compare, bisect: load every page and read every element,
+                     instead of only what the changed rules can reach
   --url <base>       use a running server instead of building and serving
   --out <dir>        usage: output directory (default .crassus/usage)
   -h, --help         show this help
@@ -172,6 +174,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       explain: { type: "boolean" },
       "group-by": { type: "string" },
       "no-split": { type: "boolean" },
+      "no-scope": { type: "boolean" },
       visual: { type: "boolean" },
       out: { type: "string" },
       summary: { type: "string" },
@@ -336,6 +339,8 @@ async function run(argv: string[], io: Io): Promise<number> {
   }
   if ((values["group-by"] || values["no-split"]) && command !== "bisect")
     throw new UsageError("--group-by and --no-split go with bisect");
+  if (values["no-scope"] && command !== "compare" && command !== "bisect")
+    throw new UsageError("--no-scope goes with compare and bisect");
   if (command === "bisect") {
     if (format !== "human" && format !== "json")
       throw new UsageError("bisect reports as human or json");
@@ -351,6 +356,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       cache: !values["no-cache"],
       explain: values.explain,
       visual: values.visual,
+      scope: !values["no-scope"],
       format,
       io,
       summary,
@@ -370,6 +376,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       cache: !values["no-cache"],
       explain: values.explain,
       visual: values.visual,
+      scope: !values["no-scope"],
       format,
       io,
       summary,

@@ -57,14 +57,15 @@ export interface CascadeDiff {
   moveFlips: Flip[];
 }
 
-const PREFIX_RE = /^[a-z]+--/;
-const ROOT_SPLIT_RE = /__|--/;
+export const PREFIX_RE = /^[a-z]+--/;
+export const ROOT_SPLIT_RE = /__|--/;
 
-const defaultComponentOf = (cls: string) =>
+/** `bx--btn--primary` -> `btn`: drop a `prefix--`, cut at `__` or `--`. */
+export const defaultComponentOf = (cls: string) =>
   cls.replace(PREFIX_RE, "").split(ROOT_SPLIT_RE)[0];
 
 /** Indexes of one longest strictly increasing subsequence (patience sorting). */
-function longestIncreasing(values: number[]): Set<number> {
+export function longestIncreasing(values: number[]): Set<number> {
   const tails: number[] = [];
   const tailIdx: number[] = [];
   const prev: number[] = new Array(values.length).fill(-1);

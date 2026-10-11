@@ -1,5 +1,50 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- `compare` and `bisect` read only what a stylesheet change can reach.
+  The rules that differ (removed, added, moved against the others, or
+  edited in place, for the declarations that changed) have their
+  selectors relaxed to every element they could style in any state (no
+  `:hover` or other states, a pseudo-element as its element). A page none
+  of them match isn't loaded; on the others only the matched elements,
+  their descendants and ancestors, and the forced states that can record
+  them are read, for the properties those rules can move (plus logical
+  twins, currentColor users, and layout-resolved values when a box can
+  move). Pages are matched against a page index of each fixture's element
+  tree, built once per fixture build and cached under
+  `node_modules/.cache/crassus`. `compare` prints the reach before
+  capturing, and JSON has it as `impact`. Changes outside style rules
+  (`@font-face`, `@property`, `@import`, layer order) read everything.
+  `--no-scope` (`scope: false` in `compareCss`) reads everything; with
+  scoping, the report's element-entry count is the entries read.
+  Measured with `CCS_ROOT=… bun eval/carbon/scope.ts` on
+  carbon-components-svelte's 124 fixture pages (white, 1280 × 900, forced
+  states, 4 tabs), against reading everything, with identical results on
+  every case:
+
+  | Change | Pages reached | Everything | Scoped |
+  |:--|--:|--:|--:|
+  | One color declaration (`.bx--tag--red`) | 1 | 48.2 s | 2.1 s |
+  | One padding declaration (`.bx--btn`) | 35 | 47.2 s | 12.6 s |
+  | `28e700f30..7e301af6f` (the TooltipDefinition regression, 411 changed selectors) | 29 | 50.7 s | 12.4 s |
+  | `660b2936a` (#3839) | 8 | 87.1 s | 4.9 s |
+  | 25 runs of CSS refactor commits (82 commits, `2d710c03e..97164eeec`) | 0–124 | 1,217.6 s | 287.8 s |
+
+  Building the page index took 19.8 s. Of the 25 runs, 6 reach no
+  page (0.3–0.5 s each), 2 change `@font-face` rules and read everything,
+  and 1 moves the theme token block, which reaches every page. The index
+  is keyed on the fixture files but their stylesheets (it records only the
+  DOM), with bundlers' asset hashes (`mount-CYiQnMsr.css`) dropped and
+  same-named chunks ordered by content, so editing the CSS and rebuilding
+  the fixtures keeps it: after a `.scss` edit and a fixture rebuild it
+  reads from cache in 0.1 s instead of rebuilding in 90.7 s. A rebuild
+  says why (`page index built (fixture files changed: …)`).
+- `compareCss` takes `scope`, `indexDir` and `onImpact`, and returns
+  `impact`; the `Impact` type is exported from `crassus/browser`.
+
 ## 0.2.0 — 2026-10-10
 
 **Breaking**

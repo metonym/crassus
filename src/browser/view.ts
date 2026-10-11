@@ -234,7 +234,7 @@ export interface PageJob {
 }
 
 // Viewport first, so a pooled view rarely resizes.
-function pageJobs(
+export function pageJobs(
   baseUrl: string,
   fixtures: string[],
   themes: string[],
@@ -274,6 +274,12 @@ export interface VisitOptions {
   emulate: "cdp" | "cssom";
   readySelector?: string;
   readyTimeoutMs?: number;
+  /** Visits only the pages it keeps. */
+  only?: (job: PageJob) => boolean;
+  /** Told of each wait while the load average holds tabs back (`ms` of one tab). */
+  onBusy?: (wait: { load: number; cores: number; ms: number }) => void;
+  /** Reads the 1-minute load average. Default `os.loadavg()[0]`. */
+  loadAverage?: () => number;
 }
 
 /** Loads `url` in `view` and waits for `readySelector`; false if it never matched. */
@@ -301,7 +307,7 @@ export async function visitPages(
     opts.themes,
     viewports,
     opts.themeAttribute,
-  );
+  ).filter((job) => !opts.only || opts.only(job));
   const started = performance.now();
   const ready = await runPool(
     jobs,

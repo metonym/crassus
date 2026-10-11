@@ -1,21 +1,35 @@
 import path from "node:path";
 import {
+  type ChangedSelector,
+  changedRules,
+  impactProperties,
+} from "../core/impact";
+import {
   diffSnapshot,
   type Explained,
   type Inspected,
   type PageDiff,
 } from "../core/snapshot-diff";
 import { inspectPage, type PageInspection } from "./inspect";
+import { matchPages, pageIndex } from "./page-index";
 import { serveFixtures, swappedSheet } from "./serve";
 import {
   type CaptureOptions,
   capturePage,
+  type PageScope,
   preparePage,
   snapshotFile,
   tagStates,
 } from "./snapshot";
 import { type SnapshotDiff, summarizePages } from "./snapshot-diff";
-import { loadPage, View, viewportsOf, visitPages } from "./view";
+import {
+  loadPage,
+  type PageJob,
+  pageJobs,
+  View,
+  viewportsOf,
+  visitPages,
+} from "./view";
 
 export interface CompareOptions
   extends Omit<CaptureOptions, "baseUrl" | "outDir"> {
@@ -32,17 +46,62 @@ export interface CompareOptions
   explain?: boolean;
   /** Chrome: screenshot each changed element on each side, and compare. */
   visual?: boolean;
+  /**
+   * Default true: load only the pages the changed rules can reach, and read
+   * only what they can change there (see `Impact`). False reads everything.
+   */
+  scope?: boolean;
+  /** Where to keep the page index `scope` builds, between runs. */
+  indexDir?: string;
+  /** Called with the change's reach, before any page is captured. */
+  onImpact?: (impact: Impact) => void;
 }
 
-/** The longhands a stylesheet's rules declare, as the CSSOM expands them. */
-async function declaredIn(
+/** What a stylesheet change can reach on the fixtures. */
+export interface Impact {
+  /** Pages (fixture × theme × viewport) in all. */
+  total: number;
+  /** Pages a changed rule's selector matches: the only ones captured. */
+  pages: number;
+  /** Elements those selectors match on them, before descendants. */
+  elements: number;
+  /** Distinct selectors of changed rules, states and pseudo-elements dropped. */
+  selectors: number;
+  /** Why every page and element was read, when they were. */
+  everything?: string;
+  /** Built this run, or read from `indexDir`. */
+  index?: "built" | "cached";
+}
+
+interface Plan {
+  /** Longhands either stylesheet declares. */
+  declared: string[];
+  /** Every longhand the engine computes. */
+  longhands: string[];
+  /** A written property -> the longhands it sets. */
+  expands: Record<string, string[]>;
+  /** The changed selectors the engine can run (or whose rules it applies). */
+  selectors: ChangedSelector[];
+}
+
+/**
+ * What the engine makes of the stylesheets: the longhands they declare (as
+ * the CSSOM expands them), what each changed property sets, and which
+ * relaxed selectors it parses. A selector it rejects is kept when the
+ * engine applies one of its rules: pages then can't be skipped.
+ */
+async function planIn(
   opts: Pick<CompareOptions, "engine" | "chromePath">,
   sheets: string[],
-): Promise<string[]> {
+  changed: ChangedSelector[],
+): Promise<Plan> {
   const view = new View({ engine: opts.engine, chromePath: opts.chromePath });
   try {
     await view.navigate("about:blank");
-    return await view.evaluate<string[]>(`((texts) => {
+    const props = [...new Set(changed.flatMap((c) => c.properties))];
+    const { keep, ...rest } = await view.evaluate<
+      Omit<Plan, "selectors"> & { keep: boolean[] }
+    >(`((texts, props, selectors) => {
       const out = new Set();
       const visit = (list) => {
         for (const rule of list) {
@@ -57,8 +116,29 @@ async function declaredIn(
         sheet.replaceSync(text);
         visit(sheet.cssRules);
       }
-      return [...out].sort();
-    })(${JSON.stringify(sheets)})`);
+      const style = document.createElement("div").style;
+      const expands = {};
+      for (const p of props) {
+        style.cssText = "";
+        style.setProperty(p, "initial");
+        expands[p] = Array.from(style);
+      }
+      const applies = (s) => {
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(s + "{}");
+        return sheet.cssRules.length > 0;
+      };
+      const keep = selectors.map(([relaxed, sources]) => {
+        try { document.querySelectorAll(relaxed); return true; } catch { return sources.some(applies); }
+      });
+      return {
+        declared: [...out].sort(),
+        longhands: Array.from(getComputedStyle(document.documentElement)),
+        expands,
+        keep,
+      };
+    })(${JSON.stringify(sheets)}, ${JSON.stringify(props)}, ${JSON.stringify(changed.map((c) => [c.selector, c.sources]))})`);
+    return { ...rest, selectors: changed.filter((_, i) => keep[i]) };
   } finally {
     view.close();
   }
@@ -69,6 +149,14 @@ async function declaredIn(
  * then by `head`, in the same tab, and diffs them page by page: the DOM is
  * the same on both sides, and no snapshot is kept. Both sides record every
  * property either stylesheet declares, so nothing is left uncompared.
+ *
+ * With `scope` (the default), the rules that differ decide what's read: a
+ * page none of their selectors match (states and pseudo-elements dropped)
+ * isn't loaded, as its styles can't change, and on the others only the
+ * elements they match, with their descendants and ancestors, are read,
+ * for the properties those rules can move. When a box can move, every
+ * element is read for the values that hang on layout. The pages' DOM comes
+ * from an index recorded once per fixture build (`indexDir`).
  */
 export async function compareCss(opts: CompareOptions): Promise<
   SnapshotDiff & {
@@ -76,24 +164,99 @@ export async function compareCss(opts: CompareOptions): Promise<
     notReady: string[];
     /** The fixture file both sides replaced, relative to `dir`: `Winner.sheet` for its rules. */
     library: string;
+    impact: Impact;
   }
 > {
   if ((opts.explain || opts.visual) && opts.engine !== "chrome")
     throw new Error("explain and visual need Chrome (CDP)");
-  const extra = await declaredIn(opts, [opts.base, opts.head]);
+  const started = performance.now();
+  const changes =
+    opts.scope === false ? null : changedRules(opts.base, opts.head);
+  const plan = await planIn(
+    opts,
+    [opts.base, opts.head],
+    changes?.selectors ?? [],
+  );
   const swap = (css: string) =>
     serveFixtures(opts.dir, { swap: { marker: opts.sheetMarker, css } });
+  const viewports = viewportsOf(opts);
+  const several = viewports.length > 1;
+  const pageFile = (job: PageJob) =>
+    snapshotFile(job, several).replace(".json.gz", "");
+  const jobs = pageJobs(
+    "",
+    opts.fixtures,
+    opts.themes,
+    viewports,
+    opts.themeAttribute,
+  );
+  const impact: Impact = {
+    total: jobs.length,
+    pages: jobs.length,
+    elements: 0,
+    selectors: changes?.selectors.length ?? 0,
+  };
+  if (!changes) impact.everything = "scope is off";
+  else if (changes.everything) impact.everything = changes.everything;
+
+  let hit: Set<string> | null = null;
+  const skippedNotReady: string[] = [];
+  const selectors = plan.selectors.map((c) => c.selector);
+  if (!impact.everything) {
+    const built = await pageIndex({ ...opts, cacheDir: opts.indexDir });
+    impact.index = built.cached ? "cached" : "built";
+    const matches = await matchPages(built.index, jobs, selectors, opts);
+    hit = new Set();
+    impact.pages = 0;
+    for (const job of jobs) {
+      const m = matches.get(job.label);
+      if (m && (m.all || m.hits.length > 0)) {
+        hit.add(job.label);
+        impact.pages++;
+        impact.elements += m.elements;
+      } else if (built.index.pages[job.label]?.ready === false)
+        skippedNotReady.push(job.label);
+    }
+  }
+  opts.onImpact?.(impact);
+
+  const scopeFor = (): PageScope | undefined => {
+    if (!hit) return undefined;
+    let planned: ReturnType<PageScope["plan"]> | undefined;
+    return {
+      selectors,
+      // The base side plans; the head side reads the same.
+      plan(hits) {
+        if (planned) return planned;
+        const written = new Set(
+          hits.flatMap((i) => plan.selectors[i].properties),
+        );
+        const longhands = [...written].flatMap((p) => plan.expands[p] ?? []);
+        const p = impactProperties(longhands, plan.longhands);
+        planned =
+          changes?.containers && (p.layout || p.properties === null)
+            ? { properties: null, layout: true }
+            : p;
+        return planned;
+      },
+    };
+  };
+
   const base = swap(opts.base);
   const head = swap(opts.head);
-  const several = viewportsOf(opts).length > 1;
   const pages: { file: string; diff: PageDiff & Inspected; entries: number }[] =
     [];
   const headNotReady: string[] = [];
   try {
     const r = await visitPages(
-      { ...opts, baseUrl: base.url },
+      {
+        ...opts,
+        baseUrl: base.url,
+        ...(hit && { only: (job) => hit.has(job.label) }),
+      },
       async (view, job) => {
-        const a = await capturePage(view, opts, extra);
+        const scope = scopeFor();
+        const a = await capturePage(view, opts, plan.declared, scope);
         if (
           !(await loadPage(
             view,
@@ -102,13 +265,13 @@ export async function compareCss(opts: CompareOptions): Promise<
           ))
         )
           headNotReady.push(job.label);
-        const b = await capturePage(view, opts, extra);
-        const diff: PageDiff & Inspected = diffSnapshot(a, b);
+        const b = await capturePage(view, opts, plan.declared, scope);
+        const diff: PageDiff & Inspected = diffSnapshot(a.snapshot, b.snapshot);
         if ((opts.explain || opts.visual) && Object.keys(diff.changed).length) {
           // Head is loaded; base is loaded again, prepared the same way.
           const after = await inspectPage(view, diff.changed, opts);
           await loadPage(view, job.url, opts);
-          await preparePage(view, opts, extra);
+          await preparePage(view, opts, plan.declared);
           if (opts.states) await tagStates(view);
           const before = await inspectPage(view, diff.changed, opts);
           Object.assign(diff, combine(before, after));
@@ -116,18 +279,35 @@ export async function compareCss(opts: CompareOptions): Promise<
         pages.push({
           file: snapshotFile(job, several).replace(".json.gz", ""),
           diff,
-          entries: Object.keys(a).length,
+          entries: Object.keys(a.snapshot).length,
         });
       },
     );
+    // Pages no changed rule reaches compare equal, unread.
+    if (hit)
+      for (const job of jobs)
+        if (!hit.has(job.label))
+          pages.push({
+            file: pageFile(job),
+            diff: {
+              changed: {},
+              removed: [],
+              added: [],
+              uncompared: { onlyBase: [], onlyHead: [] },
+            },
+            entries: 0,
+          });
     pages.sort((x, y) => (x.file < y.file ? -1 : x.file > y.file ? 1 : 0));
     return {
       ...summarizePages(pages, [], [], opts.examples),
-      ms: r.ms,
+      ms: performance.now() - started,
       library: swappedSheet(opts.dir, opts.sheetMarker)
         .split(path.sep)
         .join("/"),
-      notReady: [...new Set([...r.notReady, ...headNotReady])],
+      notReady: [
+        ...new Set([...r.notReady, ...headNotReady, ...skippedNotReady]),
+      ],
+      impact,
     };
   } finally {
     base.stop();

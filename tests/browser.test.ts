@@ -8,6 +8,7 @@ import {
   capture,
   compareCss,
   diffSnapshots,
+  type Impact,
   readSnapshot,
   runUsage,
   serveFixtures,
@@ -328,6 +329,86 @@ it("compareCss diffs two stylesheets on the same pages, forced states included",
     }),
   ]);
 }, 60_000);
+
+// What scoped compares must still see: a change on hover, inherited by
+// descendants, on a pseudo-element, a box that moves an absolute sibling,
+// a rule on <body>, and pages none of it reaches.
+const SCOPE_CSS = `
+.bx--card { color: black; padding: 4px; position: relative; }
+.bx--card:hover .bx--title { background-color: white; }
+.bx--title::before { content: ""; border-top: 1px solid red; }
+.bx--pin { position: absolute; top: auto; }
+.bx--list li:nth-child(2n) { color: gray; }
+.bx--other { color: black; }
+body { letter-spacing: 0; }`;
+const SCOPE_PAGES = {
+  "card.html": `<div class="bx--card" role="group"><h2 class="bx--title">t<span>s</span></h2></div><p>x</p><div class="bx--pin">p</div>`,
+  "list.html": `<ul class="bx--list"><li>a</li><li tabindex="0">b</li><li>c</li></ul>`,
+  "other.html": `<p class="bx--other">o</p>`,
+};
+
+it("compareCss reads only what the change reaches, with the same results", async () => {
+  const root = join(dir, "scope");
+  await Promise.all([
+    Bun.write(join(root, "lib.css"), SCOPE_CSS),
+    ...Object.entries(SCOPE_PAGES).map(([file, body]) =>
+      Bun.write(
+        join(root, file),
+        `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body>${body}</body></html>`,
+      ),
+    ),
+  ]);
+  const opts = {
+    ...base(),
+    dir: root,
+    fixtures: ["card", "list", "other"],
+    states: "cdp" as const,
+    emulate: "cdp" as const,
+    settleMs: 0,
+    indexDir: join(dir, "scope-index"),
+    base: SCOPE_CSS,
+  };
+  const edits: [string, string, number][] = [
+    // [from, to, pages the change reaches]
+    ["background-color: white", "background-color: yellow", 1],
+    ["color: black; padding", "color: navy; padding", 1],
+    ["border-top: 1px solid red", "border-top: 2px dashed red", 1],
+    ["padding: 4px", "padding: 9px", 1],
+    ["color: gray", "color: silver", 1],
+    ["letter-spacing: 0", "letter-spacing: 1px", 3],
+    [".bx--pin { position: absolute; top: auto; }", "", 1],
+  ];
+  for (const [i, [from, to, pages]] of edits.entries()) {
+    const head = SCOPE_CSS.replace(from, to);
+    let impact: Impact | undefined;
+    // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential runs
+    const full = await compareCss({ ...opts, head, scope: false });
+    const scoped = await compareCss({
+      ...opts,
+      head,
+      onImpact: (i) => {
+        impact = i;
+      },
+    });
+    expect({ edit: from, groups: scoped.groups, pages: scoped.pages }).toEqual({
+      edit: from,
+      groups: full.groups,
+      pages: full.pages,
+    });
+    expect({ edit: from, changed: full.groups.length > 0 }).toEqual({
+      edit: from,
+      changed: true,
+    });
+    // Built by the first scoped run, read after.
+    expect(impact).toMatchObject({
+      total: 3,
+      pages,
+      index: i === 0 ? "built" : "cached",
+    });
+    expect(scoped.impact).toEqual(impact);
+    expect(full.impact.everything).toBe("scope is off");
+  }
+}, 120_000);
 
 it("swaps the largest stylesheet that contains the marker", async () => {
   const root = join(dir, "swap");

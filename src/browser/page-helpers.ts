@@ -1,3 +1,25 @@
+/**
+ * Page function `(doc, selectors)`: the indexes of the selectors that match
+ * in `doc`, and the `<body>` elements they match; `all` when one matches
+ * `<html>` or `<body>` (everything inherits from them) or the engine
+ * rejects it.
+ */
+export const MATCH_SELECTORS = `(doc, selectors) => {
+  const hits = [];
+  const els = new Set();
+  let all = false;
+  selectors.forEach((s, i) => {
+    let found;
+    try { found = doc.querySelectorAll(s); } catch { all = true; hits.push(i); return; }
+    if (found.length) hits.push(i);
+    for (const el of found) {
+      if (el === doc.documentElement || el === doc.body) all = true;
+      else if (doc.body.contains(el)) els.add(el);
+    }
+  });
+  return { hits, all, els };
+}`;
+
 // From carbon-components-svelte's e2e/cascade-snapshot.ts, so captures compare
 // byte for byte. An expression, as evaluate() takes no statements.
 export const PAGE_HELPERS = `
@@ -20,7 +42,23 @@ export const PAGE_HELPERS = `
       };
       visit(rules);
     }
-    const props = Array.from(declared).sort();
+    let props = Array.from(declared).sort();
+    // Set by scope(): the elements a snapshot reads, when not all.
+    let only = null;
+    let matched = new Set();
+    const eachRule = (fn) => {
+      const visit = (list) => {
+        for (const rule of list) {
+          fn(rule);
+          if (rule.cssRules) visit(rule.cssRules);
+        }
+      };
+      for (const sheet of document.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch { continue; }
+        visit(rules);
+      }
+    };
     const pathOf = (el) => {
       const parts = [];
       let node = el;
@@ -54,7 +92,37 @@ export const PAGE_HELPERS = `
     window.__ccs = {
       snapshot() {
         const out = {};
-        for (const el of document.querySelectorAll("body *")) record(el, out, "");
+        for (const el of document.querySelectorAll("body *"))
+          if (!only || only.has(el)) record(el, out, "");
+        return out;
+      },
+      match(selectors) {
+        const { hits, all, els } = (${MATCH_SELECTORS})(document, selectors);
+        matched = els;
+        return { hits, all, elements: els.size };
+      },
+      // Reads only \`read\` (null: every property) from now on, and only the
+      // matched elements, their descendants and ancestors, unless \`every\`.
+      // Returns the indexes tagInteractive will give the elements whose
+      // forced states can record a matched element (null: all of them).
+      scope(read, every, selector, max) {
+        if (read) {
+          const keep = new Set(read);
+          props = props.filter((p) => keep.has(p));
+        }
+        if (every) return null;
+        const reached = new Set();
+        for (const m of matched) {
+          reached.add(m);
+          for (const d of m.querySelectorAll("*")) reached.add(d);
+        }
+        only = new Set();
+        for (const el of reached)
+          for (let a = el; a && !only.has(a); a = a.parentElement) only.add(a);
+        const out = [];
+        Array.from(document.querySelectorAll(selector)).slice(0, max).forEach((el, i) => {
+          if (only.has(el)) out.push(i);
+        });
         return out;
       },
       tagInteractive(selector, max) {

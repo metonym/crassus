@@ -1,4 +1,5 @@
 import { version } from "../../package.json";
+import type { Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { Histogram } from "../core/cascade";
 import type { Specificity } from "../core/selector";
@@ -400,14 +401,20 @@ const props = (list: string[]) =>
   (list.length > MAX_PROPS ? ` (+${list.length - MAX_PROPS})` : "");
 
 export function formatSnapshotDiff(
-  diff: SnapshotDiff,
+  diff: SnapshotDiff & { impact?: Impact },
   format: "human" | "json",
   command: "snapshot-diff" | "compare" = "snapshot-diff",
 ): string {
   if (format === "json")
     return json({ command, claim: "ground truth", ...diff });
+  const truth = dim(
+    "(ground truth for the captured fixtures, themes, viewports and states)",
+  );
+  const scoped = diff.impact && !diff.impact.everything;
   const lines = [
-    `${diff.files} page(s), ${diff.entries} element entries compared ${dim("(ground truth for the captured fixtures, themes, viewports and states)")}`,
+    scoped
+      ? `${diff.files} page(s) compared, ${diff.impact?.pages} read (no changed rule matches on the others), ${diff.entries} element entries read ${truth}`
+      : `${diff.files} page(s), ${diff.entries} element entries compared ${truth}`,
   ];
   for (const f of diff.onlyBase) lines.push(yellow(`only in base: ${f}`));
   for (const f of diff.onlyHead) lines.push(yellow(`only in head: ${f}`));
