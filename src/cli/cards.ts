@@ -40,7 +40,12 @@ const label = (c: Card) =>
     ? `visible (ΔE ${c.deltaE.max.toFixed(1)})`
     : c.verdict === "invisible"
       ? `invisible (${c.invisible})`
-      : c.verdict;
+      : c.verdict === "token-detached" && c.tokens
+        ? `token-detached (${c.tokens.from.join(", ")})`
+        : c.verdict;
+
+const counts = (s: Report["summary"]) =>
+  `${s["token-detached"] ? `${s["token-detached"]} token-detached, ` : ""}${s.visible} visible, ${s.imperceptible} imperceptible, ${s.invisible} invisible`;
 
 /** Reads the changed rule's source lines, at the commit its side was built from. */
 export async function attachSources(
@@ -175,10 +180,10 @@ export async function writeReport(
 
 /** One line per verdict, then one per card: what CI logs and agents read first. */
 export function formatCardsSummary(report: Report, dir?: string): string {
-  const { visible, imperceptible, invisible, approved } = report.summary;
+  const { approved } = report.summary;
   const open = blocking(report.cards).length;
   const lines = [
-    `${visible} visible, ${imperceptible} imperceptible, ${invisible} invisible change card(s)${approved ? `; ${approved} approved, ${open} visible card(s) not` : ""}${dir ? ` (report: ${dir})` : ""}`,
+    `${counts(report.summary)} change card(s)${approved ? `; ${approved} approved, ${open} visible card(s) not` : ""}${dir ? ` (report: ${dir})` : ""}`,
   ];
   for (const c of report.cards)
     lines.push(
@@ -216,6 +221,13 @@ export function formatCard(card: Card, images = true): string {
     "",
     card.alt,
   ];
+  if (card.tokens)
+    lines.push(
+      "",
+      card.tokens.to.length
+        ? `Follows ${card.tokens.to.join(", ")} where it followed ${card.tokens.from.join(", ")} (${card.tokens.retokened} element(s)).`
+        : `Stopped following ${card.tokens.from.join(", ")} on ${card.tokens.detached} element(s): it no longer changes with the theme.`,
+    );
   if (card.approved)
     lines.push("", `Approved in ${APPROVED_FILE}: an intended change.`);
   if (card.commits?.length)
@@ -282,17 +294,18 @@ export function formatCard(card: Card, images = true): string {
 
 /** The report for a PR: counts, then the cards most worth a look. */
 export function formatCardsMarkdown(report: Report, max = 10): string {
-  const { visible, imperceptible, invisible } = report.summary;
   const lines = [
     `## crassus: ${report.base} -> ${report.head}`,
     "",
-    `${visible} visible, ${imperceptible} imperceptible and ${invisible} invisible change card(s).`,
+    `${counts(report.summary)} change card(s).`,
   ];
   for (const card of report.cards.slice(0, max))
     lines.push(
       "",
       "<details" +
-        (card.verdict === "visible" ? " open" : "") +
+        (card.verdict === "visible" || card.verdict === "token-detached"
+          ? " open"
+          : "") +
         `><summary><b>${label(card)}</b>: ${escapeHtml(card.title)} (<code>${card.id}</code>)</summary>\n`,
       formatCard(card),
       "",
@@ -308,7 +321,12 @@ export function formatCardsMarkdown(report: Report, max = 10): string {
 
 /** Cards with a source line, as SARIF results anchored on the changed rule. */
 export function formatCardsSarif(report: Report): string {
-  const levels = { visible: "error", imperceptible: "note", invisible: "none" };
+  const levels = {
+    "token-detached": "error",
+    visible: "error",
+    imperceptible: "note",
+    invisible: "none",
+  };
   return JSON.stringify(
     {
       $schema: "https://json.schemastore.org/sarif-2.1.0.json",
@@ -320,7 +338,12 @@ export function formatCardsSarif(report: Report): string {
               name: "crassus",
               version,
               informationUri: "https://github.com/metonym/crassus",
-              rules: ["visible", "imperceptible", "invisible"].map((id) => ({
+              rules: [
+                "token-detached",
+                "visible",
+                "imperceptible",
+                "invisible",
+              ].map((id) => ({
                 id: `change-${id}`,
                 name: `Computed-style change (${id})`,
                 shortDescription: {
@@ -384,7 +407,7 @@ h1 { font-size: 1rem; margin: 0 0 .5rem; } h2 { font-size: 1.15rem; margin: .25r
 .card { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; padding: .45rem .5rem; border-radius: 6px; cursor: pointer; font: inherit; }
 .card:hover, .card[aria-current] { background: #8882; }
 .badge { display: inline-block; font-size: .7rem; padding: 0 .4rem; border-radius: 1rem; color: #fff; margin-right: .3rem; }
-.visible { background: var(--visible); } .imperceptible { background: var(--imperceptible); } .invisible { background: var(--invisible); }
+.visible, .token-detached { background: var(--visible); } .imperceptible { background: var(--imperceptible); } .invisible { background: var(--invisible); }
 .mute { color: var(--mute); font-size: .85em; }
 pre { background: #8881; padding: .6rem; border-radius: 6px; overflow: auto; font-size: 12px; }
 code { font-size: .92em; }
@@ -408,8 +431,8 @@ table { border-collapse: collapse; } td, th { border-bottom: 1px solid var(--lin
 const report = JSON.parse(document.getElementById("data").textContent);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const md = (s) => esc(s).replace(/\`([^\`]+)\`/g, "<code>$1</code>");
-const verdicts = ["visible", "imperceptible", "invisible"];
-const shown = new Set(["visible", "imperceptible"]);
+const verdicts = ["token-detached", "visible", "imperceptible", "invisible"];
+const shown = new Set(["token-detached", "visible", "imperceptible"]);
 document.getElementById("filters").innerHTML = verdicts.map((v) =>
   '<label><input type="checkbox" value="' + v + '"' + (shown.has(v) ? " checked" : "") + '> ' + v + " (" + report.summary[v] + ")</label>").join("");
 document.getElementById("filters").addEventListener("change", (e) => {
@@ -457,6 +480,8 @@ function show() {
   const rule = c.cause.rule;
   let html = '<span class="badge ' + c.verdict + '">' + c.verdict + (c.invisible ? ": " + esc(c.invisible) : "") +
     (c.deltaE ? " · ΔE " + c.deltaE.max.toFixed(1) : "") + "</span><h2>" + md(c.title) + '</h2><p class="mute">' + esc(c.alt) + "</p>";
+  if (c.tokens) html += "<p>" + (c.tokens.to.length ? "Follows <code>" + esc(c.tokens.to.join(", ")) + "</code> where it followed <code>" + esc(c.tokens.from.join(", ")) + "</code>" :
+    "Stopped following <code>" + esc(c.tokens.from.join(", ")) + "</code> on " + c.tokens.detached + " element(s): it no longer changes with the theme") + ".</p>";
   if (c.commits) html += "<p>Came in with " + c.commits.map((x) => "<code>" + x.sha.slice(0, 9) + "</code> " + esc(x.subject)).join("; ") + "</p>";
   if (el.images) html += '<div class="shots"><figure><figcaption>base / head (drag)</figcaption><div class="slider"><img src="' + el.images.base +
     '" alt="base"><div class="over" style="width:50%"><img src="' + el.images.head + '" alt="head"></div></div><br><input type="range" min="0" max="100" value="50" oninput="this.previousElementSibling.previousElementSibling.querySelector(\\'.over\\').style.width=this.value+\\'%\\'"></figure>' +

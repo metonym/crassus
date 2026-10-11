@@ -457,9 +457,21 @@ export function formatSnapshotDiff(
           `  pixels differ on ${g.pixels.differ} of ${g.pixels.differ + g.pixels.same}${delta}`,
         )
       : "";
+    const tokens = g.tokens
+      ? yellow(
+          `  ${[
+            g.tokens.detached &&
+              `stopped following ${g.tokens.from.join(", ")} on ${g.tokens.detached}`,
+            g.tokens.retokened &&
+              `follows other tokens on ${g.tokens.retokened}`,
+          ]
+            .filter(Boolean)
+            .join("; ")}`,
+        )
+      : "";
     lines.push(
       "",
-      `${g.count}×  ${g.property}: ${color(g.before)} -> ${color(g.after)}${g.invisible ? dim(` (${g.invisible})`) : ""}${pixels}`,
+      `${g.count}×  ${g.property}: ${color(g.before)} -> ${color(g.after)}${g.invisible ? dim(` (${g.invisible})`) : ""}${pixels}${tokens}`,
       ...(g.aliases ? [`     ${dim("also:")} ${props(g.aliases)}`] : []),
       `     ${dim("pages:")} ${g.pages.slice(0, MAX_PAGES).join(", ")}${more > 0 ? ` (+${more})` : ""}`,
       ...g.examples.flatMap((e) => [
@@ -468,6 +480,40 @@ export function formatSnapshotDiff(
       ]),
     );
   };
+  // Token changes no value change shows.
+  const quiet = diff.pages.flatMap((p) =>
+    Object.entries(p.tokens ?? {}).flatMap(([path, props]) => {
+      const changed = new Set(
+        (p.changed[path] ?? []).flatMap((c) => [
+          c.property,
+          ...(c.aliases ?? []),
+        ]),
+      );
+      const left = Object.entries(props).filter(([prop]) => !changed.has(prop));
+      return left.length ? [{ page: p.file, path, left }] : [];
+    }),
+  );
+  if (quiet.length > 0) {
+    lines.push(
+      "",
+      bold(
+        `${quiet.length} element(s) whose properties stopped following a design token with no change in value (fail: they won't follow the theme)`,
+      ),
+    );
+    for (const q of quiet.slice(0, MAX_INVISIBLE)) {
+      const [, t] = q.left[0];
+      lines.push(
+        `  ${q.page}  ${q.path}`,
+        `     ${q.left.map(([prop]) => prop).join(", ")}: ${t.base.join(", ")} -> ${t.head.length ? t.head.join(", ") : "none"}${t.value ? dim(` (${t.value})`) : ""}`,
+      );
+    }
+    if (quiet.length > MAX_INVISIBLE)
+      lines.push(
+        dim(
+          `  (+${quiet.length - MAX_INVISIBLE} more; --format json lists them)`,
+        ),
+      );
+  }
   const checked = diff.pages.flatMap((p) => Object.values(p.pixels ?? {}));
   const faint = diff.pages.flatMap((p) =>
     Object.values(p.deltaE ?? {}).filter((d) => d.max < IMPERCEPTIBLE),

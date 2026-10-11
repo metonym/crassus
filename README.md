@@ -60,6 +60,8 @@ crassus explain <id>              # one card, for a person or an agent
 crassus repro <id>                # a standalone page that shows it
 crassus verify <id>               # whether it's fixed
 crassus approve <id...>           # or record it as intended: CI stops failing on it
+crassus compare --tokens cds-     # also fail where a property stops following a design token
+crassus tokens --tokens cds-      # which tokens drive what; unused tokens; hard-coded colors
 ```
 
 Browser runs open one tab (a renderer process) per `--concurrency`, by default half the cores and at most 4, in Playwright's `chrome-headless-shell` when it's installed (`bunx playwright install chromium-headless-shell`) and otherwise the Chrome Bun finds, which may be your own. Raise it on a dedicated machine, lower it beside other work.
@@ -86,6 +88,7 @@ Browser runs open one tab (a renderer process) per `--concurrency`, by default h
 | `--group-by <how>` | `bisect`: segments of consecutive commits of one conventional-commit type (`type`, default) or one per commit (`commit`). |
 | `--no-split` | `bisect`: report a segment with visible changes as it is, instead of halving it down to the commits that made them. |
 | `--no-scope` | `compare`, `bisect`: load every page and read every element, instead of only what the changed rules can reach. |
+| `--tokens <prefix>` | `compare`, `bisect`: trace design tokens (custom properties with this prefix; `cds-` for `--cds-*`, or `browser.tokens` in the config). `tokens`: the prefix to report on. |
 | `--report <dir>` | `compare`, `bisect`: write change cards to this directory (with `--explain` and `--visual`). `explain`, `repro`, `verify`, `approve`: the report to read (default `.crassus/report`). |
 | `--explain` | `compare`, `bisect` (Chrome): for each changed property, the declaration that won on each side, at its source through the stylesheet's source map. |
 | `--visual` | `compare`, `bisect` (Chrome): screenshot every changed element on both sides, in its forced state, and count those whose pixels differ. |
@@ -118,6 +121,10 @@ Findings point at the authoring source (`css/_button.scss:42`) when the styleshe
 - `crassus explain <id>` prints it as Markdown (`--format json` for the card), any unique prefix of the id will do;
 - `crassus repro <id>` writes `repro/<id>.html`: the element in its ancestors, each side's stylesheet cut down to the rules that can style it (states and pseudo-elements relaxed as `compare` does), and a toggle;
 - `crassus verify <id>` compares the report's base stylesheet with the project's now on the card's pages, says per property whether its elements match base again, and exits 0 once they all do.
+
+With `--tokens cds-` (or `browser.tokens: "--cds-"`), `compare` and `bisect` also check what drives each value. After reading a page, they set every custom property with the prefix to a sentinel of its type (a hue of its own for a color, an odd length, a font family named after it), read the same elements again, and note which properties carry which token's sentinel. A property that followed a token on base and follows none on head is **token-detached**: it stopped changing with the theme, whatever its pixels say, and it fails the run, even when its value is the same (listed apart in the report) or the element is hidden now. One that follows other tokens is re-tokened, shown but not failed on. Each change group says how many of its elements detached and from which tokens, and change cards get a `token-detached` verdict that comes before `visible`. The TooltipDefinition regression (`28e700f30..7e301af6f`) is one: the trigger's `color` followed `--cds-text-01` and now comes from the user agent's `button` rule, ΔE about 4. Tracing reads each page once more, in unforced states only, and only finds tokens used directly (`var()`), not through `calc()` or `color-mix()`. On carbon-components-svelte's 124 fixture pages it took the TooltipDefinition regression's compare from 18.6 s to 19.0 s (`eval/carbon/tokens.ts`).
+
+`crassus tokens --tokens cds-` reports, over the fixtures as built, which tokens drive which properties on how many elements and pages, the traced tokens nothing follows, and colors that follow no token, by property and value, in two lists: hard-coded, where an author rule (or style attribute) sets a literal, and user agent defaults, where none does (a `<button>`'s `buttontext`; on a themed element, a missed token). A color an element inherits counts once, where it's set. Each list says what it leaves out, per entry and in all: colors on elements no one can see, and inherited ones (`omitted` in JSON). Evidence, bounded by the fixtures. On carbon-components-svelte (white, 1280 × 900) it traced 356 `--cds-*` tokens over 124 pages in 23.6 s: 120 followed, 236 unused, and among the colors that follow none, the avatars' background colors.
 
 `crassus approve <id...>` records cards as intended changes in `crassus.approved.json` at the project root, with the changes each made (`property: before -> after`): the Jest-snapshot workflow for computed styles. Once the file exists, `compare` and `bisect` build cards on every run (turning on `--explain`) and fail only on a visible card it doesn't approve, or on elements on one side only. A card is approved when its id is and every change it makes is one approved, so the same cause on more elements stays approved and new values don't. `bisect` halves, and reports, only what isn't approved. The terminal lists the cards it would fail on with the `crassus approve` line to run, and the HTML report has a checkbox per card that builds it. Commit the file with the change it approves.
 
@@ -226,6 +233,7 @@ export default defineConfig({
 | `themeAttribute` | The `<html>` attribute a theme is set as (default `theme`). |
 | `sheetMarker` | Text only the library stylesheet contains; `usage` needs it to tell that sheet from the page's others. |
 | `viewports` | `{ width, height }[]` (default 1280 × 900). Cover your breakpoints: at one width, rules for the others read as never matched. |
+| `tokens` | The design tokens' custom-property prefix (`--cds-`): `compare` and `bisect` trace them, and `tokens` reports on them. |
 | `readySelector`, `readyTimeoutMs` | Wait after load until the selector matches (up to 5 s by default). Pages that never match are reported. |
 | `settleMs` | `capture`: wait after load (default 500). |
 | `engine`, `concurrency`, `chromePath` | Defaults for `--engine` and `--concurrency`, and the Chrome binary. |
@@ -272,7 +280,9 @@ Both browser runs take:
 - `viewports: { width, height }[]`: every page at each size (default one, 1280 × 900; `width`/`height` still set a single one). Use enough to cover the stylesheet's `min-width`/`max-width` breakpoints, or rules outside them read as never matched. With several, capture files are named `<name>.<theme>.<W>x<H>.json.gz`.
 - `readySelector` (and `readyTimeoutMs`, default 5000): wait after load until the selector matches, for content that mounts late. A page that never matches is still read, and returned in `notReady`.
 
-`IncompleteCaptureError` is exported too. Types: `CaptureOptions`, `CompareOptions`, `Impact`, `Report`, `Card`, `CardChange`, `CardElement`, `Cause`, `Fix`, `Verdict` (the shape of `report.json`), `ServeOptions`, `UsageOptions`, `UsageFile`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`, `Uncompared`, `Winner`, `Explained`.
+`compareCss` also takes `tokens` (a custom-property prefix) to trace design tokens, which fills `pages[].tokens` (`TokenChange`: what a property followed on each side) and `groups[].tokens`.
+
+`IncompleteCaptureError` is exported too. Types: `CaptureOptions`, `CompareOptions`, `Impact`, `TokenChange`, `Report`, `Card`, `CardChange`, `CardElement`, `Cause`, `Fix`, `Verdict` (the shape of `report.json`), `ServeOptions`, `UsageOptions`, `UsageFile`, `Snapshot`, `Viewport`, `SnapshotDiff`, `SnapshotPageDiff`, `SnapshotDiffOptions`, `PageDiff`, `PropertyChange`, `ChangeGroup`, `Uncompared`, `Winner`, `Explained`.
 
 ## Features
 

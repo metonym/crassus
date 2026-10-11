@@ -45,6 +45,7 @@ export interface BrowserFlags {
   matcher?: string;
   concurrency?: string;
   url?: string;
+  tokens?: string;
 }
 
 const VIEWPORT_RE = /^(\d+)x(\d+)$/;
@@ -84,6 +85,12 @@ function settings(config: Config, flags: BrowserFlags) {
   return {
     browser,
     states: !flags.noStates,
+    /** Design-token prefix to trace (`compare`, `bisect`, `tokens`). */
+    // `cds-` or `--cds-`: the shell can't pass a value that starts with `--`.
+    tokens: (() => {
+      const t = flags.tokens ?? browser.tokens;
+      return t && (t.startsWith("--") ? t : `--${t}`);
+    })(),
     /** What `capture` and `runUsage` share. */
     pages: {
       engine,
@@ -271,7 +278,16 @@ export const fails = (
     ? blocking(report.cards).length > 0 || domDiffers(diff)
     : differs(diff);
 
+/** Properties that stopped following a design token anywhere. */
+const detached = (diff: SnapshotDiff) =>
+  diff.pages.some((p) =>
+    Object.values(p.tokens ?? {}).some((props) =>
+      Object.values(props).some((t) => t.head.length === 0),
+    ),
+  );
+
 export const differs = (diff: SnapshotDiff) =>
+  detached(diff) ||
   diff.groups.some((g) => !g.invisible) ||
   diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
   diff.onlyBase.length > 0 ||
@@ -383,7 +399,7 @@ export function comparer(opts: {
   report?: boolean;
 }) {
   const { flags, cwd } = opts;
-  const { browser, states, pages } = settings(opts.config, flags);
+  const { browser, states, pages, tokens } = settings(opts.config, flags);
   const marker = needMarker(browser, "compare");
   if (flags.url)
     throw new UsageError("compare serves the fixtures twice: drop --url");
@@ -426,6 +442,7 @@ export function comparer(opts: {
         indexDir: cacheDir(cwd),
         onImpact,
         report: opts.report,
+        tokens,
       });
       if (opts.explain) attribute(diff, diff.library, sides);
       const { ms, notReady, library: _, crops, ...result } = diff;
@@ -604,6 +621,92 @@ export async function changeCards(o: {
       label: relative(o.cwd, resolve(o.cwd, o.dir)),
     });
   return report;
+}
+
+/**
+ * `crassus tokens`: which design tokens drive which properties on the
+ * fixtures, unused tokens and hard-coded colors. Always exit 0: evidence.
+ */
+export async function tokensCommand(opts: {
+  config: Config;
+  flags: BrowserFlags;
+  format: "human" | "json";
+  io: Io;
+}): Promise<number> {
+  const { flags, io } = opts;
+  const { browser, pages, tokens } = settings(opts.config, flags);
+  if (!tokens)
+    throw new UsageError(
+      "tokens needs a prefix: --tokens cds- (for --cds-*) or `browser.tokens` in crassus.config.ts",
+    );
+  const { traceTokens } = await import("../browser/tokens");
+  const r = await withFixtures(io.cwd, browser, flags, (baseUrl, fixtures) =>
+    traceTokens({
+      ...pages,
+      baseUrl,
+      fixtures,
+      emulate: EMULATE[pages.engine],
+      settleMs: browser.settleMs,
+      prefix: tokens,
+    }),
+  );
+  if (opts.format === "json") {
+    io.out(
+      JSON.stringify(
+        {
+          schema: 1,
+          command: "tokens",
+          claim: "evidence",
+          prefix: tokens,
+          ...r,
+        },
+        null,
+        2,
+      ),
+    );
+    return 0;
+  }
+  const used = Object.entries(r.used).sort(
+    (a, b) => b[1].elements - a[1].elements,
+  );
+  const top = (props: Record<string, number>) =>
+    Object.entries(props)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([p, n]) => `${p} ${n}`)
+      .join(", ");
+  io.out(
+    [
+      `crassus: ${r.traced} ${tokens}* token(s) traced over ${plural(r.pages, "page")} in ${seconds(r.ms)}: ${used.length} followed, ${r.unused.length} unused (evidence, bounded by the fixtures)`,
+      "",
+      "Most followed:",
+      ...used
+        .slice(0, 15)
+        .map(
+          ([name, u]) =>
+            `  ${name}  ${u.elements} element(s) on ${u.pages.length} page(s): ${top(u.properties)}`,
+        ),
+      ...(r.unused.length
+        ? [
+            "",
+            `Unused on the fixtures: ${r.unused.slice(0, 30).join(", ")}${r.unused.length > 30 ? `, and ${r.unused.length - 30} more (--format json lists them)` : ""}`,
+          ]
+        : []),
+      ...(r.hardCoded.length
+        ? [
+            "",
+            "Colors that follow no token (hard-coded), most common first:",
+            ...r.hardCoded
+              .slice(0, 15)
+              .map(
+                (h) =>
+                  `  ${h.count}×  ${h.property}: ${h.value}  e.g. ${h.examples[0].page}  ${h.examples[0].path}`,
+              ),
+          ]
+        : []),
+    ].join("\n"),
+  );
+  return 0;
 }
 
 /** `crassus usage`: writes usage.json and report.md. Always exit 0: evidence, not proof. */

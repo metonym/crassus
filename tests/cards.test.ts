@@ -9,7 +9,11 @@ import {
   emptyApprovals,
   isApproved,
 } from "../src/core/cards";
-import type { PropertyChange, Winner } from "../src/core/snapshot-diff";
+import {
+  diffTokens,
+  type PropertyChange,
+  type Winner,
+} from "../src/core/snapshot-diff";
 import { shortHash } from "../src/core/util";
 
 const rule = (selector: string, line: number, changed = false): Winner => ({
@@ -161,6 +165,7 @@ describe("buildCards", () => {
       ["invisible", "display: none"],
     ]);
     expect(buildReport("compare", "a", "b", cards).summary).toEqual({
+      "token-detached": 0,
       visible: 0,
       imperceptible: 1,
       invisible: 1,
@@ -269,5 +274,74 @@ describe("approvals", () => {
     );
     expect(report.summary.approved).toBe(1);
     expect(blocking(report.cards).map((c) => c.id)).toEqual([all[1].id]);
+  });
+});
+
+describe("token tracing", () => {
+  it("diffTokens keeps what stopped following a token or follows others", () => {
+    expect(
+      diffTokens(
+        {
+          a: { color: ["--x-text"], "background-color": ["--x-bg"] },
+          b: { color: ["--x-text"] },
+          c: { color: ["--x-text"] },
+        },
+        { a: { color: ["--x-text"] }, b: { color: ["--x-ink"] } },
+        { a: { "background-color": "rgb(1, 1, 1)" } },
+      ),
+    ).toEqual({
+      a: {
+        "background-color": {
+          base: ["--x-bg"],
+          head: [],
+          value: "rgb(1, 1, 1)",
+        },
+      },
+      b: { color: { base: ["--x-text"], head: ["--x-ink"] } },
+      c: { color: { base: ["--x-text"], head: [] } },
+    });
+  });
+
+  it("makes token-detached cards, even where the element is hidden, and blocks on them", () => {
+    const traced = {
+      ...page("a.white", {
+        "body>p": {
+          changes: [color()],
+          explain: { color: [LOST, UA] },
+        },
+        "body>div": {
+          changes: [{ ...color(), invisible: "display: none" }],
+          explain: { color: [LOST, UA] },
+        },
+      }),
+      tokens: {
+        "body>p": { color: { base: ["--x-text"], head: [] } },
+        "body>div": { color: { base: ["--x-text"], head: [] } },
+        // No value change: a card of its own.
+        "body>i": {
+          "border-top-color": {
+            base: ["--x-line"],
+            head: [],
+            value: "rgb(0, 0, 0)",
+          },
+        },
+      },
+    };
+    const cards = buildCards([{ pages: [traced] }]);
+    expect(cards.map((c) => [c.verdict, c.elements.length, c.title])).toEqual([
+      [
+        "token-detached",
+        2,
+        "`.t .trigger` (css/_a.scss:148) no longer sets color; `button` wins instead",
+      ],
+      ["token-detached", 1, "border-top-color no longer follows --x-line"],
+    ]);
+    expect(cards[0].tokens).toEqual({
+      detached: 2,
+      retokened: 0,
+      from: ["--x-text"],
+      to: [],
+    });
+    expect(blocking(cards)).toHaveLength(2);
   });
 });

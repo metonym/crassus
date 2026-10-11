@@ -75,8 +75,18 @@ export interface BrowserConfig {
   readySelector?: string;
   /** Default 5000. */
   readyTimeoutMs?: number;
+  /**
+   * Fixtures known never to match `readySelector` (one that renders into an
+   * iframe): still read, but no warning and no failed run.
+   */
+  allowNotReady?: string[];
   /** `capture`: wait this long after load (and readiness). Default 500. */
   settleMs?: number;
+  /**
+   * `compare`, `bisect`, `tokens`: the design tokens' custom-property
+   * prefix (`--cds-`), to trace which properties follow them.
+   */
+  tokens?: string;
   /** Default `chrome`. `webkit` is the system WebKit (macOS). */
   engine?: "chrome" | "webkit";
   /** Tabs in parallel. Default: half the cores, at most 4. */

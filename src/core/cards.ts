@@ -4,25 +4,38 @@
 // as JSON (`crassus/report@1`), HTML, Markdown, a terminal summary and SARIF.
 import {
   type DeltaE,
+  type Explained,
   IMPERCEPTIBLE,
   type Inspected,
   type PageDiff,
+  type PropertyChange,
+  type TokenChange,
+  tokenChangeOf,
   type Winner,
 } from "./snapshot-diff";
 import { shortHash } from "./util";
 
 const REPORT_SCHEMA = "crassus/report@1";
 
-export type Verdict = "visible" | "imperceptible" | "invisible";
+/**
+ * `token-detached`: a property that followed a design token on base no
+ * longer does, whatever its pixels (with `compare`'s `tokens`).
+ */
+export type Verdict =
+  | "token-detached"
+  | "visible"
+  | "imperceptible"
+  | "invisible";
 
 export interface Cause {
   /**
    * `lost`: a rule that differs between the sides set these on base and
    * no longer does. `won`: one now sets them on head. `shifted`: the
    * winners differ but neither rule changed (the cascade moved around
-   * them). `value`: no winners known (run with `explain`).
+   * them). `value`: no winners known (run with `explain`). `token`:
+   * no value changed, but what drives it did (see `Card.tokens`).
    */
-  kind: "lost" | "won" | "shifted" | "value";
+  kind: "lost" | "won" | "shifted" | "value" | "token";
   /** The rule that changed, for `lost` and `won`. */
   rule?: Winner;
   /** The winners on each side, when they're the same for every element. */
@@ -86,6 +99,13 @@ export interface Card {
   alt: string;
   /** Set when `crassus.approved.json` approves it: an intended change. */
   approved?: true;
+  /** With token tracing: its changes that stopped following a token, or follow others. */
+  tokens?: {
+    detached: number;
+    retokened: number;
+    from: string[];
+    to: string[];
+  };
   /** The changed rule at its source, when it could be read. */
   source?: {
     file: string;
@@ -161,9 +181,13 @@ export function approve(approvals: Approvals, cards: Card[]): Approvals {
   };
 }
 
-/** Visible cards no approval covers: what fails a run. */
+/** Visible or token-detached cards no approval covers: what fails a run. */
 export const blocking = (cards: Card[]) =>
-  cards.filter((c) => c.verdict === "visible" && !c.approved);
+  cards.filter(
+    (c) =>
+      (c.verdict === "visible" || c.verdict === "token-detached") &&
+      !c.approved,
+  );
 
 type Page = { file: string } & Pick<PageDiff, "changed"> & Inspected;
 
@@ -187,6 +211,12 @@ interface Slot {
   elements: Map<string, CardElement>;
   bases: Set<string>;
   heads: Set<string>;
+  tokens?: {
+    detached: number;
+    retokened: number;
+    from: Set<string>;
+    to: Set<string>;
+  };
 }
 
 /**
@@ -204,8 +234,84 @@ export function buildCards(
   }[],
 ): Card[] {
   const slots = new Map<string, Slot>();
+  const add = (
+    run: (typeof runs)[number],
+    page: Page,
+    path: string,
+    c: PropertyChange,
+    cause: Cause,
+    key: string,
+    invisible: string | undefined,
+    explained?: Explained,
+  ) => {
+    let slot = slots.get(key);
+    if (!slot) {
+      slot = {
+        key,
+        cause,
+        ...(invisible && { invisible }),
+        commits: new Map(),
+        changes: new Map(),
+        elements: new Map(),
+        bases: new Set(),
+        heads: new Set(),
+      };
+      slots.set(key, slot);
+    }
+    for (const commit of run.commits ?? [])
+      slot.commits.set(commit.sha, commit.subject);
+    if (explained) {
+      slot.bases.add(winnerKey(explained.base));
+      slot.heads.add(winnerKey(explained.head));
+    }
+    const token = tokenChangeOf(page.tokens, path, c);
+    if (token) {
+      slot.tokens ??= {
+        detached: 0,
+        retokened: 0,
+        from: new Set(),
+        to: new Set(),
+      };
+      slot.tokens[token.head.length ? "retokened" : "detached"]++;
+      for (const t of token.base) slot.tokens.from.add(t);
+      for (const t of token.head) slot.tokens.to.add(t);
+    }
+    const ck = changeKey(c);
+    const change = slot.changes.get(ck) ?? {
+      property: c.property,
+      before: c.before,
+      after: c.after,
+      count: 0,
+    };
+    change.count++;
+    if (c.aliases)
+      change.aliases = [
+        ...new Set([...(change.aliases ?? []), ...c.aliases]),
+      ].sort();
+    slot.changes.set(ck, change);
+    const elKey = `${run.commit ?? ""}\0${page.file}\0${path}`;
+    let el = slot.elements.get(elKey);
+    if (!el) {
+      const w = page.where?.[path];
+      el = {
+        page: page.file,
+        path,
+        ...(run.commit && { commit: run.commit }),
+        ...(w?.selector && { selector: w.selector }),
+        properties: [],
+        ...(page.pixels?.[path] !== undefined && {
+          pixels: page.pixels[path],
+        }),
+        ...(page.deltaE?.[path] && { deltaE: page.deltaE[path] }),
+        ...(w?.html && { html: w.html }),
+        ...(w?.ancestors && { ancestors: w.ancestors }),
+      };
+      slot.elements.set(elKey, el);
+    }
+    if (!el.properties.includes(c.property)) el.properties.push(c.property);
+  };
   for (const run of runs)
-    for (const page of run.pages)
+    for (const page of run.pages) {
       for (const [path, changes] of Object.entries(page.changed)) {
         const explained = page.explain?.[path] ?? {};
         const own = (property: string): Cause | undefined => {
@@ -223,6 +329,10 @@ export function buildCards(
               kind: e ? "shifted" : "value",
               ...(e && { base: e.base, head: e.head }),
             };
+          // A detached token shows wherever the element does: no card apart.
+          const token = tokenChangeOf(page.tokens, path, c);
+          const invisible =
+            token && token.head.length === 0 ? undefined : c.invisible;
           const key = [
             cause.kind,
             // However it reached the element, the same rule is one cause.
@@ -231,65 +341,55 @@ export function buildCards(
               : cause.kind === "shifted"
                 ? `${winnerKey(cause.base)}>${winnerKey(cause.head)}`
                 : `${c.property}:${c.before}>${c.after}`,
-            c.invisible ?? "",
+            invisible ?? "",
           ].join("|");
-          let slot = slots.get(key);
-          if (!slot) {
-            slot = {
-              key,
-              cause,
-              ...(c.invisible && { invisible: c.invisible }),
-              commits: new Map(),
-              changes: new Map(),
-              elements: new Map(),
-              bases: new Set(),
-              heads: new Set(),
-            };
-            slots.set(key, slot);
-          }
-          for (const commit of run.commits ?? [])
-            slot.commits.set(commit.sha, commit.subject);
-          if (e) {
-            slot.bases.add(winnerKey(e.base));
-            slot.heads.add(winnerKey(e.head));
-          }
-          const changeKey = `${c.property}\0${c.before}\0${c.after}`;
-          const change = slot.changes.get(changeKey) ?? {
-            property: c.property,
-            before: c.before,
-            after: c.after,
-            count: 0,
-          };
-          change.count++;
-          if (c.aliases)
-            change.aliases = [
-              ...new Set([...(change.aliases ?? []), ...c.aliases]),
-            ].sort();
-          slot.changes.set(changeKey, change);
-          const elKey = `${run.commit ?? ""}\0${page.file}\0${path}`;
-          let el = slot.elements.get(elKey);
-          if (!el) {
-            const w = page.where?.[path];
-            el = {
-              page: page.file,
-              path,
-              ...(run.commit && { commit: run.commit }),
-              ...(w?.selector && { selector: w.selector }),
-              properties: [],
-              ...(page.pixels?.[path] !== undefined && {
-                pixels: page.pixels[path],
-              }),
-              ...(page.deltaE?.[path] && { deltaE: page.deltaE[path] }),
-              ...(w?.html && { html: w.html }),
-              ...(w?.ancestors && { ancestors: w.ancestors }),
-            };
-            slot.elements.set(elKey, el);
-          }
-          if (!el.properties.includes(c.property))
-            el.properties.push(c.property);
+          add(run, page, path, c, cause, key, invisible, e);
         }
       }
-  const order = { visible: 0, imperceptible: 1, invisible: 2 };
+      // What drives a value changed while the value didn't: one change per
+      // element and token change, its properties folded.
+      for (const [path, props] of Object.entries(page.tokens ?? {})) {
+        const changed = page.changed[path] ?? [];
+        const covered = new Set(
+          changed.flatMap((c) => [c.property, ...(c.aliases ?? [])]),
+        );
+        const by = new Map<string, [string, TokenChange][]>();
+        for (const [property, t] of Object.entries(props)) {
+          if (covered.has(property)) continue;
+          const k = `${t.base.join()}>${t.head.join()}`;
+          by.set(k, [...(by.get(k) ?? []), [property, t]]);
+        }
+        for (const [k, list] of by) {
+          const names = list.map(([p]) => p).sort();
+          const property = names.includes("color") ? "color" : names[0];
+          const t = list.find(([p]) => p === property)?.[1] ?? list[0][1];
+          const value = t.value ?? "";
+          const c: PropertyChange = {
+            property,
+            before: value,
+            after: value,
+            ...(names.length > 1 && {
+              aliases: names.filter((n) => n !== property),
+            }),
+          };
+          add(
+            run,
+            page,
+            path,
+            c,
+            { kind: "token" },
+            `token|${property}|${k}|`,
+            undefined,
+          );
+        }
+      }
+    }
+  const order: Record<Verdict, number> = {
+    "token-detached": 0,
+    visible: 1,
+    imperceptible: 2,
+    invisible: 3,
+  };
   return [...slots.values()]
     .map(toCard)
     .sort(
@@ -323,12 +423,17 @@ function toCard(slot: Slot): Card {
         mean: deltas.reduce((n, d) => n + d.mean, 0) / deltas.length,
       }
     : undefined;
-  const verdict: Verdict = slot.invisible
-    ? "invisible"
-    : pixels && checked.length === elements.length && !checked.some(perceptible)
-      ? "imperceptible"
-      : "visible";
-  // Winners every element shares, worth naming.
+  // A detached token is a broken contract even where it's hidden now.
+  const verdict: Verdict = slot.tokens?.detached
+    ? "token-detached"
+    : slot.invisible
+      ? "invisible"
+      : slot.cause.kind === "token" ||
+          (pixels &&
+            checked.length === elements.length &&
+            !checked.some(perceptible))
+        ? "imperceptible"
+        : "visible";
   const cause = slot.cause;
   // Winners every element shares, worth naming.
   const other = (side: "bases" | "heads") =>
@@ -363,6 +468,13 @@ function toCard(slot: Slot): Card {
       text: `\`${rule.selector}\` now wins ${props} on these elements. If it shouldn't, narrow its selector or lower its specificity below what won before.`,
       ...target,
     };
+  } else if (cause.kind === "token" && slot.tokens) {
+    const from = [...slot.tokens.from].join(", ");
+    const to = [...slot.tokens.to].join(", ");
+    const s = properties.length === 1 ? "s" : "";
+    title = to
+      ? `${props} follow${s} ${to} instead of ${from}`
+      : `${props} no longer follow${s} ${from}`;
   } else if (cause.kind === "shifted")
     title = `${props}: ${cause.base ? where(cause.base) : "no declaration"} -> ${cause.head ? where(cause.head) : "no declaration"}`;
   else
@@ -385,6 +497,14 @@ function toCard(slot: Slot): Card {
     ...(pixels && { pixels }),
     ...(deltaE && { deltaE }),
     ...(fix && { fix }),
+    ...(slot.tokens && {
+      tokens: {
+        detached: slot.tokens.detached,
+        retokened: slot.tokens.retokened,
+        from: [...slot.tokens.from].sort(),
+        to: [...slot.tokens.to].sort(),
+      },
+    }),
     ...(slot.commits.size && {
       commits: [...slot.commits].map(([sha, subject]) => ({ sha, subject })),
     }),
@@ -400,7 +520,13 @@ export function buildReport(
   cards: Card[],
   approvals?: Approvals,
 ): Report {
-  const summary = { visible: 0, imperceptible: 0, invisible: 0, approved: 0 };
+  const summary = {
+    "token-detached": 0,
+    visible: 0,
+    imperceptible: 0,
+    invisible: 0,
+    approved: 0,
+  };
   for (const c of cards) {
     summary[c.verdict]++;
     if (approvals && isApproved(c, approvals)) {
