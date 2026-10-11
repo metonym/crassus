@@ -3,16 +3,15 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import type { Card, Report } from "../core/cards";
+import { approve, type Card, emptyApprovals, type Report } from "../core/cards";
 import type { Config } from "../core/config";
 import { type BrowserFlags, comparer, pick } from "./browser";
-import { formatCard } from "./cards";
+import { APPROVED_FILE, DEFAULT_DIR, formatCard, readApprovals } from "./cards";
 import type { Io } from "./main";
 import { stylesheets, UsageError } from "./project";
 import type { Sheet } from "./sources";
 
-/** Where `--report` writes when given no directory, and where these commands look. */
-export const DEFAULT_REPORT = ".crassus/report";
+export { DEFAULT_DIR as DEFAULT_REPORT } from "./cards";
 
 interface Inputs {
   command: Report["command"];
@@ -22,18 +21,68 @@ interface Inputs {
   flags: BrowserFlags;
 }
 
-async function load(
-  cwd: string,
-  dir: string | undefined,
-  id: string,
-): Promise<{ report: Report & { inputs: Inputs }; card: Card; dir: string }> {
-  const at = resolve(cwd, dir ?? DEFAULT_REPORT);
+async function readReport(cwd: string, dir: string | undefined) {
+  const at = resolve(cwd, dir ?? DEFAULT_DIR);
   const file = join(at, "report.json");
   if (!existsSync(file))
     throw new UsageError(
       `no report at ${relative(cwd, at) || "."}: run crassus compare --report first`,
     );
-  const report = (await Bun.file(file).json()) as Report & { inputs: Inputs };
+  return {
+    report: (await Bun.file(file).json()) as Report & { inputs: Inputs },
+    file,
+    at,
+  };
+}
+
+function cardOf(report: Report, id: string, cwd: string, file: string): Card {
+  const matches = report.cards.filter((c) => c.id.startsWith(id));
+  if (matches.length !== 1)
+    throw new UsageError(
+      matches.length
+        ? `${id} matches ${matches.length} cards: ${matches.map((c) => c.id).join(", ")}`
+        : `no card ${id} in ${relative(cwd, file)}`,
+    );
+  return matches[0];
+}
+
+/**
+ * `crassus approve <id…>`: records the cards as intended in
+ * crassus.approved.json, so compare and bisect stop failing on them.
+ */
+export async function approveCommand(opts: {
+  ids: string[];
+  report?: string;
+  io: Io;
+}): Promise<number> {
+  if (opts.ids.length === 0)
+    throw new UsageError("approve takes the ids of the cards to approve");
+  const { cwd } = opts.io;
+  const { report, file } = await readReport(cwd, opts.report);
+  const cards = opts.ids.map((id) => cardOf(report, id, cwd, file));
+  const approvals = approve(
+    (await readApprovals(cwd)) ?? emptyApprovals(),
+    cards,
+  );
+  await Bun.write(
+    join(cwd, APPROVED_FILE),
+    `${JSON.stringify(approvals, null, 2)}\n`,
+  );
+  opts.io.out(
+    [
+      `crassus: approved ${cards.length} card(s) in ${APPROVED_FILE}:`,
+      ...cards.map((c) => `  ${c.id}  ${c.title}`),
+    ].join("\n"),
+  );
+  return 0;
+}
+
+async function load(
+  cwd: string,
+  dir: string | undefined,
+  id: string,
+): Promise<{ report: Report & { inputs: Inputs }; card: Card; dir: string }> {
+  const { report, file, at } = await readReport(cwd, dir);
   const matches = report.cards.filter((c) => c.id.startsWith(id));
   if (matches.length !== 1)
     throw new UsageError(

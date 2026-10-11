@@ -1,7 +1,14 @@
 // Change cards: one per root cause (the changed rule among the winners),
 // with stable ids, a verdict and a fix from provenance.
 
-import { buildCards, buildReport } from "../src/core/cards";
+import {
+  approve,
+  blocking,
+  buildCards,
+  buildReport,
+  emptyApprovals,
+  isApproved,
+} from "../src/core/cards";
 import type { PropertyChange, Winner } from "../src/core/snapshot-diff";
 import { shortHash } from "../src/core/util";
 
@@ -157,6 +164,7 @@ describe("buildCards", () => {
       visible: 0,
       imperceptible: 1,
       invisible: 1,
+      approved: 0,
     });
   });
 
@@ -214,4 +222,52 @@ describe("buildCards", () => {
 it("shortHash is stable and short", () => {
   expect(shortHash("a")).toBe(shortHash("a"));
   expect(shortHash("a")).not.toBe(shortHash("b"));
+});
+
+describe("approvals", () => {
+  const cards = () =>
+    cardsOn({
+      "body>p": { changes: [color()], explain: { color: [LOST, UA] } },
+      "body>i": {
+        changes: [{ property: "top", before: "0px", after: "1px" }],
+        explain: { top: [rule(".i", 9, true), null] },
+      },
+    });
+
+  it("approve records a card's changes, and covers only those", () => {
+    const all = cards();
+    const first = all.find((c) => c.changes[0].property === "color") ?? all[0];
+    const second = all.find((c) => c !== first) ?? all[1];
+    const approvals = approve(emptyApprovals(), [first]);
+    expect(approvals.approved).toEqual([
+      {
+        id: first.id,
+        title: first.title,
+        changes: [color()],
+      },
+    ]);
+    expect(isApproved(first, approvals)).toBe(true);
+    expect(isApproved(second, approvals)).toBe(false);
+    // Same cause, new values: not what was approved.
+    const moved = {
+      ...first,
+      changes: [{ ...first.changes[0], after: "rgb(1, 1, 1)" }],
+    };
+    expect(isApproved(moved, approvals)).toBe(false);
+    // Approving again replaces the entry.
+    expect(approve(approvals, [moved, second]).approved).toHaveLength(2);
+  });
+
+  it("only visible, unapproved cards block", () => {
+    const all = cards();
+    const report = buildReport(
+      "compare",
+      "a",
+      "b",
+      all,
+      approve(emptyApprovals(), [all[0]]),
+    );
+    expect(report.summary.approved).toBe(1);
+    expect(blocking(report.cards).map((c) => c.id)).toEqual([all[1].id]);
+  });
 });

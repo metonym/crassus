@@ -6,7 +6,14 @@ import { join, relative, resolve } from "node:path";
 import type { Crops, Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { UsageFile } from "../browser/usage";
-import { buildCards, buildReport, type Card, type Report } from "../core/cards";
+import {
+  type Approvals,
+  blocking,
+  buildCards,
+  buildReport,
+  type Card,
+  type Report,
+} from "../core/cards";
 import type { BrowserConfig, Config } from "../core/config";
 import { atRef, baseStylesheets, cacheDir } from "./baseline";
 import {
@@ -14,6 +21,7 @@ import {
   formatCardsMarkdown,
   formatCardsSarif,
   formatCardsSummary,
+  readApprovals,
   writeReport,
 } from "./cards";
 import type { Io } from "./main";
@@ -244,6 +252,25 @@ export async function captureCommand(opts: {
 
 // Properties one side didn't record, and changes no one can see, are listed
 // for review, not failed on.
+/** Elements or pages on one side only: what cards don't cover. */
+const domDiffers = (diff: SnapshotDiff) =>
+  diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
+  diff.onlyBase.length > 0 ||
+  diff.onlyHead.length > 0;
+
+/**
+ * Whether a comparison fails: with approvals, on a visible card none
+ * covers (or a DOM difference); without, on any visible change.
+ */
+export const fails = (
+  diff: SnapshotDiff,
+  report: Report | undefined,
+  approvals: Approvals | undefined,
+) =>
+  report && approvals
+    ? blocking(report.cards).length > 0 || domDiffers(diff)
+    : differs(diff);
+
 export const differs = (diff: SnapshotDiff) =>
   diff.groups.some((g) => !g.invisible) ||
   diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
@@ -431,7 +458,9 @@ export async function compareCommand(opts: {
 }): Promise<number> {
   const { io, files } = opts;
   const { cwd } = io;
-  const cards = cardsWanted(opts);
+  const approvals = await readApprovals(cwd);
+  // Approvals are by card: they need the winners.
+  const cards = cardsWanted(opts) || Boolean(approvals);
   const cmp = comparer({
     ...opts,
     cwd,
@@ -499,6 +528,7 @@ export async function compareCommand(opts: {
         shas: () => ({ base: baseSha }),
         css: { base: sides.base.css, head: sides.head.css },
         dir: opts.report,
+        approvals,
         inputs: {
           entry,
           base: files[0] ?? opts.base ?? "HEAD",
@@ -523,7 +553,7 @@ export async function compareCommand(opts: {
   );
   if (notReady.length)
     io.err(notReadyLine(notReady, cmp.pages.readySelector, "compared"));
-  return differs(result) || notReady.length > 0 ? 1 : 0;
+  return fails(result, report, approvals) || notReady.length > 0 ? 1 : 0;
 }
 
 export const COMPARE_FORMATS = ["human", "json", "markdown", "sarif"] as const;
@@ -554,9 +584,16 @@ export async function changeCards(o: {
   shas: (card: Card) => { base?: string; head?: string };
   css: { base: string; head: string };
   dir?: string;
+  approvals?: Approvals;
   inputs: object;
 }): Promise<Report> {
-  const report = buildReport(o.command, o.base, o.head, buildCards(o.runs));
+  const report = buildReport(
+    o.command,
+    o.base,
+    o.head,
+    buildCards(o.runs),
+    o.approvals,
+  );
   await attachSources(report, { cwd: o.cwd, shas: o.shas });
   if (o.dir)
     await writeReport(resolve(o.cwd, o.dir), report, {
@@ -564,6 +601,7 @@ export async function changeCards(o: {
       base: o.css.base,
       head: o.css.head,
       inputs: { command: o.command, ...o.inputs },
+      label: relative(o.cwd, resolve(o.cwd, o.dir)),
     });
   return report;
 }

@@ -7,6 +7,7 @@ import { relative, resolve } from "node:path";
 import { $ } from "bun";
 import type { Crops } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
+import { buildCards, buildReport } from "../core/cards";
 import type { Config } from "../core/config";
 import { baseStylesheets } from "./baseline";
 import {
@@ -16,11 +17,12 @@ import {
   changeCards,
   comparer,
   differs,
+  fails,
   formatCards,
   notReadyLine,
   pick,
 } from "./browser";
-import { formatCardsSummary } from "./cards";
+import { formatCardsSummary, readApprovals } from "./cards";
 import type { Io } from "./main";
 import { UsageError } from "./project";
 import { formatSnapshotDiff, type Summary, seconds } from "./report";
@@ -53,6 +55,11 @@ export interface BisectResult {
   visible?: number;
   invisible?: number;
   diff?: SnapshotDiff;
+  /**
+   * With `crassus.approved.json`: whether a visible change no approval
+   * covers is among them (else any visible change counts).
+   */
+  fails?: boolean;
   /** The halves, when it had visible changes and more than one commit. */
   parts?: BisectResult[];
 }
@@ -144,7 +151,9 @@ export async function bisectCommand(opts: {
 }): Promise<number> {
   const { io } = opts;
   const { cwd } = io;
-  const cards = cardsWanted(opts);
+  const approvals = await readApprovals(cwd);
+  // Approvals are by card: they need the winners.
+  const cards = cardsWanted(opts) || Boolean(approvals);
   const m = opts.range.length === 1 ? RANGE_RE.exec(opts.range[0]) : null;
   if (!m) throw new UsageError("bisect takes one range: <from>..<to>");
   const groupBy = opts.groupBy as GroupBy;
@@ -217,7 +226,19 @@ export async function bisectCommand(opts: {
       invisible: count(run.result, true),
       diff: run.result,
     });
-    if (opts.split && differs(run.result) && seg.commits.length > 1) {
+    if (approvals)
+      result.fails = fails(
+        run.result,
+        buildReport(
+          "bisect",
+          seg.from,
+          seg.to,
+          buildCards([{ pages: run.result.pages }]),
+          approvals,
+        ),
+        approvals,
+      );
+    if (opts.split && failing(result) && seg.commits.length > 1) {
       const mid = Math.ceil(seg.commits.length / 2);
       const halves: Segment[] = [
         {
@@ -281,6 +302,7 @@ export async function bisectCommand(opts: {
           head: (await cssAt(commits.at(-1)?.sha ?? from)).css,
         },
         dir: opts.report,
+        approvals,
         inputs: {
           entry: opts.entry[0],
           base: from,
@@ -294,7 +316,7 @@ export async function bisectCommand(opts: {
     cardReport && opts.format !== "human" && opts.format !== "json"
       ? formatCards(cardReport, opts.format)
       : report(opts.format === "json" ? "json" : "human") +
-          (cardReport
+          (cardReport?.cards.length
             ? `\n\n${formatCardsSummary(cardReport, opts.report && (relative(cwd, resolve(cwd, opts.report)) || "."))}`
             : ""),
   );
@@ -303,10 +325,13 @@ export async function bisectCommand(opts: {
   return found(results).length > 0 || notReady.size > 0 ? 1 : 0;
 }
 
+const failing = (r: BisectResult) =>
+  r.fails ?? Boolean(r.diff && differs(r.diff));
+
 /** The narrowest results with visible changes: where the halves don't show them. */
 export function found(results: BisectResult[]): BisectResult[] {
   return results.flatMap((r) => {
-    if (!r.diff || !differs(r.diff)) return [];
+    if (!failing(r)) return [];
     const inner = found(r.parts ?? []);
     return inner.length > 0 ? inner : [r];
   });
@@ -336,7 +361,7 @@ function formatBisect(
     r.css === "unchanged"
       ? "CSS unchanged"
       : r.visible
-        ? `${r.visible} visible change(s)${r.invisible ? `, ${r.invisible} invisible` : ""}`
+        ? `${r.visible} visible change(s)${r.invisible ? `, ${r.invisible} invisible` : ""}${r.fails === false ? ", all approved" : ""}`
         : `no visible change${r.invisible ? ` (${r.invisible} invisible)` : ""}`;
   const lines = [
     `${run.commits} commit(s) in ${run.from}..${run.to}, in ${run.segments.length} segment(s) by ${run.groupBy} (ground truth for the captured fixtures, themes, viewports and states)`,
@@ -353,7 +378,14 @@ function formatBisect(
   tree(run.segments, "  ");
   const hits = found(run.segments);
   if (hits.length === 0) {
-    lines.push("", "No commit changed what users see on the fixtures.");
+    const approved = (rs: BisectResult[]): boolean =>
+      rs.some((r) => r.fails === false || approved(r.parts ?? []));
+    lines.push(
+      "",
+      approved(run.segments)
+        ? "No commit made a visible change that crassus.approved.json doesn't approve."
+        : "No commit changed what users see on the fixtures.",
+    );
     return lines.join("\n");
   }
   for (const r of hits)

@@ -84,6 +84,8 @@ export interface Card {
   commits?: { sha: string; subject: string }[];
   /** The card in one sentence, for readers without the images. */
   alt: string;
+  /** Set when `crassus.approved.json` approves it: an intended change. */
+  approved?: true;
   /** The changed rule at its source, when it could be read. */
   source?: {
     file: string;
@@ -101,9 +103,67 @@ export interface Report {
   /** What was compared: a ref, a file, a range. */
   base: string;
   head: string;
-  summary: Record<Verdict, number>;
+  /** Cards per verdict, and how many of all are approved. */
+  summary: Record<Verdict, number> & { approved: number };
   cards: Card[];
 }
+
+const APPROVED_SCHEMA = "crassus/approved@1";
+
+/** `crassus.approved.json`: intended changes, by card. */
+export interface Approvals {
+  schema: typeof APPROVED_SCHEMA;
+  approved: {
+    id: string;
+    /** For the reader: the card's title when approved. */
+    title: string;
+    /** The changes approved: a card with any other isn't. */
+    changes: { property: string; before: string; after: string }[];
+  }[];
+}
+
+export const emptyApprovals = (): Approvals => ({
+  schema: APPROVED_SCHEMA,
+  approved: [],
+});
+
+const changeKey = (c: { property: string; before: string; after: string }) =>
+  `${c.property}\0${c.before}\0${c.after}`;
+
+/**
+ * Whether `card` is approved: its cause was, with every change it makes
+ * now. The same cause on more elements stays approved; new values don't.
+ */
+export function isApproved(card: Card, approvals: Approvals): boolean {
+  const entry = approvals.approved.find((a) => a.id === card.id);
+  if (!entry) return false;
+  const ok = new Set(entry.changes.map(changeKey));
+  return card.changes.every((c) => ok.has(changeKey(c)));
+}
+
+/** `approvals` with `cards` added (replacing earlier entries for them), sorted by id. */
+export function approve(approvals: Approvals, cards: Card[]): Approvals {
+  const ids = new Set(cards.map((c) => c.id));
+  return {
+    schema: APPROVED_SCHEMA,
+    approved: [
+      ...approvals.approved.filter((a) => !ids.has(a.id)),
+      ...cards.map((c) => ({
+        id: c.id,
+        title: c.title,
+        changes: c.changes.map(({ property, before, after }) => ({
+          property,
+          before,
+          after,
+        })),
+      })),
+    ].sort((a, b) => (a.id < b.id ? -1 : 1)),
+  };
+}
+
+/** Visible cards no approval covers: what fails a run. */
+export const blocking = (cards: Card[]) =>
+  cards.filter((c) => c.verdict === "visible" && !c.approved);
 
 type Page = { file: string } & Pick<PageDiff, "changed"> & Inspected;
 
@@ -338,12 +398,15 @@ export function buildReport(
   base: string,
   head: string,
   cards: Card[],
+  approvals?: Approvals,
 ): Report {
-  const summary: Record<Verdict, number> = {
-    visible: 0,
-    imperceptible: 0,
-    invisible: 0,
-  };
-  for (const c of cards) summary[c.verdict]++;
+  const summary = { visible: 0, imperceptible: 0, invisible: 0, approved: 0 };
+  for (const c of cards) {
+    summary[c.verdict]++;
+    if (approvals && isApproved(c, approvals)) {
+      c.approved = true;
+      summary.approved++;
+    }
+  }
   return { schema: REPORT_SCHEMA, command, base, head, summary, cards };
 }

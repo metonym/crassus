@@ -59,6 +59,7 @@ crassus compare --report out      # the same, as change cards: report.json, inde
 crassus explain <id>              # one card, for a person or an agent
 crassus repro <id>                # a standalone page that shows it
 crassus verify <id>               # whether it's fixed
+crassus approve <id...>           # or record it as intended: CI stops failing on it
 ```
 
 Browser runs open one tab (a renderer process) per `--concurrency`, by default half the cores and at most 4, in Playwright's `chrome-headless-shell` when it's installed (`bunx playwright install chromium-headless-shell`) and otherwise the Chrome Bun finds, which may be your own. Raise it on a dedicated machine, lower it beside other work.
@@ -85,7 +86,7 @@ Browser runs open one tab (a renderer process) per `--concurrency`, by default h
 | `--group-by <how>` | `bisect`: segments of consecutive commits of one conventional-commit type (`type`, default) or one per commit (`commit`). |
 | `--no-split` | `bisect`: report a segment with visible changes as it is, instead of halving it down to the commits that made them. |
 | `--no-scope` | `compare`, `bisect`: load every page and read every element, instead of only what the changed rules can reach. |
-| `--report <dir>` | `compare`, `bisect`: write change cards to this directory (with `--explain` and `--visual`). `explain`, `repro`, `verify`: the report to read (default `.crassus/report`). |
+| `--report <dir>` | `compare`, `bisect`: write change cards to this directory (with `--explain` and `--visual`). `explain`, `repro`, `verify`, `approve`: the report to read (default `.crassus/report`). |
 | `--explain` | `compare`, `bisect` (Chrome): for each changed property, the declaration that won on each side, at its source through the stylesheet's source map. |
 | `--visual` | `compare`, `bisect` (Chrome): screenshot every changed element on both sides, in its forced state, and count those whose pixels differ. |
 | `--only <text>` | Only fixtures whose name contains this. |
@@ -98,7 +99,7 @@ Browser runs open one tab (a renderer process) per `--concurrency`, by default h
 | `--url <base>` | Use a running server instead of building and serving the fixtures. |
 | `--out <dir>` | `usage`: output directory (default `.crassus/usage`). |
 
-Exit codes: `0` clean, `1` findings (dead declarations, cascade flips; for `snapshot-diff`, any difference; for `capture`, a page that never matched `readySelector`), `2` usage or build error. Review sections, like order-tie flips from moved rules, never fail a run, and `usage` always exits `0`: its findings are evidence, bounded by the fixtures.
+Exit codes: `0` clean, `1` findings (dead declarations, cascade flips; for `snapshot-diff`, any difference; for `compare` and `bisect`, a visible change, or with `crassus.approved.json` one it doesn't approve; for `capture`, `compare` and `bisect`, a page that never matched `readySelector`, unless `browser.allowNotReady` lists its fixture), `2` usage or build error. Review sections, like order-tie flips from moved rules, never fail a run, and `usage` always exits `0`: its findings are evidence, bounded by the fixtures.
 
 Findings point at the authoring source (`css/_button.scss:42`) when the stylesheet has a source map: a sibling `.map`, a `sourceMappingURL` comment, or the map a `compile` hook returns. Without one they point at the CSS.
 
@@ -117,6 +118,8 @@ Findings point at the authoring source (`css/_button.scss:42`) when the styleshe
 - `crassus explain <id>` prints it as Markdown (`--format json` for the card), any unique prefix of the id will do;
 - `crassus repro <id>` writes `repro/<id>.html`: the element in its ancestors, each side's stylesheet cut down to the rules that can style it (states and pseudo-elements relaxed as `compare` does), and a toggle;
 - `crassus verify <id>` compares the report's base stylesheet with the project's now on the card's pages, says per property whether its elements match base again, and exits 0 once they all do.
+
+`crassus approve <id...>` records cards as intended changes in `crassus.approved.json` at the project root, with the changes each made (`property: before -> after`): the Jest-snapshot workflow for computed styles. Once the file exists, `compare` and `bisect` build cards on every run (turning on `--explain`) and fail only on a visible card it doesn't approve, or on elements on one side only. A card is approved when its id is and every change it makes is one approved, so the same cause on more elements stays approved and new values don't. `bisect` halves, and reports, only what isn't approved. The terminal lists the cards it would fail on with the `crassus approve` line to run, and the HTML report has a checkbox per card that builds it. Commit the file with the change it approves.
 
 Before reading styles, `capture` pauses infinite animations at their start and finishes the others, so a spinner doesn't differ between two runs of the same CSS. It forces only states a user can reach: no `:focus` or `:active` on a disabled element, no `:focus` on one that can't take focus (a `<li>`, a link without `href`, a hidden element), and none inside `inert`.
 
