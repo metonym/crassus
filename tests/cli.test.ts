@@ -1076,6 +1076,51 @@ describe("crassus capture, snapshot-diff and usage", () => {
     );
   }, 60_000);
 
+  it("coverage tells declarations that decide a value from those that don't", async () => {
+    const LIB = [
+      ".a { color: red; padding: 1px; }",
+      // A div's margin is 0 without it.
+      ".a { margin: 0; }",
+      ".b:hover { color: blue; }",
+      ".missing { top: 0; }",
+      "@media (min-width: 9999px) { .a { left: 1px; } }",
+      "",
+    ].join("\n");
+    const root = await project({
+      "crassus.config.ts": `export default {
+        css: "site/lib.css",
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
+      };`,
+      "site/lib.css": LIB,
+      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a</div><span class="b">b</span></body></html>`,
+    });
+    const r = await cli(root, "coverage");
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      "crassus: 3 of 6 declarations decide a value the fixtures render: 50.0%",
+    );
+    expect(r.out).toContain(
+      "1 in rules no fixture element matches; 1 in rules that match, deciding nothing (overridden, or the same as what wins without them); 1 under @media or @supports that never held",
+    );
+    expect(r.out).toContain(
+      'site/lib.css:4  .missing { top: 0 }  unmatched; an element it styles: <div class="missing"></div>',
+    );
+    const json = JSON.parse((await cli(root, "coverage", "--json")).out);
+    expect(
+      json.declarations.map(
+        (d: { selector: string; property: string; status: string }) =>
+          `${d.selector} ${d.property} ${d.status}`,
+      ),
+    ).toEqual([
+      ".a color covered",
+      ".a padding covered",
+      ".a margin decides nothing",
+      ".b:hover color covered",
+      ".missing top unmatched",
+      ".a left condition never holds",
+    ]);
+  }, 60_000);
+
   it("explains winners at their source and compares screenshots", async () => {
     const root = await project({
       "crassus.config.ts": `export default {
