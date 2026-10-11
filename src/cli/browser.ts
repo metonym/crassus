@@ -65,7 +65,7 @@ function parseViewport(text: string) {
   return { width: Number(m[1]), height: Number(m[2]) };
 }
 
-function settings(config: Config, flags: BrowserFlags) {
+export function settings(config: Config, flags: BrowserFlags) {
   const { browser } = config;
   if (!browser)
     throw new UsageError(
@@ -111,7 +111,7 @@ function settings(config: Config, flags: BrowserFlags) {
 }
 
 /** Builds the fixtures in `root` (unless `--url` serves them) and lists them. */
-async function fixturePages(
+export async function fixturePages(
   root: string,
   browser: BrowserConfig,
   flags: BrowserFlags,
