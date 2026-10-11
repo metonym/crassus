@@ -24,6 +24,7 @@ import {
   readApprovals,
   writeReport,
 } from "./cards";
+import type { DiffResult } from "./commands";
 import type { Io } from "./main";
 import {
   build,
@@ -767,4 +768,55 @@ export async function usageCommand(opts: {
   if (r.notReady.length)
     io.err(notReadyLine(r.notReady, pages.readySelector, "read"));
   return 0;
+}
+
+/**
+ * `diff --confirm`: renders each cascade flip in Chrome, on a fixture page
+ * with an element both rules match (from the page index) or on one built
+ * for it, and records whether the property's value changes. Flips no
+ * fixture combination allows are dropped as never seen.
+ */
+export async function confirmDiff(opts: {
+  results: DiffResult[];
+  base: Sheet[];
+  head: Sheet[];
+  config: Config;
+  flags: BrowserFlags;
+  cwd: string;
+}): Promise<void> {
+  const { browser, pages } = settings(opts.config, opts.flags);
+  const marker = needMarker(browser, "--confirm");
+  const { path, fixtures } = await fixturePages(opts.cwd, browser, opts.flags);
+  const { pageIndex } = await import("../browser/page-index");
+  const { confirmFlips } = await import("../browser/flips");
+  const { index } = await pageIndex({
+    ...pages,
+    dir: path,
+    fixtures,
+    sheetMarker: marker,
+    emulate: EMULATE[pages.engine],
+    settleMs: browser.settleMs,
+    cacheDir: cacheDir(opts.cwd),
+  });
+  for (const r of opts.results) {
+    const flips = [...r.flips, ...r.moveFlips];
+    const base = opts.base.find((s) => s.name === r.entry);
+    const head = opts.head.find((s) => s.name === r.entry);
+    if (!flips.length || !base || !head) continue;
+    // biome-ignore lint/performance/noAwaitInLoops: one browser at a time
+    const verdicts = await confirmFlips({
+      flips: flips.map((f) => ({
+        selectors: [f.rule.selector, f.other.selector],
+        property: f.property,
+      })),
+      base: base.css,
+      head: head.css,
+      index,
+      engine: pages.engine,
+      chromePath: pages.chromePath,
+    });
+    flips.forEach((f, i) => {
+      f.confirmed = verdicts[i];
+    });
+  }
 }

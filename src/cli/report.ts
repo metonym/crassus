@@ -83,14 +83,19 @@ const flipMessage = (f: FlipFinding, review: boolean) =>
   `${f.rule.selector} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' against ${f.other.selector} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}; before it ${f.before === "wins" ? "won" : "lost"}.${review ? " Equal-specificity tie after a move." : ""} Confirm with a computed-style snapshot.`;
 
 function diffFindings(results: DiffResult[]): Finding[] {
+  // Confirmed in Chrome, the dropped ones aren't findings.
+  const kept = (f: FlipFinding) =>
+    !f.confirmed ||
+    f.confirmed.verdict === "confirmed" ||
+    f.confirmed.verdict === "unsynthesized";
   return results.flatMap(({ entry, flips, moveFlips }) => [
-    ...flips.map((f) => ({
+    ...flips.filter(kept).map((f) => ({
       rule: "cascade-flip" as const,
       entry,
       message: flipMessage(f, false),
       source: f.rule.source,
     })),
-    ...moveFlips.map((f) => ({
+    ...moveFlips.filter(kept).map((f) => ({
       rule: "order-tie-flip" as const,
       entry,
       message: flipMessage(f, true),
@@ -252,7 +257,10 @@ function diffHuman(
   const flipLines = (f: FlipFinding) =>
     `  ${located(f.rule.source, "  ")}${f.rule.selector} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' vs\n` +
     `    ${located(f.other.source, "  ")}${f.other.selector} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}\n` +
-    `    (before: ${f.before})`;
+    `    (before: ${f.before})` +
+    (f.confirmed?.verdict === "confirmed"
+      ? `\n    ${dim(`in Chrome, on ${f.confirmed.on === "synthesized" ? "an element built for it (no fixture renders one)" : f.confirmed.on}:`)} ${f.confirmed.before} -> ${f.confirmed.after}`
+      : "");
   for (const r of results) {
     const { size, counts: c } = r;
     lines.push("", bold(`## ${r.entry}`));
@@ -292,12 +300,37 @@ function diffHuman(
           `  [${where(from) || "(none)"}] ${from.selector}\n    -> [${where(to) || "(none)"}] ${to.selector}`,
       ),
     );
+    const checked = r.flips.some((f) => f.confirmed);
+    const kept = r.flips.filter(
+      (f) => !f.confirmed || f.confirmed.verdict === "confirmed",
+    );
     section(
       red(
-        "CASCADE FLIPS: winner changed against a co-matchable rule (heuristic; confirm with a computed-style snapshot)",
+        checked
+          ? "CASCADE FLIPS confirmed in Chrome: the value changes on an element both rules match"
+          : "CASCADE FLIPS: winner changed against a co-matchable rule (heuristic; confirm with a computed-style snapshot or --confirm)",
       ),
-      r.flips.map(flipLines),
+      kept.map(flipLines),
     );
+    if (checked) {
+      const by = (v: string) =>
+        r.flips.filter((f) => f.confirmed?.verdict === v);
+      section(
+        yellow(
+          "unconfirmed: no element could be built that both rules match (review)",
+        ),
+        by("unsynthesized").map(flipLines),
+      );
+      const never = by("never seen").length;
+      const same = by("no change").length;
+      if (never + same)
+        lines.push(
+          "",
+          dim(
+            `${never + same} flip(s) dropped: ${never} pair rules no fixture element carries together, ${same} change nothing in Chrome.`,
+          ),
+        );
+    }
     const byRule = new Map<RuleRef, FlipFinding[]>();
     for (const f of r.moveFlips) pushTo(byRule, f.rule, f);
     section(
@@ -319,7 +352,13 @@ function diffHuman(
       }),
     );
   }
-  const flips = results.reduce((n, r) => n + r.flips.length, 0);
+  const flips = results.reduce(
+    (n, r) =>
+      n +
+      r.flips.filter((f) => !f.confirmed || f.confirmed.verdict === "confirmed")
+        .length,
+    0,
+  );
   if (flips > 0)
     lines.push("", red(`${flips} cascade flip(s); inspect before merging.`));
   return lines.join("\n");
