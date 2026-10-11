@@ -14,7 +14,7 @@ import {
   serveFixtures,
   type UsageFile,
 } from "crassus/browser";
-import { checkDisk } from "../src/browser/snapshot";
+import { capturePage, checkDisk } from "../src/browser/snapshot";
 import { headlessShell, View, visitPages } from "../src/browser/view";
 import {
   parseSelectorList,
@@ -48,6 +48,7 @@ const LAYERS_CSS = `
 const LAYERS_PAGE = `<!doctype html><html><head><link rel="stylesheet" href="layers.css"></head>
 <body><div class="bx--r"><p id="a" class="bx--x">x</p></div></body></html>`;
 
+const ORDER = ["hover", "focus", "active"];
 const IMPORTANT_RE = /\s*!important$/;
 const STATE_KEY_RE = /\.bx--s\.(\w+)@(\w+)$/;
 const BOM_RE = /^\uFEFF/;
@@ -196,6 +197,9 @@ it("forces only the states a user can reach, in both modes", async () => {
       const m = STATE_KEY_RE.exec(key);
       if (m) by[m[1]] = [...(by[m[1]] ?? []), m[2]];
     }
+    // In STATE_SETS order, however they were read.
+    for (const list of Object.values(by))
+      list.sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
     reached.push(by);
   }
   expect(reached[0]).toEqual({
@@ -446,6 +450,60 @@ it("records boxes no one can see: offscreen, or clipped by an overflow ancestor"
   }
 }, 60_000);
 
+/** Serves `html` as `<name>/page.html`; `read` loads it and captures forced states. */
+async function withStates(
+  name: string,
+  html: string,
+  fn: (
+    read: (stateIndex?: boolean) => ReturnType<typeof capturePage>,
+  ) => Promise<void>,
+) {
+  const root = join(dir, name);
+  await Bun.write(join(root, "page.html"), html);
+  const site = serveFixtures(root);
+  const view = new View({ engine: "chrome" });
+  try {
+    await fn(async (stateIndex) => {
+      await view.navigate(`${site.url}/page.html`);
+      return capturePage(view, {
+        states: "cdp",
+        emulate: "cdp",
+        settleMs: 0,
+        stateIndex,
+      });
+    });
+  } finally {
+    view.close();
+    site.stop();
+  }
+}
+
+it("reads states no rule uses unforced, with the same records as forcing them", async () => {
+  await withStates(
+    "state-index",
+    `<!doctype html><html><head><style>
+.card:hover .title { color: red; }
+.row:focus-within { background: yellow; }
+.list:has(li:hover) { border: 1px solid; }
+a:active { text-decoration: underline; }
+</style></head><body>
+<div class="card" role="group"><h2 class="title">t</h2><button>b</button></div>
+<div class="row"><input></div>
+<ul class="list"><li>one</li><li>two</li></ul>
+<a href="#">link</a><span tabindex="0">plain</span><label>label</label>
+</body></html>`,
+    async (read) => {
+      const every = await read(false);
+      const indexed = await read(true);
+      expect(indexed.snapshot).toEqual(every.snapshot);
+      // `label` and the `span` are hovered and activated by no rule.
+      expect(indexed.stats?.copied).toBeGreaterThan(0);
+      expect(indexed.stats?.cdpCalls).toBeLessThan(every.stats?.cdpCalls ?? 0);
+      expect(every.stats?.copied).toBe(0);
+    },
+  );
+}, 60_000);
+
 it("swaps the largest stylesheet that contains the marker", async () => {
   const root = join(dir, "swap");
   await Promise.all([
@@ -644,9 +702,10 @@ it("stops the pool at the first failure", async () => {
     },
   );
   await expect(run).rejects.toThrow("boom");
-  // The other view finished its page and took no more.
+  // The other view finished its page and took no more (under load it
+  // backs off, sees the failure and starts none).
   await Bun.sleep(200);
-  expect(started).toBe(2);
+  expect(started).toBeLessThanOrEqual(2);
 }, 60_000);
 
 it("checkDisk stops a capture that would fill the disk", async () => {

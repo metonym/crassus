@@ -225,6 +225,74 @@ export const PAGE_HELPERS = `
         els.forEach((el, i) => el.setAttribute("data-ccs-idx", String(i)));
         return els.length;
       },
+      stateSelectors() {
+        const out = new Set();
+        eachRule((r) => {
+          const t = r.selectorText;
+          if (t && (t.includes(":hover") || t.includes(":focus") || t.includes(":active"))) out.add(t);
+        });
+        return Array.from(out);
+      },
+      // Per tagged element, the states whose forcing can restyle what its
+      // state records hold: a trigger's prefix matches it (or, for
+      // :focus-within, it or an ancestor), or the user agent's rules apply.
+      stateMatters(triggers, n, ua) {
+        const els = Array.from({ length: n }, (_, i) => document.querySelector('[data-ccs-idx="' + i + '"]'));
+        const out = els.map(() => new Set());
+        for (const t of triggers) {
+          let hits = null;
+          if (t.prefix) {
+            try { hits = new Set(document.querySelectorAll(t.prefix)); } catch {}
+          }
+          els.forEach((el, i) => {
+            if (!el) return;
+            let on = !hits;
+            if (hits) for (let a = el; a && !on; a = t.within ? a.parentElement : null) on = hits.has(a);
+            if (on) out[i].add(t.state);
+          });
+        }
+        els.forEach((el, i) => {
+          if (!el) return;
+          out[i].add("focus");
+          for (const [state, selector] of Object.entries(ua)) if (el.matches(selector)) out[i].add(state);
+        });
+        return out.map((s) => Array.from(s));
+      },
+      // The keys a state's records would take, and the plain records they'd
+      // equal unforced: [stateKey, plainKey] per element, in record order.
+      // Null when an animated element is among them: stopped, it reads
+      // differently. \`frozen\`: transition and animation values under the
+      // freeze, the same on every element.
+      statePaths(pairs) {
+        const animated = window.__crAnimated || new Set();
+        const cs = getComputedStyle(document.body);
+        const frozen = {};
+        for (const p of props)
+          if (p.startsWith("transition") || p.startsWith("animation")) frozen[p] = cs.getPropertyValue(p);
+        let still = true;
+        const keys = pairs.map(([idx, state]) => {
+          const el = document.querySelector('[data-ccs-idx="' + idx + '"]');
+          if (!el) return [];
+          const out = [];
+          const suffix = "@" + state;
+          const set = [el, ...el.querySelectorAll("*")];
+          if (el.parentElement && el.parentElement !== document.body) set.unshift(el.parentElement);
+          for (const e of set) {
+            if (animated.has(e)) still = false;
+            const p = pathOf(e);
+            out.push([p + suffix + (e === el.parentElement ? "^" : ""), p]);
+          }
+          return out;
+        });
+        return { keys: still ? keys : null, frozen };
+      },
+      // State records read without forcing, in order: what forcing gives
+      // when no rule uses the state there.
+      snapshotStates(pairs) {
+        const out = {};
+        for (const [i, state] of pairs) Object.assign(out, this.snapshotState(i, state));
+        return out;
+      },
       snapshotState(idx, state) {
         clips = new Map();
         const el = document.querySelector('[data-ccs-idx="' + idx + '"]');

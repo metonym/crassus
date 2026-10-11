@@ -1,5 +1,5 @@
 import { existsSync, readdirSync } from "node:fs";
-import { homedir } from "node:os";
+import { availableParallelism, homedir, loadavg } from "node:os";
 import { join } from "node:path";
 
 export type EngineName = "chrome" | "webkit";
@@ -191,11 +191,15 @@ async function waitReady(
   }
 }
 
+const BACKOFF_MS = 2000;
+
 async function runPool<J, R>(
   jobs: J[],
   size: number,
   makeView: () => View,
   work: (view: View, job: J, slot: number) => Promise<R>,
+  onBusy?: VisitOptions["onBusy"],
+  load: () => number = () => loadavg()[0],
 ): Promise<R[]> {
   const results: R[] = new Array(jobs.length);
   let next = 0;
@@ -207,9 +211,18 @@ async function runPool<J, R>(
     await Promise.all(
       views.map(async (view, slot) => {
         while (errors.length === 0 && next < jobs.length) {
+          // Above the core count, the machine is busy: tabs beyond the
+          // first wait. Only the second tab reports, so `ms` is one tab's.
+          const now = slot > 0 ? load() : 0;
+          const cores = availableParallelism();
+          if (now > cores) {
+            if (slot === 1) onBusy?.({ load: now, cores, ms: BACKOFF_MS });
+            // biome-ignore lint/performance/noAwaitInLoops: polling the load
+            await Bun.sleep(BACKOFF_MS);
+            continue;
+          }
           const i = next++;
           try {
-            // biome-ignore lint/performance/noAwaitInLoops: one job at a time per view
             results[i] = await work(view, jobs[i], slot);
           } catch (e) {
             errors.push(e);
@@ -324,6 +337,8 @@ export async function visitPages(
       await work(view, job, slot);
       return ready;
     },
+    opts.onBusy,
+    opts.loadAverage,
   );
   return {
     pages: jobs.length,

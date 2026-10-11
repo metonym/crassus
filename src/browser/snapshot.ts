@@ -1,5 +1,6 @@
 import { mkdir, rm, statfs } from "node:fs/promises";
 import path from "node:path";
+import { type StateTrigger, stateTriggers } from "../core/impact";
 import type { Snapshot } from "../core/snapshot-diff";
 import { resolvePath } from "../page/resolve-path";
 import {
@@ -85,7 +86,12 @@ const CR_HELPERS = `
       // ones are paused at their start, finite ones finished, as if settled.
       freezeAnimations() {
         let n = 0;
+        // What animations style, finished ones included: stopping them
+        // (the state phase's freeze) changes those values.
+        window.__crAnimated = new Set();
         for (const a of document.getAnimations()) {
+          const target = a.effect && a.effect.target;
+          if (target) window.__crAnimated.add(target);
           if (a.playState === "finished") continue;
           try {
             if (a.effect?.getComputedTiming().endTime === Infinity) {
@@ -231,6 +237,12 @@ export interface CaptureOptions {
   readyTimeoutMs?: number;
   /** After load. Default 500 ms. */
   settleMs?: number;
+  /**
+   * Default true: force a state (CDP mode) only on elements some rule's
+   * state applies to, and read the others unforced, which gives the same
+   * records (focus is always forced: the user agent's focus ring).
+   */
+  stateIndex?: boolean;
 }
 
 export const snapshotFile = (job: PageJob, several: boolean) =>
@@ -302,10 +314,23 @@ export async function readSnapshot(file: string): Promise<Snapshot> {
   return decodeSnapshot(await Bun.file(file).bytes());
 }
 
-type PageOptions = Pick<CaptureOptions, "states" | "emulate" | "settleMs"> & {
+type PageOptions = Pick<
+  CaptureOptions,
+  "states" | "emulate" | "settleMs" | "stateIndex"
+> & {
   /** Custom-property prefix of the design tokens to trace (`--cds-`). */
   tokens?: string;
 };
+
+/** What a page's forced states cost (CDP mode). */
+export interface StateStats {
+  ms: number;
+  /** CDP calls the state phase made. */
+  cdpCalls: number;
+  /** Element states forced, and read unforced as no rule used them there. */
+  forced: number;
+  copied: number;
+}
 
 /** Per element, the properties that track tokens, and which. */
 export type TokenTrace = Record<string, Record<string, string[]>>;
@@ -370,6 +395,7 @@ export async function capturePage(
   tokens?: TokenTrace;
   /** The tokens traced: those with a color, length or font-stack value. */
   tokenNames?: string[];
+  stats?: StateStats;
 }> {
   await preparePage(view, opts, extraProps);
   let forced: number[] | null = null;
@@ -416,27 +442,74 @@ export async function capturePage(
     return out;
   }
 
-  await view.cdp("DOM.enable");
-  await view.cdp("CSS.enable");
-  const { root } = await view.cdp<{ root: { nodeId: number } }>(
-    "DOM.getDocument",
-    { depth: 0 },
-  );
+  const started = performance.now();
+  const stats = { ms: 0, cdpCalls: 0, forced: 0, copied: 0 };
+  const cdp = <T>(method: string, params?: Record<string, unknown>) => {
+    stats.cdpCalls++;
+    return view.cdp<T>(method, params);
+  };
+  const matters = opts.stateIndex === false ? null : await stateIndex(view, n);
+  // Read in order, so the last record of a key is the same as forcing
+  // every state would leave: a run of unforced reads goes in one call.
+  let pending: [number, string][] = [];
+  // Unforced, a state's records are the plain ones: copied when the plain
+  // snapshot has them all (it does unless the read was scoped), else read
+  // in the page. State keys never collide with plain ones, so `snap` holds
+  // the plain records throughout.
+  const flush = async () => {
+    if (!pending.length) return;
+    const { keys, frozen } = await view.evaluate<{
+      keys: [string, string][][] | null;
+      frozen: Record<string, string>;
+    }>(`window.__ccs.statePaths(${JSON.stringify(pending)})`);
+    // The freeze stops transitions and animations: their values, as read.
+    const thaw = (r: Record<string, string>) => {
+      const out = { ...r };
+      for (const p in frozen) if (p in out) out[p] = frozen[p];
+      return out;
+    };
+    if (keys?.every((pairs) => pairs.every(([, from]) => snap[from]))) {
+      for (const pairs of keys)
+        for (const [to, from] of pairs)
+          for (const pseudo of ["", "::before", "::after"])
+            if (snap[from + pseudo])
+              snap[to + pseudo] = thaw(snap[from + pseudo]);
+    } else {
+      Object.assign(
+        snap,
+        await view.evaluate<Snapshot>(
+          `window.__ccs.snapshotStates(${JSON.stringify(pending)})`,
+        ),
+      );
+    }
+    stats.copied += pending.length;
+    pending = [];
+  };
+  await cdp("DOM.enable");
+  await cdp("CSS.enable");
+  const { root } = await cdp<{ root: { nodeId: number } }>("DOM.getDocument", {
+    depth: 0,
+  });
   for (const i of indexes) {
     if (i >= n || reach[i].length === 0) continue;
-    // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
-    const { nodeId } = await view.cdp<{ nodeId: number }>("DOM.querySelector", {
+    const states = Object.keys(STATE_SETS).filter((s) => reach[i].includes(s));
+    const force = states.filter((s) => !matters || matters[i].includes(s));
+    for (const s of states) if (!force.includes(s)) pending.push([i, s]);
+    if (force.length === 0) continue;
+    // biome-ignore lint/performance/noAwaitInLoops: in order, one view
+    await flush();
+    const { nodeId } = await cdp<{ nodeId: number }>("DOM.querySelector", {
       nodeId: root.nodeId,
       selector: `[data-ccs-idx="${i}"]`,
     });
     if (!nodeId) continue;
-    for (const [state, forcedClasses] of Object.entries(STATE_SETS)) {
-      if (!reach[i].includes(state)) continue;
+    for (const state of force) {
       // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
-      await view.cdp("CSS.forcePseudoState", {
+      await cdp("CSS.forcePseudoState", {
         nodeId,
-        forcedPseudoClasses: forcedClasses,
+        forcedPseudoClasses: STATE_SETS[state],
       });
+      stats.forced++;
       Object.assign(
         snap,
         await view.evaluate<Snapshot>(
@@ -444,11 +517,36 @@ export async function capturePage(
         ),
       );
     }
-    await view.cdp("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
+    await cdp("CSS.forcePseudoState", { nodeId, forcedPseudoClasses: [] });
   }
-  await view.cdp("DOM.disable");
-  await view.cdp("CSS.disable");
-  return out;
+  await flush();
+  await cdp("DOM.disable");
+  await cdp("CSS.disable");
+  stats.ms = performance.now() - started;
+  return { ...out, stats };
+}
+
+// The user agent restyles these when hovered or active (a link's color, a
+// button's border, an option's background), whatever the author's rules
+// say; and any element when focused.
+const UA_HOVER = "option";
+const UA_ACTIVE =
+  "a[href], area[href], button, input, select, textarea, summary, option";
+
+/**
+ * Per tagged element, the states forcing can change records of: those some
+ * rule's state applies to there (`stateTriggers`), focus always.
+ */
+async function stateIndex(view: View, n: number): Promise<string[][]> {
+  const selectors = await view.evaluate<string[]>(
+    "window.__ccs.stateSelectors()",
+  );
+  const triggers = new Map<string, StateTrigger>();
+  for (const sel of selectors)
+    for (const t of stateTriggers(sel)) triggers.set(JSON.stringify(t), t);
+  return view.evaluate<string[][]>(
+    `window.__ccs.stateMatters(${JSON.stringify([...triggers.values()])}, ${n}, ${JSON.stringify({ hover: UA_HOVER, active: UA_ACTIVE })})`,
+  );
 }
 
 /** Written last by `capture`: a directory without it is incomplete. */

@@ -35,6 +35,7 @@ async function cli(cwd: string, ...argv: string[]) {
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
 
+const DOCTOR_CHROME_RE = /ok {5}chrome starts and runs a page in \d+ ms/;
 const REACH_RE =
   /crassus: the changed rules \(\d+ selectors?\) reach \d of 2 pages/;
 const read = (root: string, file: string) => Bun.file(join(root, file)).text();
@@ -948,6 +949,31 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(md.out).toContain("1 token-detached, 0 visible");
     expect(md.out).toContain("Stopped following --x-text on 1 element(s)");
   }, 120_000);
+
+  it("doctor checks Chrome, the machine and the config", async () => {
+    const root = await project({
+      "crassus.config.ts": `export default {
+        browser: { fixtures: "site", sheetMarker: ".nope", settleMs: 0 },
+      };`,
+      "site/lib.css": ".a { color: red; }",
+      "site/a.html": "<!doctype html><p class=a>a</p>",
+    });
+    const r = await cli(root, "doctor");
+    expect(r.out).toMatch(DOCTOR_CHROME_RE);
+    expect(r.out).toContain("ok     1 fixture page(s) in site");
+    expect(r.out).toContain("error  no .css file under");
+    expect(r.out).toContain("fix: set browser.sheetMarker");
+    expect(r.code).toBe(1);
+    const fixedRoot = await project({
+      "crassus.config.ts": `export default { browser: { fixtures: "site", sheetMarker: ".a", tokens: "--x-" } };`,
+      "site/lib.css": ".a { color: red; }",
+      "site/a.html": "<!doctype html><p class=a>a</p>",
+    });
+    const fixed = await cli(fixedRoot, "doctor");
+    expect(fixed.out).toContain('ok     sheetMarker ".a" finds lib.css');
+    expect(fixed.out).toContain("warn   0 --x-* token(s) declared there");
+    expect(fixed.code).toBe(0);
+  }, 60_000);
 
   it("explains winners at their source and compares screenshots", async () => {
     const root = await project({

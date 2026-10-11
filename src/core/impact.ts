@@ -12,6 +12,7 @@ import {
   type Complex,
   type Part,
   parseComplex,
+  parseSelectorList,
   serialize,
 } from "./selector";
 
@@ -126,6 +127,80 @@ function relaxComplex(sel: Complex): Complex {
  */
 export function relaxSelector(selector: string): string {
   return serialize(relaxComplex(parseComplex(selector)));
+}
+
+// Which forced state each state pseudo-class answers to: forcing focus
+// also matches :focus-within up the tree.
+const STATE_OF: Record<string, string> = {
+  hover: "hover",
+  focus: "focus",
+  "focus-visible": "focus",
+  "focus-within": "focus",
+  active: "active",
+};
+
+/** Where a rule's state can apply: elements whose forced state can restyle what's recorded. */
+export interface StateTrigger {
+  /** `hover`, `focus` or `active`, as forced. */
+  state: string;
+  /**
+   * Elements the forced state must be on: the selector up to the compound
+   * that holds it, relaxed. Empty when it can be any element (`:has()`).
+   */
+  prefix: string;
+  /** `:focus-within`: on that element or any of its descendants. */
+  within?: true;
+}
+
+function statesIn(parts: Part[], into: Set<string>, deep = false): boolean {
+  let nested = false;
+  for (const p of parts) {
+    if (p.t === "pseudo-class" && STATE_OF[p.name]) {
+      into.add(p.name);
+      if (deep) nested = true;
+    }
+    const list = argList(p);
+    if (!list) continue;
+    // In `:has()`, the state is on another element than this compound.
+    const other = p.t === "pseudo-class" && p.name === "has";
+    for (const c of list)
+      for (const compound of c.compounds)
+        if (statesIn(compound.parts, into, deep || other)) nested = true;
+  }
+  return nested;
+}
+
+/**
+ * What a selector's state pseudo-classes need forced to apply: per state,
+ * the elements it must be forced on. A state inside `:has()` can be on any
+ * element.
+ */
+export function stateTriggers(selector: string): StateTrigger[] {
+  const out: StateTrigger[] = [];
+  for (const sel of parseSelectorList(selector)) triggersOf(sel, out);
+  return out;
+}
+
+function triggersOf(sel: Complex, out: StateTrigger[]): void {
+  sel.compounds.forEach((compound, k) => {
+    const names = new Set<string>();
+    const anywhere = statesIn(compound.parts, names);
+    if (names.size === 0) return;
+    const prefix = anywhere
+      ? ""
+      : serialize(
+          relaxComplex({
+            compounds: sel.compounds.slice(0, k + 1),
+            combinators: sel.combinators.slice(0, k),
+          }),
+        );
+    for (const name of names)
+      out.push({
+        state: STATE_OF[name],
+        prefix,
+        ...(name === "focus-within" && { within: true as const }),
+      });
+  });
 }
 
 // At-rules that carry no style rules: compared whole. `@layer` statements
