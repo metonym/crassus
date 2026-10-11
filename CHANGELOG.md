@@ -127,6 +127,16 @@
   fixture. `verify` on the regression's card reports `color` matching base
   with the upstream fix's stylesheet (`3e7ae6001`), and `position` still
   changed.
+- Approvals: `crassus approve <id...>` records change cards as intended in
+  `crassus.approved.json` (`crassus/approved@1`: each card's id and its
+  `property: before -> after` changes). With the file, `compare` and
+  `bisect` build cards on every run and fail only on visible cards it
+  doesn't approve (or on elements on one side only); a cause with new
+  values isn't approved. The HTML report has a checkbox per card that
+  builds the command. On carbon-components-svelte (white, 1280 × 900),
+  approving #3839's two cards made `bisect 660b2936a^..660b2936a --only
+  data-table` exit 0 instead of 1, and `28e700f30..7e301af6f` still
+  failed on its own cards.
 - `compare` records a CSS selector for each changed element
   (`pages[].where[path].selector`, `nth-child` from `body`), and with
   `--explain` flags winners whose rule differs between the sides

@@ -821,6 +821,73 @@ describe("crassus capture, snapshot-diff and usage", () => {
     ).toContain("no card zzz");
   }, 120_000);
 
+  it("fails only on visible changes crassus.approved.json doesn't approve", async () => {
+    const LIB =
+      ".a { color: red; }\n.a .b { color: blue; }\n.c { color: green; }\n";
+    const root = await project({
+      "crassus.config.ts": `export default {
+        css: "site/lib.css",
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
+      };`,
+      "site/lib.css": LIB,
+      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a <span class="b">bbbbbb</span></div><p class="c">c</p></body></html>`,
+    });
+    await commitAll(root);
+    const head = (css: string) => Bun.write(join(root, "site/lib.css"), css);
+    const intended = LIB.replace(".a .b { color: blue; }\n", "");
+    await head(intended);
+    const flags = ["--no-states"];
+    const first = await cli(root, "compare", ...flags, "--report", "out");
+    expect(first.code).toBe(1);
+    const id = JSON.parse(await read(root, "out/report.json")).cards[0].id;
+    expect(first.out).toContain(`Intended? crassus approve ${id}`);
+
+    const approved = await cli(root, "approve", id, "--report", "out");
+    expect(approved.out).toContain(
+      "crassus: approved 1 card(s) in crassus.approved.json:",
+    );
+    expect(JSON.parse(await read(root, "crassus.approved.json"))).toMatchObject(
+      {
+        schema: "crassus/approved@1",
+        approved: [
+          {
+            id,
+            changes: [
+              {
+                property: "color",
+                before: "rgb(0, 0, 255)",
+                after: "rgb(255, 0, 0)",
+              },
+            ],
+          },
+        ],
+      },
+    );
+
+    // With approvals, compare builds cards by itself, and passes.
+    const passed = await cli(root, "compare", ...flags);
+    expect(passed.out).toContain("1 approved, 0 visible card(s) not");
+    expect(passed.code).toBe(0);
+    // A new card fails.
+    await head(intended.replace("color: green", "color: purple"));
+    expect((await cli(root, "compare", ...flags)).code).toBe(1);
+    // So does the approved cause with other values.
+    await head(intended.replace(".a { color: red; }", ".a { color: navy; }"));
+    expect((await cli(root, "compare", ...flags)).code).toBe(1);
+
+    // bisect halves and reports only on what isn't approved.
+    await head(intended);
+    await $`git -c user.email=t@t -c user.name=t commit -qam "fix: drop .b's color"`
+      .cwd(root)
+      .quiet();
+    const range = await cli(root, "bisect", "HEAD~1..", ...flags);
+    expect(range.out).toContain("1 visible change(s), all approved");
+    expect(range.out).toContain(
+      "No commit made a visible change that crassus.approved.json doesn't approve.",
+    );
+    expect(range.code).toBe(0);
+  }, 120_000);
+
   it("explains winners at their source and compares screenshots", async () => {
     const root = await project({
       "crassus.config.ts": `export default {

@@ -7,10 +7,29 @@ import { join, resolve } from "node:path";
 import { $ } from "bun";
 import { version } from "../../package.json";
 import type { Crops } from "../browser/compare";
-import type { Card, Report } from "../core/cards";
+import {
+  type Approvals,
+  blocking,
+  type Card,
+  type Report,
+} from "../core/cards";
 
 /** Crops for `card` elements, by run (`commit`, `""` for compare) and page. */
 export type RunCrops = Map<string, Crops>;
+
+/** Where `--report` defaults to, and `explain`, `repro`, `verify` and `approve` look. */
+export const DEFAULT_DIR = ".crassus/report";
+
+/** Intended changes, at the project root. */
+export const APPROVED_FILE = "crassus.approved.json";
+
+/** The project's approvals, if it has any. */
+export async function readApprovals(
+  cwd: string,
+): Promise<Approvals | undefined> {
+  const file = Bun.file(join(cwd, APPROVED_FILE));
+  return (await file.exists()) ? ((await file.json()) as Approvals) : undefined;
+}
 
 /** Elements per card written with images. */
 const IMAGES_PER_CARD = 3;
@@ -92,7 +111,14 @@ const RESERVE = 512 * 1024 * 1024;
 export async function writeReport(
   dir: string,
   report: Report,
-  extra: { crops: RunCrops; base: string; head: string; inputs: object },
+  extra: {
+    crops: RunCrops;
+    base: string;
+    head: string;
+    inputs: object;
+    /** `dir` as the project names it, for the approve command. */
+    label?: string;
+  },
 ): Promise<void> {
   const { encodePng, heatmap } = await import("../browser/png");
   await mkdir(join(dir, "img"), { recursive: true });
@@ -141,7 +167,7 @@ export async function writeReport(
   await Promise.all([
     Bun.write(join(dir, "report.json"), json),
     Bun.write(join(dir, "report.md"), formatCardsMarkdown(report)),
-    Bun.write(join(dir, "index.html"), reportHtml(report)),
+    Bun.write(join(dir, "index.html"), reportHtml(report, extra.label)),
     Bun.write(join(dir, "base.css"), extra.base),
     Bun.write(join(dir, "head.css"), extra.head),
   ]);
@@ -149,13 +175,20 @@ export async function writeReport(
 
 /** One line per verdict, then one per card: what CI logs and agents read first. */
 export function formatCardsSummary(report: Report, dir?: string): string {
-  const { visible, imperceptible, invisible } = report.summary;
+  const { visible, imperceptible, invisible, approved } = report.summary;
+  const open = blocking(report.cards).length;
   const lines = [
-    `${visible} visible, ${imperceptible} imperceptible, ${invisible} invisible change card(s)${dir ? ` (report: ${dir})` : ""}`,
+    `${visible} visible, ${imperceptible} imperceptible, ${invisible} invisible change card(s)${approved ? `; ${approved} approved, ${open} visible card(s) not` : ""}${dir ? ` (report: ${dir})` : ""}`,
   ];
   for (const c of report.cards)
     lines.push(
-      `  ${c.id}  ${label(c).padEnd(12)}  ${c.title}  [${c.elements.length} element(s), ${c.pages.length} page(s)]`,
+      `  ${c.id}  ${(c.approved ? `approved ${c.verdict}` : label(c)).padEnd(12)}  ${c.title}  [${c.elements.length} element(s), ${c.pages.length} page(s)]`,
+    );
+  if (open)
+    lines.push(
+      `Intended? crassus approve ${blocking(report.cards)
+        .map((c) => c.id)
+        .join(" ")}`,
     );
   return lines.join("\n");
 }
@@ -183,6 +216,8 @@ export function formatCard(card: Card, images = true): string {
     "",
     card.alt,
   ];
+  if (card.approved)
+    lines.push("", `Approved in ${APPROVED_FILE}: an intended change.`);
   if (card.commits?.length)
     lines.push(
       "",
@@ -330,8 +365,11 @@ const escapeHtml = (s: string) =>
   );
 
 /** An offline page: cards by root cause, filters, before/after slider, code. */
-function reportHtml(report: Report): string {
-  const data = JSON.stringify(report).replace(/</g, "\\u003c");
+function reportHtml(report: Report, dir?: string): string {
+  const data = JSON.stringify({
+    ...report,
+    ...(dir && dir !== DEFAULT_DIR && { dir }),
+  }).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -362,6 +400,7 @@ table { border-collapse: collapse; } td, th { border-bottom: 1px solid var(--lin
 <div class="filters" id="filters"></div>
 <input type="search" id="q" placeholder="Filter by page, selector or property">
 <nav id="list"></nav>
+<div id="approve" hidden><h3>Approve</h3><p class="mute">Run in the project to record the ticked cards as intended:</p><pre></pre></div>
 </aside>
 <main id="card"><p class="mute">Pick a card.</p></main>
 <script type="application/json" id="data">${data}</script>
@@ -378,6 +417,12 @@ document.getElementById("filters").addEventListener("change", (e) => {
 });
 document.getElementById("q").addEventListener("input", list);
 let current = location.hash.slice(1);
+const ticked = new Set();
+function approval() {
+  const box = document.getElementById("approve");
+  box.hidden = ticked.size === 0;
+  box.querySelector("pre").textContent = "crassus approve " + [...ticked].join(" ") + (report.dir ? " --report " + report.dir : "");
+}
 function list() {
   const q = document.getElementById("q").value.toLowerCase();
   const nav = document.getElementById("list");
@@ -389,9 +434,17 @@ function list() {
     const b = document.createElement("button");
     b.className = "card";
     if (c.id === current) b.setAttribute("aria-current", "true");
-    b.innerHTML = '<span class="badge ' + c.verdict + '">' + c.verdict + "</span>" + md(c.title) +
-      '<div class="mute">' + c.elements.length + " element(s), " + c.pages.length + " page(s) · " + c.id + "</div>";
-    b.onclick = () => { location.hash = c.id; };
+    b.innerHTML = '<span class="badge ' + c.verdict + '">' + (c.approved ? "approved " : "") + c.verdict + "</span>" + md(c.title) +
+      '<div class="mute">' + c.elements.length + " element(s), " + c.pages.length + " page(s) · " + c.id + "</div>" +
+      (c.approved ? "" : '<label class="mute"><input type="checkbox" data-id="' + c.id + '"' + (ticked.has(c.id) ? " checked" : "") + "> approve</label>");
+    b.onclick = (e) => {
+      const box = e.target.closest("input, label");
+      if (!box) { location.hash = c.id; return; }
+      if (e.target.matches("input")) {
+        e.target.checked ? ticked.add(c.id) : ticked.delete(c.id);
+        approval();
+      }
+    };
     nav.append(b);
   }
 }

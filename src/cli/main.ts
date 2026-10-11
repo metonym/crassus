@@ -12,6 +12,7 @@ import {
   usageCommand,
 } from "./browser";
 import {
+  approveCommand,
   DEFAULT_REPORT,
   explainCommand,
   reproCommand,
@@ -66,6 +67,9 @@ Usage:
                                  element under each side's rules
   crassus verify <id>            whether the card's elements match base
                                  again with the stylesheet now
+  crassus approve <id...>        record cards as intended changes in
+                                 crassus.approved.json: compare and bisect
+                                 then fail only on visible cards it lacks
 
 Stylesheets come from the files given, or from crassus.config.ts: \`css\`
 (with an optional \`build\` command) or a \`compile(root)\` hook. Source maps
@@ -223,10 +227,10 @@ async function run(argv: string[], io: Io): Promise<number> {
   if (
     values.report !== undefined &&
     !cardCommand &&
-    !["explain", "repro", "verify"].includes(command)
+    !["explain", "repro", "verify", "approve"].includes(command)
   )
     throw new UsageError(
-      "--report goes with compare, bisect, explain, repro and verify",
+      "--report goes with compare, bisect, explain, repro, verify and approve",
     );
   const only = values.entry ?? [];
   const verbose = values.verbose ?? false;
@@ -373,6 +377,8 @@ async function run(argv: string[], io: Io): Promise<number> {
     throw new UsageError("--group-by and --no-split go with bisect");
   if (values["no-scope"] && command !== "compare" && command !== "bisect")
     throw new UsageError("--no-scope goes with compare and bisect");
+  if (command === "approve")
+    return approveCommand({ ids: files, report: values.report, io });
   if (command === "explain") {
     if (format !== "human" && format !== "json")
       throw new UsageError("explain prints human (Markdown) or json");
