@@ -3,6 +3,7 @@
 
 export type {
   ChangeGroup,
+  DeltaE,
   Explained,
   PageDiff,
   PropertyChange,

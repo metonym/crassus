@@ -155,8 +155,9 @@ describe("impactProperties", () => {
         "border-top-color",
       ]),
     );
-    expect(r.properties).not.toContain("padding-top");
-    expect(r.properties).not.toContain("width");
+    // Read for what hides a change, but no value that hangs on layout.
+    expect(r.properties).not.toContain("padding-block-start");
+    expect(r.properties).not.toContain("top");
   });
 
   it("adds logical twins, and layout values when a box can move", () => {

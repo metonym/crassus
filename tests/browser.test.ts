@@ -410,6 +410,42 @@ it("compareCss reads only what the change reaches, with the same results", async
   }
 }, 120_000);
 
+it("records boxes no one can see: offscreen, or clipped by an overflow ancestor", async () => {
+  const root = join(dir, "geometry");
+  await Bun.write(
+    join(root, "page.html"),
+    `<!doctype html><html><body>
+<div class="clip" style="overflow: hidden; height: 20px"><p class="below" style="margin-top: 50px">x</p><p class="abs" style="position: absolute; top: 60px">y</p></div>
+<p class="away" style="position: absolute; left: -9999px">z</p><p class="seen">w</p></body></html>`,
+  );
+  const site = serveFixtures(root);
+  try {
+    const outDir = join(dir, "snap-geometry");
+    await capture({
+      ...base(),
+      baseUrl: site.url,
+      outDir,
+      states: false,
+      emulate: "cdp",
+      settleMs: 0,
+    });
+    const snap = await readSnapshot(join(outDir, "page.white.json.gz"));
+    const hidden = Object.fromEntries(
+      Object.entries(snap).map(([k, r]) => [k, r["--cr-hidden"] ?? null]),
+    );
+    expect(hidden).toEqual({
+      "body>div.clip": null,
+      "body>div.clip>p.below": "clipped by an overflow ancestor",
+      // Positioned: it may escape the clip, so it isn't claimed.
+      "body>div.clip>p.abs": null,
+      "body>p.away": "offscreen",
+      "body>p.seen": null,
+    });
+  } finally {
+    site.stop();
+  }
+}, 60_000);
+
 it("swaps the largest stylesheet that contains the marker", async () => {
   const root = join(dir, "swap");
   await Promise.all([
@@ -492,10 +528,10 @@ it("compareCss explains winners and compares element screenshots", async () => {
     visual: true,
   });
   expect(diff.library).toBe("lib.css");
-  // Not rendered: no screenshot to differ (its 0 × 0 box sits at the origin).
-  expect(
-    diff.groups.find((g) => g.invisible === "display: none")?.pixels,
-  ).toEqual({ differ: 0, same: 3 });
+  // Proven unseen (display: none): no screenshot taken to say so.
+  const hidden = diff.groups.find((g) => g.invisible === "display: none");
+  expect(hidden).toBeDefined();
+  expect(hidden?.pixels).toBeUndefined();
   const visible = (property: string) =>
     diff.groups.find((g) => g.property === property && !g.invisible);
   const color = visible("color");
@@ -552,7 +588,9 @@ it("compareCss explains winners and compares element screenshots", async () => {
     visual: true,
   });
   const wrap = same.groups.find((g) => g.property === "color");
-  expect(wrap?.pixels).toEqual({ differ: 2, same: 0 });
+  expect(wrap?.pixels).toEqual({ differ: 2, same: 0, imperceptible: 0 });
+  // Black to blue text: plain to see.
+  expect(wrap?.deltaE?.max).toBeGreaterThan(30);
   expect(same.pages[0].explain?.["body>div.bx--wrap>button.bx--btn"]).toEqual({
     color: {
       base: {
@@ -571,6 +609,20 @@ it("compareCss explains winners and compares element screenshots", async () => {
       },
     },
   });
+  // One step off black: the pixels differ, by less than anyone can see.
+  const faint = await compareCss({
+    ...base(),
+    dir: root,
+    base: css("black", "red", "yellow"),
+    head: css("rgb(1, 1, 1)", "red", "yellow"),
+    states: false,
+    emulate: "cdp",
+    settleMs: 0,
+    visual: true,
+  });
+  const step = faint.groups.find((g) => g.property === "color");
+  expect(step?.pixels).toMatchObject({ differ: 2, imperceptible: 2 });
+  expect(step?.deltaE?.max).toBeLessThan(1);
 }, 60_000);
 
 it("stops the pool at the first failure", async () => {

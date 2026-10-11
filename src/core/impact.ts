@@ -308,9 +308,20 @@ const CONTEXT = [
   "color",
   "outline-style",
   "text-decoration-line",
+  "opacity",
+  "position",
+  "clip",
+  "clip-path",
+  "overflow-x",
+  "overflow-y",
+  "width",
+  "height",
+  "background-color",
+  "background-image",
   ...["top", "right", "bottom", "left"].flatMap((s) => [
     `border-${s}-width`,
     `border-${s}-style`,
+    `padding-${s}`,
   ]),
 ];
 

@@ -92,6 +92,9 @@ function rulesOf(
             line: range.startLine + 1,
             column: range.startColumn,
           }),
+        ...(rule.selectorList.selectors.length > 1 && {
+          list: rule.selectorList.text,
+        }),
       },
     });
   }
@@ -156,22 +159,132 @@ function explain(
 
 const PSEUDO_RE = /::(before|after)$/;
 
+/** A box in document coordinates, in CSS pixels. */
+interface Rect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** One screenshot: the changed elements of one forced state (or none). */
+export interface Shot {
+  /** PNG of `clip`, at scale 1. */
+  png: Uint8Array;
+  clip: Rect;
+  /** Each element's padded box; null when it renders no box. */
+  boxes: Record<string, Rect | null>;
+}
+
 export interface PageInspection {
   /** Path -> property -> winner (`null`: none declared, an initial value). */
   explain?: Record<string, Record<string, Winner | null>>;
-  /** Path -> PNG of the element, its state forced; empty when it renders no box. */
-  screenshots?: Record<string, Uint8Array>;
+  /** Screenshots that hold every changed element, its state forced. */
+  shots?: Shot[];
+  /** How the screenshots were taken: pass it to the other side's inspection. */
+  batches?: Batch[];
+}
+
+/** Elements screenshot together: those forced into one state at once, or none. */
+interface Batch {
+  state: string | null;
+  /** `data-ccs-idx` of the elements forced. */
+  forced: number[];
+  keys: string[];
+}
+
+/** Whole pixels around a box. */
+const pixelBox = (r: Rect): Rect => {
+  const x = Math.floor(r.x);
+  const y = Math.floor(r.y);
+  return {
+    x,
+    y,
+    width: Math.ceil(r.x + r.width) - x,
+    height: Math.ceil(r.y + r.height) - y,
+  };
+};
+
+const overlap = (a: Rect, b: Rect) =>
+  a.x < b.x + b.width &&
+  b.x < a.x + a.width &&
+  a.y < b.y + b.height &&
+  b.y < a.y + a.height;
+
+/**
+ * One screenshot per state where it can be: elements forced into the same
+ * state go together when their boxes (unforced) don't overlap and neither
+ * contains the other, so no forced element shows in another's crop.
+ */
+async function planBatches(view: View, keys: string[]): Promise<Batch[]> {
+  const found = await view.evaluate<
+    { state: string | null; forced: number | null; rect: Rect | null }[]
+  >(`${JSON.stringify(keys)}.map((k) => {
+    const t = window.__cr.target(k);
+    return t && { ...t, rect: window.__cr.rect() };
+  })`);
+  const plain: Batch = { state: null, forced: [], keys: [] };
+  // Per state, per forced element: its keys and the box around them.
+  const by = new Map<
+    string,
+    Map<number, { keys: string[]; box: Rect | null }>
+  >();
+  keys.forEach((key, i) => {
+    const t = found[i];
+    if (!t) return;
+    if (t.state === null || t.forced === null) {
+      plain.keys.push(key);
+      return;
+    }
+    const states = by.get(t.state) ?? new Map();
+    by.set(t.state, states);
+    const el = states.get(t.forced) ?? { keys: [], box: null };
+    states.set(t.forced, el);
+    el.keys.push(key);
+    if (t.rect) el.box = el.box ? union([el.box, t.rect]) : t.rect;
+  });
+  const forced = [...new Set([...by.values()].flatMap((m) => [...m.keys()]))];
+  // i -> the forced elements it contains.
+  const contains = await view.evaluate<number[][]>(`((ids) => {
+    const els = ids.map((i) => document.querySelector('[data-ccs-idx="' + i + '"]'));
+    return els.map((a) => ids.filter((_, j) => a && els[j] && a !== els[j] && a.contains(els[j])));
+  })(${JSON.stringify(forced)})`);
+  const inside = new Map(forced.map((id, i) => [id, new Set(contains[i])]));
+  const related = (a: number, b: number) =>
+    Boolean(inside.get(a)?.has(b) || inside.get(b)?.has(a));
+  const out: Batch[] = plain.keys.length ? [plain] : [];
+  for (const [state, els] of by) {
+    const batches: (Batch & { boxes: Rect[] })[] = [];
+    for (const [id, el] of els) {
+      const fits = (b: Batch & { boxes: Rect[] }) =>
+        el.box !== null &&
+        b.boxes.every((x) => !overlap(x, el.box as Rect)) &&
+        b.forced.every((f) => !related(f, id));
+      let batch = batches.find(fits);
+      if (!batch || el.box === null) {
+        batch = { state, forced: [], keys: [], boxes: [] };
+        batches.push(batch);
+      }
+      batch.forced.push(id);
+      batch.keys.push(...el.keys);
+      if (el.box) batch.boxes.push(el.box);
+    }
+    out.push(...batches.map(({ boxes: _, ...b }) => b));
+  }
+  return out;
 }
 
 /**
  * Explains and screenshots the changed elements of the page in `view`,
  * prepared as `capture` reads it (`preparePage`, then `tagStates` for
- * state keys). Chrome only.
+ * state keys). Screenshots go by batch (see `planBatches`), cropped later;
+ * give the other side's `batches` to take the same ones. Chrome only.
  */
 export async function inspectPage(
   view: View,
   changed: Record<string, PropertyChange[]>,
   what: { explain?: boolean; visual?: boolean },
+  batches?: Batch[],
 ): Promise<PageInspection> {
   const sheets = new Map<string, string>();
   const off = view.on<{ header: { styleSheetId: string; sourceURL: string } }>(
@@ -185,7 +298,7 @@ export async function inspectPage(
   );
   const out: PageInspection = {
     ...(what.explain && { explain: {} }),
-    ...(what.visual && { screenshots: {} }),
+    ...(what.visual && { shots: [] }),
   };
   try {
     await view.cdp("DOM.enable");
@@ -200,23 +313,31 @@ export async function inspectPage(
         nodeId: root.nodeId,
         selector,
       });
-    for (const [key, changes] of Object.entries(changed)) {
-      // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
-      const target = await view.evaluate<{ state: string | null } | null>(
-        `window.__cr.target(${JSON.stringify(key)})`,
-      );
-      if (!target) continue;
-      const { nodeId } = await query("[data-cr-target]");
-      const forced = target.state
-        ? (await query("[data-cr-forced]")).nodeId
-        : 0;
-      if (forced)
-        await view.cdp("CSS.forcePseudoState", {
-          nodeId: forced,
-          forcedPseudoClasses: STATE_SETS[target.state ?? ""],
-        });
-      try {
-        if (out.explain) {
+    const force = async (ids: number[], state: string | null) => {
+      for (const id of ids) {
+        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
+        const { nodeId } = await query(`[data-ccs-idx="${id}"]`);
+        if (nodeId)
+          await view.cdp("CSS.forcePseudoState", {
+            nodeId,
+            forcedPseudoClasses: state ? STATE_SETS[state] : [],
+          });
+      }
+    };
+
+    if (out.explain)
+      for (const [key, changes] of Object.entries(changed)) {
+        // Each element alone in its state: winners can hang on others' states.
+        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
+        const t = await view.evaluate<{
+          state: string | null;
+          forced: number | null;
+        } | null>(`window.__cr.target(${JSON.stringify(key)})`);
+        if (!t) continue;
+        const forced = t.state !== null && t.forced !== null ? [t.forced] : [];
+        await force(forced, t.state);
+        try {
+          const { nodeId } = await query("[data-cr-target]");
           const styles = await view.cdp<CdpStyles>(
             "CSS.getMatchedStylesForNode",
             { nodeId },
@@ -228,29 +349,47 @@ export async function inspectPage(
               explain(styles, pseudo, longhandsOf(c), sheets),
             ]),
           );
+        } finally {
+          await force(forced, null);
         }
-        if (out.screenshots) {
-          const clip = await view.evaluate<null | {
-            x: number;
-            y: number;
-            width: number;
-            height: number;
-          }>("window.__cr.rect()");
-          const { data } = !clip
-            ? { data: "" }
-            : await view.cdp<{ data: string }>("Page.captureScreenshot", {
+      }
+
+    if (out.shots) {
+      // What's proven unseen (a clip, display: none, off the page) needs
+      // no screenshot to say so.
+      const seen = Object.keys(changed).filter((k) =>
+        changed[k].some((c) => !c.invisible),
+      );
+      out.batches = batches ?? (await planBatches(view, seen));
+      for (const batch of out.batches) {
+        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
+        await force(batch.forced, batch.state);
+        try {
+          const rects = await view.evaluate<(Rect | null)[]>(
+            `${JSON.stringify(batch.keys)}.map((k) => window.__cr.target(k) && window.__cr.rect())`,
+          );
+          const boxes = Object.fromEntries(
+            batch.keys.map((k, i) => [k, rects[i] && pixelBox(rects[i])]),
+          );
+          const drawn = Object.values(boxes).filter(
+            (b): b is Rect => b !== null,
+          );
+          const clip = drawn.length ? union(drawn) : null;
+          const { data } = clip
+            ? await view.cdp<{ data: string }>("Page.captureScreenshot", {
                 format: "png",
                 clip: { ...clip, scale: 1 },
                 captureBeyondViewport: true,
-              });
-          out.screenshots[key] = Buffer.from(data, "base64");
-        }
-      } finally {
-        if (forced)
-          await view.cdp("CSS.forcePseudoState", {
-            nodeId: forced,
-            forcedPseudoClasses: [],
+              })
+            : { data: "" };
+          out.shots.push({
+            png: Buffer.from(data, "base64"),
+            clip: clip ?? { x: 0, y: 0, width: 0, height: 0 },
+            boxes,
           });
+        } finally {
+          await force(batch.forced, null);
+        }
       }
     }
   } finally {
@@ -259,4 +398,12 @@ export async function inspectPage(
     await view.cdp("DOM.disable");
   }
   return out;
+}
+
+function union(boxes: Rect[]): Rect {
+  const x = Math.min(...boxes.map((b) => b.x));
+  const y = Math.min(...boxes.map((b) => b.y));
+  const right = Math.max(...boxes.map((b) => b.x + b.width));
+  const bottom = Math.max(...boxes.map((b) => b.y + b.height));
+  return { x, y, width: right - x, height: bottom - y };
 }

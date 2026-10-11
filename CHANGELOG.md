@@ -2,8 +2,60 @@
 
 ## Unreleased
 
+**Breaking**
+
+- More changes count as invisible, so they're listed apart and no longer
+  fail `snapshot-diff`, `compare` or `bisect`: anything in an absolutely
+  positioned box clipped to nothing (`clip: rect(0 0 0 0)`,
+  `clip-path: inset(50%)`, or a 1px box with `overflow: hidden`, as
+  screen-reader-only text is) or off the page; painted properties under
+  `opacity: 0` (on the element or an ancestor), in an in-flow box clipped
+  that way, off the page or clipped away by an `overflow` ancestor; text
+  drawn in the color of the background behind it; and a 0 × 0 box's own
+  background and border. `capture` records the geometric reasons as a
+  `--cr-hidden` value on the element (never compared). On carbon-components-svelte's
+  `28e700f30..7e301af6f` (124 fixture pages), the clipped
+  `.bx--assistive-text` moves that used to read as changes are now
+  invisible (`clip: rect(0 0 0 0)`, 30 elements), as are 29 changes under
+  `opacity: 0` and 21 off the page: 248 visible changes instead of 327
+  (`eval/carbon/scope.ts`, `eval/carbon/visual.ts`).
+- `ChangeGroup.pixels` has an `imperceptible` count.
+
 **Features**
 
+- `compare --visual` scores how far apart an element's pixels look, with
+  CIEDE2000 over the pixels that differ: `pages[].deltaE[path]` and
+  `groups[].deltaE` hold the largest and mean ΔE, and an element whose
+  pixels differ by less than 1 everywhere counts as imperceptible (in the
+  report, per change and overall). The TooltipDefinition trigger
+  (`#161616 -> #000`) reads ΔE 3.5 on average (6.3 at most) on its page.
+- `compare --visual` takes one screenshot per state on a page instead of
+  one per element: elements forced into the same state share one when
+  their boxes don't overlap and neither contains the other, and each is
+  cropped from the decoded PNG in memory. Elements already proven
+  invisible get none. Its cost over a plain `compare`, measured with
+  `CCS_ROOT=… bun eval/carbon/visual.ts` on carbon-components-svelte's
+  124 fixture pages (white, 1280 × 900, forced states, 4 tabs), before and
+  after:
+
+  | Change | Changed elements | Before | After |
+  |:--|--:|--:|--:|
+  | `28e700f30..7e301af6f` | 172 | +9.2 s | +2.3 s |
+  | `2d710c03e^..7e301af6f` | 172 | +7.8 s | +5.9 s |
+  | `660b2936a` (#3839) | 12 | +1.7 s | −0.1 s (noise) |
+  | Recoloring `#0f62fe` | 1,388 | +50.1 s | +23.1 s |
+
+- `compare --explain` and `--visual` read the base side on the page the
+  head side was just read on, by switching its library `<link>` to the
+  base sheet (the head server serves it at the same path with
+  `?cr-sheet=alt`), instead of loading, settling and tagging the base page
+  again; a page whose library sheet isn't a `<link>` is still reloaded.
+  Recoloring `.bx--visually-hidden` (49 of 124 pages reached, white,
+  1280 × 900, 4 tabs, load 4.8–5.8): 17.5 s and 16.6 s plain, 21.7 s and
+  22.3 s with `--report` (1.24× and 1.34×), against 40.8 s (2.2×) before
+  invisible elements went unscreenshotted and 1.52–1.61× before the
+  switch; `--explain` alone went from 26.7 s to 21.2 s. Same cards,
+  winners and crops.
 - `compare` and `bisect` read only what a stylesheet change can reach.
   The rules that differ (removed, added, moved against the others, or
   edited in place, for the declarations that changed) have their

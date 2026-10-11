@@ -1,6 +1,6 @@
 // Paths on one side only are DOM or forced-state changes, and properties one
 // side only recorded have no value to compare: listed, not diffed.
-import { foldChanges } from "./fold";
+import { foldChanges, HIDDEN } from "./fold";
 
 /** Element path (with `::before`, `@hover` and similar suffixes) → longhand → computed value. */
 export type Snapshot = Record<string, Record<string, string>>;
@@ -58,13 +58,15 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
     }
     const changes: PropertyChange[] = [];
     for (const [property, value] of Object.entries(before)) {
+      // Not a style: why the box can't be seen.
+      if (property === HIDDEN) continue;
       const next = after[property];
       if (next === undefined) onlyBase.add(property);
       else if (next !== value)
         changes.push({ property, before: value, after: next });
     }
     for (const property of Object.keys(after))
-      if (!(property in before)) onlyHead.add(property);
+      if (!(property in before) && property !== HIDDEN) onlyHead.add(property);
     if (changes.length) changed[path] = foldChanges(changes, path, base, head);
   }
   return {
@@ -111,15 +113,32 @@ export interface ChangeGroup {
   pages: string[];
   /** The first few occurrences, with the winners when explained. */
   examples: { page: string; path: string; explain?: Explained }[];
-  /** With element screenshots: how many of its elements' pixels differ. */
-  pixels?: { differ: number; same: number };
+  /**
+   * With element screenshots: how many of its elements' pixels differ, and
+   * of those, how many by less than a just-noticeable difference (CIEDE2000
+   * below 1 everywhere).
+   */
+  pixels?: { differ: number; same: number; imperceptible: number };
+  /** Over its elements whose pixels differ (same-size crops): the largest CIEDE2000, and the mean of their means. */
+  deltaE?: DeltaE;
 }
+
+/** How far apart an element's pixels look between the sides (CIEDE2000, over the pixels that differ). */
+export interface DeltaE {
+  max: number;
+  mean: number;
+}
+
+/** Below a just-noticeable difference. */
+export const IMPERCEPTIBLE = 1;
 
 /** What a page's changes were inspected for, by path. */
 export interface Inspected {
   explain?: Record<string, Record<string, Explained>>;
   /** Whether the element's screenshots differ. */
   pixels?: Record<string, boolean>;
+  /** For screenshots that differ at the same size: how far apart they look. */
+  deltaE?: Record<string, DeltaE>;
 }
 
 /**
@@ -132,7 +151,8 @@ export function groupChanges(
   examples = 3,
 ): ChangeGroup[] {
   const groups = new Map<string, ChangeGroup>();
-  for (const { page, changed, explain, pixels } of pages) {
+  const means = new Map<ChangeGroup, number[]>();
+  for (const { page, changed, explain, pixels, deltaE } of pages) {
     for (const [path, changes] of Object.entries(changed)) {
       for (const { property, before, after, aliases, invisible } of changes) {
         const key = JSON.stringify([property, before, after, invisible]);
@@ -151,11 +171,21 @@ export function groupChanges(
           g.examples.push({ page, path, ...(why && { explain: why }) });
         const differ = pixels?.[path];
         if (differ !== undefined) {
-          g.pixels ??= { differ: 0, same: 0 };
+          g.pixels ??= { differ: 0, same: 0, imperceptible: 0 };
           g.pixels[differ ? "differ" : "same"]++;
+          const de = deltaE?.[path];
+          if (de) {
+            if (de.max < IMPERCEPTIBLE) g.pixels.imperceptible++;
+            g.deltaE = { max: Math.max(g.deltaE?.max ?? 0, de.max), mean: 0 };
+            const list = means.get(g) ?? [];
+            list.push(de.mean);
+            means.set(g, list);
+          }
         }
       }
     }
   }
+  for (const [g, list] of means)
+    if (g.deltaE) g.deltaE.mean = list.reduce((n, m) => n + m, 0) / list.length;
   return [...groups.values()].sort((a, b) => b.count - a.count);
 }

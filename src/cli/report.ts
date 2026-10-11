@@ -3,7 +3,12 @@ import type { Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { Histogram } from "../core/cascade";
 import type { Specificity } from "../core/selector";
-import type { ChangeGroup, Explained, Winner } from "../core/snapshot-diff";
+import {
+  type ChangeGroup,
+  type Explained,
+  IMPERCEPTIBLE,
+  type Winner,
+} from "../core/snapshot-diff";
 import { pushTo } from "../core/util";
 import type { DeadResult, DiffResult, FlipFinding, RuleRef } from "./commands";
 import type { FixReport } from "./fix";
@@ -444,9 +449,12 @@ export function formatSnapshotDiff(
   const invisible = diff.groups.filter((g) => g.invisible);
   const group = (g: ChangeGroup, color: (s: string) => string) => {
     const more = g.pages.length - MAX_PAGES;
+    const delta = g.deltaE
+      ? `, ΔE up to ${g.deltaE.max.toFixed(1)} (mean ${g.deltaE.mean.toFixed(1)})${g.pixels?.imperceptible ? `, ${g.pixels.imperceptible} imperceptible` : ""}`
+      : "";
     const pixels = g.pixels
       ? dim(
-          `  pixels differ on ${g.pixels.differ} of ${g.pixels.differ + g.pixels.same}`,
+          `  pixels differ on ${g.pixels.differ} of ${g.pixels.differ + g.pixels.same}${delta}`,
         )
       : "";
     lines.push(
@@ -461,10 +469,13 @@ export function formatSnapshotDiff(
     );
   };
   const checked = diff.pages.flatMap((p) => Object.values(p.pixels ?? {}));
+  const faint = diff.pages.flatMap((p) =>
+    Object.values(p.deltaE ?? {}).filter((d) => d.max < IMPERCEPTIBLE),
+  ).length;
   if (checked.length > 0)
     lines.push(
       "",
-      `Element screenshots: pixels differ on ${checked.filter(Boolean).length} of ${checked.length} changed element(s) ${dim("(each in its forced state, at the captured viewport)")}`,
+      `Element screenshots: pixels differ on ${checked.filter(Boolean).length} of ${checked.length} changed element(s)${faint ? `, ${faint} of them imperceptibly (CIEDE2000 below ${IMPERCEPTIBLE})` : ""} ${dim("(each in its forced state, at the captured viewport)")}`,
     );
   const total = (gs: ChangeGroup[]) => gs.reduce((n, g) => n + g.count, 0);
   if (visible.length === 0)
