@@ -129,7 +129,7 @@ const CR_HELPERS = `
         if (!el) return null;
         el.setAttribute("data-cr-target", "");
         const m = /@(hover|focus|active)(\\^?)(?:::before|::after)?$/.exec(key);
-        if (!m) return { state: null };
+        if (!m) return { state: null, forced: null };
         let forced = null;
         for (const t of document.querySelectorAll("[data-ccs-idx]")) {
           const reach = (window.__crReach || [])[Number(t.getAttribute("data-ccs-idx"))] || [];
@@ -138,7 +138,7 @@ const CR_HELPERS = `
         }
         if (!forced) return null;
         forced.setAttribute("data-cr-forced", "");
-        return { state: m[1] };
+        return { state: m[1], forced: Number(forced.getAttribute("data-ccs-idx")) };
       },
       // The target's box in document coordinates, padded to at least 24 × 16
       // and by 8 px for outlines and shadows; null when it renders no box

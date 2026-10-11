@@ -10,8 +10,9 @@ import {
   type Inspected,
   type PageDiff,
 } from "../core/snapshot-diff";
-import { inspectPage, type PageInspection } from "./inspect";
+import { inspectPage, type PageInspection, type Shot } from "./inspect";
 import { matchPages, pageIndex } from "./page-index";
+import { crop, decodePng, difference, type Image } from "./png";
 import { serveFixtures, swappedSheet } from "./serve";
 import {
   type CaptureOptions,
@@ -273,7 +274,12 @@ export async function compareCss(opts: CompareOptions): Promise<
           await loadPage(view, job.url, opts);
           await preparePage(view, opts, plan.declared);
           if (opts.states) await tagStates(view);
-          const before = await inspectPage(view, diff.changed, opts);
+          const before = await inspectPage(
+            view,
+            diff.changed,
+            opts,
+            after.batches,
+          );
           Object.assign(diff, combine(before, after));
         }
         pages.push({
@@ -329,11 +335,44 @@ function combine(before: PageInspection, after: PageInspection): Inspected {
       );
     }
   }
-  if (before.screenshots && after.screenshots) {
+  if (before.shots && after.shots) {
     out.pixels = {};
-    for (const [path, png] of Object.entries(after.screenshots)) {
-      const was = before.screenshots[path];
-      if (was) out.pixels[path] = !Buffer.from(was).equals(png);
+    out.deltaE = {};
+    const crops = (shots: Shot[]) => {
+      const images = new Map<Shot, Image>();
+      const at = new Map<string, () => Image | null>();
+      for (const shot of shots)
+        for (const [path, box] of Object.entries(shot.boxes))
+          at.set(path, () => {
+            if (!box) return null;
+            let image = images.get(shot);
+            if (!image) {
+              image = decodePng(shot.png);
+              images.set(shot, image);
+            }
+            return crop(
+              image,
+              box.x - shot.clip.x,
+              box.y - shot.clip.y,
+              box.width,
+              box.height,
+            );
+          });
+      return at;
+    };
+    const [was, now] = [crops(before.shots), crops(after.shots)];
+    for (const [path, get] of now) {
+      const other = was.get(path);
+      if (!other) continue;
+      const [a, b] = [other(), get()];
+      if (!a || !b || a.width !== b.width || a.height !== b.height) {
+        // No box on either side is the same nothing; a new size differs.
+        out.pixels[path] = Boolean(a || b);
+        continue;
+      }
+      const d = difference(a, b);
+      out.pixels[path] = d !== null;
+      if (d) out.deltaE[path] = { max: d.max, mean: d.mean };
     }
   }
   return out;

@@ -1,6 +1,7 @@
 // Folds one element's computed-style changes so a single cause reads as one
 // change: logical twins, a shorthand's longhands and `color` followers become
 // `aliases` of the change they repeat, and changes no one can see are marked.
+import { parseColor } from "./color";
 import { SHORTHANDS } from "./shorthands";
 import type { PropertyChange, Snapshot } from "./snapshot-diff";
 
@@ -89,20 +90,170 @@ const HIDDEN_VISIBILITY = new Set(["hidden", "collapse"]);
 const NO_BORDER = new Set(["none", "hidden"]);
 const STATE_SUFFIX_RE = /(@(?:hover|focus|active)\^?)?(::before|::after)?$/;
 
-/** Whether the element at `key`, or one of its recorded ancestors, has `display: none`. */
-function undisplayed(snap: Snapshot, key: string): boolean {
-  if (snap[key]?.display === "none") return true;
+/**
+ * The records of the element at `key` and of its recorded ancestors,
+ * nearest first; a pseudo-element's own element comes right after it.
+ * Under a forced state, the state's records stand in for the plain ones.
+ */
+function lineage(snap: Snapshot, key: string): StyleRecord[] {
+  const out: StyleRecord[] = [];
+  if (snap[key]) out.push(snap[key]);
   const m = STATE_SUFFIX_RE.exec(key);
   const path = key.slice(0, m?.index ?? key.length);
   const state = m?.[1] ?? "";
   const plain = state.replace("^", "");
   const at = (p: string) =>
     snap[p + state] ?? (plain && snap[`${p + plain}^`]) ?? snap[p];
-  // A pseudo-element's own element first.
-  if (m?.[2] && at(path)?.display === "none") return true;
-  for (let i = path.lastIndexOf(">"); i > 0; i = path.lastIndexOf(">", i - 1))
-    if (at(path.slice(0, i))?.display === "none") return true;
-  return false;
+  if (m?.[2]) {
+    const own = at(path);
+    if (own) out.push(own);
+  }
+  for (let i = path.lastIndexOf(">"); i > 0; i = path.lastIndexOf(">", i - 1)) {
+    const r = at(path.slice(0, i));
+    if (r) out.push(r);
+  }
+  return out;
+}
+
+/** Set by `capture` on an element whose box can't be seen: why. */
+export const HIDDEN = "--cr-hidden";
+
+const OUT_OF_FLOW = new Set(["absolute", "fixed"]);
+const CLIPPING = new Set(["hidden", "clip"]);
+const ZERO_RECT_RE =
+  /^rect\(\s*(-?[\d.]+)px[\s,]+(-?[\d.]+)px[\s,]+(-?[\d.]+)px[\s,]+(-?[\d.]+)px\s*\)$/;
+const INSET_RE = /^inset\(\s*(\d+(?:\.\d+)?)%\s*\)$/;
+const PX_RE = /^(-?[\d.]+)px$/;
+const px = (v: string | undefined) => {
+  const m = v === undefined ? null : PX_RE.exec(v);
+  return m ? Number(m[1]) : Number.NaN;
+};
+const SIDES = ["top", "right", "bottom", "left"];
+
+/** Why nothing of `r` (and what it contains) is painted, if so. */
+function clippedAway(r: StyleRecord): string | undefined {
+  if (OUT_OF_FLOW.has(r.position)) {
+    // `clip` applies to absolutely positioned boxes: top, right, bottom, left.
+    const m = ZERO_RECT_RE.exec(r.clip ?? "");
+    if (m && (Number(m[2]) <= Number(m[4]) || Number(m[3]) <= Number(m[1])))
+      return "clip: rect(0 0 0 0)";
+    if (
+      px(r.width) <= 1 &&
+      px(r.height) <= 1 &&
+      CLIPPING.has(r["overflow-x"]) &&
+      CLIPPING.has(r["overflow-y"])
+    )
+      return "1px box, overflow: hidden";
+  }
+  const inset = INSET_RE.exec(r["clip-path"] ?? "");
+  if (inset && Number(inset[1]) >= 50) return "clip-path: inset(50%)";
+  return undefined;
+}
+
+/**
+ * Why the element with `records` (its `lineage`) can't be seen, if it can't,
+ * and whether that holds for every property (its box is out of flow, so even
+ * its layout moves nothing anyone sees) or only for painted ones.
+ */
+function concealed(
+  own: StyleRecord,
+  records: StyleRecord[],
+): { why: string; all: boolean } | undefined {
+  // A declared clip first: screen-reader-only text reads the same wherever
+  // it sits, though it may also be off the page.
+  for (const r of records) {
+    const why = clippedAway(r);
+    if (why) return { why, all: OUT_OF_FLOW.has(r.position) };
+  }
+  if (own[HIDDEN])
+    return { why: own[HIDDEN], all: OUT_OF_FLOW.has(own.position) };
+  if (records.some((r) => r.opacity === "0"))
+    return { why: "opacity: 0", all: false };
+  return undefined;
+}
+
+/**
+ * Properties that changed the same way, folded as `foldChanges` folds
+ * them (assuming a horizontal, left-to-right element): logical twins under
+ * their physical name, `color`'s followers under `color`, full sets of
+ * longhands under their shorthand. What each folded is in `also`.
+ */
+export function foldNames(
+  properties: string[],
+): { property: string; also: string[] }[] {
+  const by = new Map<string, Set<string>>();
+  for (const p of properties) {
+    const name = physical(p, "ltr") ?? p;
+    const also = by.get(name) ?? new Set<string>();
+    if (name !== p) also.add(p);
+    by.set(name, also);
+  }
+  const color = by.get("color");
+  if (color)
+    for (const [name, also] of by)
+      if (FOLLOWERS.has(name)) {
+        color.add(name);
+        for (const a of also) color.add(a);
+        by.delete(name);
+      }
+  for (const [name, longhands] of shorthands("ltr")) {
+    if (!longhands.every((l) => by.has(l))) continue;
+    const also = new Set<string>();
+    for (const l of longhands) {
+      also.add(l);
+      for (const a of by.get(l) ?? []) also.add(a);
+      by.delete(l);
+    }
+    by.set(name, also);
+  }
+  return [...by].map(([property, also]) => ({
+    property,
+    also: [...also].sort(),
+  }));
+}
+
+/** Why no one can see the element at `key` in `snap`, if no one can. */
+export function unseen(snap: Snapshot, key: string): string | undefined {
+  const records = lineage(snap, key);
+  return records[0] && concealed(records[0], records)?.why;
+}
+
+/** A border box of 0 × 0: nothing of its own box is painted. */
+const emptyBox = (r: StyleRecord) =>
+  px(r.width) === 0 &&
+  px(r.height) === 0 &&
+  SIDES.every(
+    (s) => px(r[`padding-${s}`]) === 0 && px(r[`border-${s}-width`]) === 0,
+  );
+const OWN_BOX_RE = /^(?:background-|border-)/;
+
+// Text paint that follows the text: unseen when the text is.
+const TEXT_FOLLOWERS = new Set([
+  "caret-color",
+  "text-decoration-color",
+  "text-emphasis-color",
+  "-webkit-text-fill-color",
+  "-webkit-text-stroke-color",
+]);
+
+/** The opaque color text is drawn on, from the nearest painted background; undefined when unsure. */
+function backdrop(records: StyleRecord[]): string | undefined {
+  for (const r of records) {
+    if (emptyBox(r)) continue;
+    if (r["background-image"] && r["background-image"] !== "none") return;
+    const c = parseColor(r["background-color"] ?? "");
+    if (!c) return;
+    if (c[3] === 0) continue;
+    return c[3] === 1 ? `${c[0]},${c[1]},${c[2]}` : undefined;
+  }
+  return undefined;
+}
+
+function textHidden(own: StyleRecord, records: StyleRecord[]): boolean {
+  const c = parseColor(own.color ?? "");
+  if (c?.[3] !== 1) return false;
+  const bg = backdrop(records);
+  return bg !== undefined && bg === `${c[0]},${c[1]},${c[2]}`;
 }
 
 /** Why `property` can't be seen on either side, if it can't. */
@@ -186,11 +337,22 @@ export function foldChanges(
     out.push(c);
   }
 
-  const hidden = undisplayed(base, key) && undisplayed(head, key);
+  const sides = [
+    [before, lineage(base, key)],
+    [after, lineage(head, key)],
+  ] as const;
+  const hidden = sides.every(([, rs]) => rs.some((r) => r.display === "none"));
+  const unseen = sides.map(([own, rs]) => concealed(own, rs));
+  const empty = emptyBox(before) && emptyBox(after);
   for (const c of out) {
+    const paint = COLOR_RE.test(c.property) || PAINT.has(c.property);
     const why = hidden
       ? "display: none"
-      : invisibleOn(c.property, before, after);
+      : unseen.every((u) => u && (u.all || paint))
+        ? unseen[0]?.why
+        : empty && OWN_BOX_RE.test(c.property)
+          ? "0×0 box"
+          : invisibleOn(c.property, before, after);
     if (why) c.invisible = why;
   }
 
@@ -206,6 +368,14 @@ export function foldChanges(
     for (const f of followers)
       absorb(color, [f.property, ...(f.aliases ?? [])]);
     out = out.filter((c) => !followers.includes(c));
+    // Text drawn in the color of what's behind it, with nothing else
+    // following its color.
+    if (
+      !color.invisible &&
+      (color.aliases ?? []).every((a) => TEXT_FOLLOWERS.has(a)) &&
+      sides.every(([own, rs]) => textHidden(own, rs))
+    )
+      color.invisible = "text color equals the background";
   }
 
   // Longhands that all changed the same way, under their shorthand.

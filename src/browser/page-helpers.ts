@@ -83,14 +83,65 @@ export const PAGE_HELPERS = `
       for (const p of props) out[p] = cs.getPropertyValue(p);
       return out;
     };
+    // Why an element's box can't be seen where it is: off the page, or
+    // clipped away by an overflow ancestor (followed through in-flow boxes
+    // only, as positioned ones can escape it).
+    const ALL = { l: -Infinity, t: -Infinity, r: Infinity, b: Infinity };
+    let clips = new Map();
+    const outOfFlow = (el) => {
+      const p = getComputedStyle(el).position;
+      return p === "absolute" || p === "fixed";
+    };
+    // The clip an in-flow child of \`el\` is under, in viewport coordinates.
+    const clipFor = (el) => {
+      if (!el || el === document.body || el === document.documentElement) return ALL;
+      let c = clips.get(el);
+      if (c) return c;
+      c = outOfFlow(el) ? ALL : clipFor(el.parentElement);
+      const cs = getComputedStyle(el);
+      const x = cs.overflowX !== "visible";
+      const y = cs.overflowY !== "visible";
+      if (x || y) {
+        const r = el.getBoundingClientRect();
+        const l = r.left + el.clientLeft;
+        const t = r.top + el.clientTop;
+        c = {
+          l: x ? Math.max(c.l, l) : c.l,
+          t: y ? Math.max(c.t, t) : c.t,
+          r: x ? Math.min(c.r, l + el.clientWidth) : c.r,
+          b: y ? Math.min(c.b, t + el.clientHeight) : c.b,
+        };
+      }
+      clips.set(el, c);
+      return c;
+    };
+    const unseen = (el) => {
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) return null;
+      const de = document.documentElement;
+      const w = Math.max(de.scrollWidth, de.clientWidth);
+      const h = Math.max(de.scrollHeight, de.clientHeight);
+      const left = r.left + scrollX;
+      const top = r.top + scrollY;
+      if (r.right + scrollX <= 0 || r.bottom + scrollY <= 0 || left >= w || top >= h)
+        return "offscreen";
+      if (outOfFlow(el)) return null;
+      const c = clipFor(el.parentElement);
+      if (Math.min(r.right, c.r) <= Math.max(r.left, c.l) || Math.min(r.bottom, c.b) <= Math.max(r.top, c.t))
+        return "clipped by an overflow ancestor";
+      return null;
+    };
     const record = (el, into, suffix) => {
       const key = pathOf(el) + (suffix || "");
       into[key] = read(el, null);
+      const why = unseen(el);
+      if (why) into[key]["--cr-hidden"] = why;
       const b = read(el, "::before"); if (b) into[key + "::before"] = b;
       const a = read(el, "::after"); if (a) into[key + "::after"] = a;
     };
     window.__ccs = {
       snapshot() {
+        clips = new Map();
         const out = {};
         for (const el of document.querySelectorAll("body *"))
           if (!only || only.has(el)) record(el, out, "");
@@ -131,6 +182,7 @@ export const PAGE_HELPERS = `
         return els.length;
       },
       snapshotState(idx, state) {
+        clips = new Map();
         const el = document.querySelector('[data-ccs-idx="' + idx + '"]');
         const out = {};
         if (!el) return out;
