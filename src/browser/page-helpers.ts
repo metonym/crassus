@@ -140,6 +140,50 @@ export const PAGE_HELPERS = `
       const a = read(el, "::after"); if (a) into[key + "::after"] = a;
     };
     window.__ccs = {
+      // Reads the page again with every custom property named \`prefix…\`
+      // set to a sentinel of its type (a hue, an odd length, a font family
+      // of its own), and returns, per element read, the properties whose
+      // value carries a sentinel: the tokens driving them.
+      tokens(prefix) {
+        const names = new Set();
+        const first = new Map();
+        eachRule((rule) => {
+          if (rule.style) for (let i = 0; i < rule.style.length; i++) {
+            const name = rule.style[i];
+            if (!name.startsWith(prefix)) continue;
+            names.add(name);
+            if (!first.has(name)) first.set(name, rule.style.getPropertyValue(name).trim());
+          }
+        });
+        const root = getComputedStyle(document.documentElement);
+        const marks = [];
+        const decls = [];
+        Array.from(names).sort().forEach((name, i) => {
+          const value = root.getPropertyValue(name).trim() || first.get(name) || "";
+          let mark = null;
+          if (value && CSS.supports("color", value)) mark = "rgb(" + ((i >> 8) & 255) + ", " + (i & 255) + ", 251)";
+          else if (value && CSS.supports("width", value) && !CSS.supports("width", value + "a")) mark = (1000 + (i % 9000)) / 100 + 0.003 + "px";
+          else if (value && CSS.supports("font-family", value) && value.includes(",")) mark = '"cr-token-' + i + '"';
+          if (!mark) return;
+          marks.push([name, mark.replace(/^"|"$/g, "")]);
+          decls.push(name + ": " + mark + " !important;");
+        });
+        const style = document.createElement("style");
+        // No transitions: they'd start from the old value, hiding the sentinel.
+        style.textContent = ":root, *, *::before, *::after { " + decls.join(" ") + " transition: none !important; }";
+        document.head.append(style);
+        const read = this.snapshot();
+        style.remove();
+        const out = {};
+        for (const [key, record] of Object.entries(read)) {
+          for (const [prop, value] of Object.entries(record)) {
+            if (prop.startsWith("--")) continue;
+            const hit = marks.filter(([, m]) => value.includes(m)).map(([n]) => n);
+            if (hit.length) (out[key] ??= {})[prop] = hit;
+          }
+        }
+        return { tokens: marks.map(([n]) => n), tracked: out };
+      },
       snapshot() {
         clips = new Map();
         const out = {};

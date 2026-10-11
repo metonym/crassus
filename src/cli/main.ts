@@ -9,6 +9,7 @@ import {
   captureCommand,
   compareCommand,
   snapshotDiffCommand,
+  tokensCommand,
   usageCommand,
 } from "./browser";
 import {
@@ -61,6 +62,9 @@ Usage:
                                  styles on today's fixtures (ground truth)
   crassus usage                  declarations that match but never win on
                                  the fixtures (evidence)
+  crassus tokens --tokens cds-   which design tokens drive which properties
+                                 on the fixtures; unused tokens; hard-coded
+                                 colors (evidence)
   crassus explain <id>           one change card from a report, as Markdown
                                  (or --format json)
   crassus repro <id>             a standalone page that shows the card's
@@ -114,6 +118,12 @@ Browser options (capture, compare, bisect, usage; override the config's \`browse
                      are, instead of halving them down to the commits
   --no-scope         compare, bisect: load every page and read every element,
                      instead of only what the changed rules can reach
+  --tokens <prefix>  compare, bisect: trace which properties follow design
+                     tokens (custom properties with this prefix: cds- for
+                     --cds-*),
+                     and fail where one stops following them; tokens: the
+                     prefix to report on (default: the config's
+                     browser.tokens)
   --report <dir>     compare, bisect: write change cards (report.json,
                      index.html, report.md, crops) to this directory, with
                      --explain and --visual; explain, repro, verify: read it
@@ -198,6 +208,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       "no-split": { type: "boolean" },
       "no-scope": { type: "boolean" },
       report: { type: "string" },
+      tokens: { type: "string" },
       visual: { type: "boolean" },
       out: { type: "string" },
       summary: { type: "string" },
@@ -367,6 +378,7 @@ async function run(argv: string[], io: Io): Promise<number> {
     matcher: values.matcher,
     concurrency: values.concurrency,
     url: values.url,
+    tokens: values.tokens,
   };
   if (command === "snapshot-diff") {
     if (format !== "human" && format !== "json")
@@ -438,6 +450,12 @@ async function run(argv: string[], io: Io): Promise<number> {
       io,
       summary,
     });
+  }
+  if (command === "tokens") {
+    if (format !== "human" && format !== "json")
+      throw new UsageError("tokens reports as human or json");
+    const { config } = await loadConfig(cwd, values.config);
+    return tokensCommand({ config, flags, format, io });
   }
   if (command === "capture" || command === "usage") {
     if (format !== "human")

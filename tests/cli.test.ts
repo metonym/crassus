@@ -888,6 +888,67 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(range.code).toBe(0);
   }, 120_000);
 
+  it("traces design tokens: compare fails where a property stops following one, and tokens reports who uses them", async () => {
+    const TOKENS =
+      ":root { --x-text: #222; --x-gap: 6px; --x-font: Georgia, serif; --x-unused: #f00; }\n";
+    const LIB = `${TOKENS}.a { color: var(--x-text); padding: var(--x-gap); font-family: var(--x-font); }\n.b { color: #0a0a0a; }\n`;
+    const root = await project({
+      "crassus.config.ts": `export default {
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0, tokens: "--x-" },
+      };`,
+      "site/lib.css": LIB,
+      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a</div><p class="b">b</p></body></html>`,
+    });
+    const flags = ["--no-states"];
+    const tokens = await cli(root, "tokens", ...flags);
+    expect(tokens.code).toBe(0);
+    expect(tokens.out).toContain("4 --x-* token(s) traced over 1 page");
+    expect(tokens.out).toContain("--x-text  1 element(s) on 1 page(s): ");
+    expect(tokens.out).toContain("Unused on the fixtures: --x-unused");
+    expect(tokens.out).toContain("1×  color: rgb(10, 10, 10)");
+    const json = JSON.parse(
+      (await cli(root, "tokens", ...flags, "--json")).out,
+    );
+    expect(json.used["--x-gap"].properties).toMatchObject({ "padding-top": 1 });
+    expect(json.used["--x-font"].properties).toMatchObject({
+      "font-family": 1,
+    });
+
+    // Head hard-codes the token's value: nothing looks different.
+    await Bun.write(join(root, "base.css"), LIB);
+    await Bun.write(
+      join(root, "head.css"),
+      LIB.replace("color: var(--x-text)", "color: #222"),
+    );
+    const plain = await cli(
+      root,
+      "compare",
+      "base.css",
+      "head.css",
+      ...flags,
+      "--tokens",
+      "nope-",
+    );
+    expect(plain.code).toBe(0);
+    const traced = await cli(root, "compare", "base.css", "head.css", ...flags);
+    expect(traced.code).toBe(1);
+    expect(traced.out).toContain(
+      "1 element(s) whose properties stopped following a design token with no change in value",
+    );
+    expect(traced.out).toContain("color: --x-text -> none (rgb(34, 34, 34))");
+    const md = await cli(
+      root,
+      "compare",
+      "base.css",
+      "head.css",
+      ...flags,
+      "--format",
+      "markdown",
+    );
+    expect(md.out).toContain("1 token-detached, 0 visible");
+    expect(md.out).toContain("Stopped following --x-text on 1 element(s)");
+  }, 120_000);
+
   it("explains winners at their source and compares screenshots", async () => {
     const root = await project({
       "crassus.config.ts": `export default {

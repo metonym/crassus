@@ -6,6 +6,7 @@ import {
 } from "../core/impact";
 import {
   diffSnapshot,
+  diffTokens,
   type Explained,
   type Inspected,
   type PageDiff,
@@ -59,6 +60,12 @@ export interface CompareOptions
   onImpact?: (impact: Impact) => void;
   /** Keep what a report needs: changed elements' markup, and with `visual`, their crops. */
   report?: boolean;
+  /**
+   * Trace what design tokens (custom properties with this prefix, like
+   * `--cds-`) drive each property on both sides, and report properties
+   * that stop following one (`PageDiff.tokens`). Unforced states only.
+   */
+  tokens?: string;
 }
 
 /** An element's crops on each side, kept for a report: `crops[page][path]`. */
@@ -283,6 +290,10 @@ export async function compareCss(opts: CompareOptions): Promise<
           headNotReady.push(job.label);
         const b = await capturePage(view, opts, plan.declared, scope);
         const diff: PageDiff & Inspected = diffSnapshot(a.snapshot, b.snapshot);
+        if (a.tokens && b.tokens) {
+          const tokens = diffTokens(a.tokens, b.tokens, b.snapshot);
+          if (Object.keys(tokens).length) diff.tokens = tokens;
+        }
         const file = snapshotFile(job, several).replace(".json.gz", "");
         const keys = Object.keys(diff.changed);
         if (keys.length) {

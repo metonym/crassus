@@ -17,6 +17,7 @@ export type {
   PageDiff,
   PropertyChange,
   Snapshot,
+  TokenChange,
   Uncompared,
   Winner,
 } from "../core/snapshot-diff";

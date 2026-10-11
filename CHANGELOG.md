@@ -19,7 +19,9 @@
   invisible (`clip: rect(0 0 0 0)`, 30 elements), as are 29 changes under
   `opacity: 0` and 21 off the page: 248 visible changes instead of 327
   (`eval/carbon/scope.ts`, `eval/carbon/visual.ts`).
-- `ChangeGroup.pixels` has an `imperceptible` count.
+- `ChangeGroup.pixels` has an `imperceptible` count. `--visual` doesn't
+  screenshot elements already proven invisible (a clip, `display: none`,
+  off the page), so their groups have no `pixels`.
 - Changes to `transition-*` are invisible ("transition only"): captures
   settle transitions, so what they animate never shows in a still. They no
   longer fail a run.
@@ -137,6 +139,25 @@
   approving #3839's two cards made `bisect 660b2936a^..660b2936a --only
   data-table` exit 0 instead of 1, and `28e700f30..7e301af6f` still
   failed on its own cards.
+- Token tracing: `compare --tokens cds-` and `bisect --tokens cds-` (or
+  `browser.tokens: "--cds-"`) read each page again with every token set to
+  a sentinel of its type, and note which properties follow which token. A
+  property that followed one on base and none on head is token-detached:
+  it fails the run even when its value is unchanged or its element is
+  hidden, groups count it, and change cards get a `token-detached` verdict.
+  Measured with `CCS_ROOT=… bun eval/carbon/tokens.ts` (124 fixture pages,
+  white, 1280 × 900, `--visual` off): the TooltipDefinition regression's
+  card is token-detached (`color` stopped following `--cds-text-01`), and
+  tracing took that compare from 18.6 s to 19.0 s (#3839: 7.1 s, 6.9 s;
+  the flattening: 24.7 s, 27.5 s at load 4.6; a second run at load 8–18
+  measured 24.8 s → 26.8 s, 8.4 s → 9.3 s and 31.7 s → 52.8 s). In the terminal,
+  detachments group as style changes do, `color`'s followers, logical
+  twins and longhand sets folded: the TooltipDefinition trigger's is one
+  line, `30×  color: --cds-text-01 -> none`, with the rest under `also:`.
+- `crassus tokens --tokens cds-`: which tokens drive which properties on
+  the fixtures, unused tokens and colors that follow none. On
+  carbon-components-svelte: 356 tokens traced over 124 pages in 23.6 s,
+  120 followed, 236 unused.
 - `compare` records a CSS selector for each changed element
   (`pages[].where[path].selector`, `nth-child` from `body`), and with
   `--explain` flags winners whose rule differs between the sides

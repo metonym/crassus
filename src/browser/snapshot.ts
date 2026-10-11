@@ -302,7 +302,13 @@ export async function readSnapshot(file: string): Promise<Snapshot> {
   return decodeSnapshot(await Bun.file(file).bytes());
 }
 
-type PageOptions = Pick<CaptureOptions, "states" | "emulate" | "settleMs">;
+type PageOptions = Pick<CaptureOptions, "states" | "emulate" | "settleMs"> & {
+  /** Custom-property prefix of the design tokens to trace (`--cds-`). */
+  tokens?: string;
+};
+
+/** Per element, the properties that track tokens, and which. */
+export type TokenTrace = Record<string, Record<string, string[]>>;
 
 /** Loads the helpers, waits `settleMs` and freezes animations: the page as `capture` reads it. */
 export async function preparePage(
@@ -358,7 +364,13 @@ export async function capturePage(
   opts: PageOptions,
   extraProps: string[] = [],
   scope?: PageScope,
-): Promise<{ snapshot: Snapshot; read?: ScopeRead }> {
+): Promise<{
+  snapshot: Snapshot;
+  read?: ScopeRead;
+  tokens?: TokenTrace;
+  /** The tokens traced: those with a color, length or font-stack value. */
+  tokenNames?: string[];
+}> {
   await preparePage(view, opts, extraProps);
   let forced: number[] | null = null;
   let read: ScopeRead | undefined;
@@ -376,7 +388,16 @@ export async function capturePage(
     read = { matched: m.elements, every };
   }
   const snap = await view.evaluate<Snapshot>("window.__ccs.snapshot()");
-  const out = { snapshot: snap, ...(read && { read }) };
+  const traced =
+    opts.tokens &&
+    (await view.evaluate<{ tokens: string[]; tracked: TokenTrace }>(
+      `window.__ccs.tokens(${JSON.stringify(opts.tokens)})`,
+    ));
+  const out = {
+    snapshot: snap,
+    ...(read && { read }),
+    ...(traced && { tokens: traced.tracked, tokenNames: traced.tokens }),
+  };
   if (!opts.states) return out;
   const reach = await tagStates(view);
   const n = reach.length;

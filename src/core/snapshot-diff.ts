@@ -125,7 +125,60 @@ export interface ChangeGroup {
   pixels?: { differ: number; same: number; imperceptible: number };
   /** Over its elements whose pixels differ (same-size crops): the largest CIEDE2000, and the mean of their means. */
   deltaE?: DeltaE;
+  /**
+   * With token tracing: elements where the property stopped following a
+   * design token (`detached`) or follows other ones (`retokened`), and the
+   * tokens it followed on base.
+   */
+  tokens?: { detached: number; retokened: number; from: string[] };
 }
+
+/** What drives a property on each side: tokens whose sentinel its value carried. */
+export interface TokenChange {
+  base: string[];
+  /** Empty: the property no longer follows any token. */
+  head: string[];
+  /** Its value on head. */
+  value?: string;
+}
+
+/**
+ * Per element and property, where what drives the value changed: it
+ * followed tokens at base and none at head (detached), or other ones
+ * (retokened). `values` are head's, to say what it is now.
+ */
+export function diffTokens(
+  base: Record<string, Record<string, string[]>>,
+  head: Record<string, Record<string, string[]>>,
+  values?: Snapshot,
+): Record<string, Record<string, TokenChange>> {
+  const out: Record<string, Record<string, TokenChange>> = {};
+  for (const [path, props] of Object.entries(base))
+    for (const [property, was] of Object.entries(props)) {
+      const now = head[path]?.[property] ?? [];
+      if (now.length && now.join() === was.join()) continue;
+      const value = values?.[path]?.[property];
+      out[path] ??= {};
+      out[path][property] = {
+        base: was,
+        head: now,
+        ...(value !== undefined && { value }),
+      };
+    }
+  return out;
+}
+
+/** The token change on `path` for a property or one folded into it. */
+export const tokenChangeOf = (
+  tokens: Record<string, Record<string, TokenChange>> | undefined,
+  path: string,
+  c: { property: string; aliases?: string[] },
+): TokenChange | undefined => {
+  const at = tokens?.[path];
+  if (!at) return undefined;
+  for (const p of [c.property, ...(c.aliases ?? [])]) if (at[p]) return at[p];
+  return undefined;
+};
 
 /** How far apart an element's pixels look between the sides (CIEDE2000, over the pixels that differ). */
 export interface DeltaE {
@@ -145,6 +198,8 @@ export interface Inspected {
   deltaE?: Record<string, DeltaE>;
   /** Where each changed element is in the page. */
   where?: Record<string, Where>;
+  /** With token tracing: properties whose driving tokens changed, by path. */
+  tokens?: Record<string, Record<string, TokenChange>>;
 }
 
 /** A changed element, as a person finds it. */
@@ -168,9 +223,10 @@ export function groupChanges(
 ): ChangeGroup[] {
   const groups = new Map<string, ChangeGroup>();
   const means = new Map<ChangeGroup, number[]>();
-  for (const { page, changed, explain, pixels, deltaE } of pages) {
+  for (const { page, changed, explain, pixels, deltaE, tokens } of pages) {
     for (const [path, changes] of Object.entries(changed)) {
-      for (const { property, before, after, aliases, invisible } of changes) {
+      for (const change of changes) {
+        const { property, before, after, aliases, invisible } = change;
         const key = JSON.stringify([property, before, after, invisible]);
         let g = groups.get(key);
         if (!g) {
@@ -185,6 +241,12 @@ export function groupChanges(
         const why = explain?.[path]?.[property];
         if (g.examples.length < examples)
           g.examples.push({ page, path, ...(why && { explain: why }) });
+        const token = tokenChangeOf(tokens, path, change);
+        if (token) {
+          g.tokens ??= { detached: 0, retokened: 0, from: [] };
+          g.tokens[token.head.length ? "retokened" : "detached"]++;
+          g.tokens.from = [...new Set([...g.tokens.from, ...token.base])];
+        }
         const differ = pixels?.[path];
         if (differ !== undefined) {
           g.pixels ??= { differ: 0, same: 0, imperceptible: 0 };

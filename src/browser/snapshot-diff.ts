@@ -86,7 +86,8 @@ export function summarizePages(
       diff.removed.length ||
       diff.added.length ||
       diff.uncompared.onlyBase.length ||
-      diff.uncompared.onlyHead.length
+      diff.uncompared.onlyHead.length ||
+      Object.keys(diff.tokens ?? {}).length
     )
       out.pages.push({ file, ...parseSnapshotFile(file), ...diff });
   }
