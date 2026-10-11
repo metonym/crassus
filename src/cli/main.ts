@@ -8,6 +8,7 @@ import {
   COMPARE_FORMATS,
   captureCommand,
   compareCommand,
+  confirmDiff,
   snapshotDiffCommand,
   tokensCommand,
   usageCommand,
@@ -122,6 +123,10 @@ Browser options (capture, compare, bisect, usage; override the config's \`browse
                      conventional type (type, default) or one per commit
   --no-split         bisect: report segments with visible changes as they
                      are, instead of halving them down to the commits
+  --confirm          diff: render each cascade flip in Chrome (a fixture
+                     page with an element both rules match, or one built
+                     for it) and fail only on those whose value changes;
+                     drop combinations no fixture renders
   --no-scope         compare, bisect: load every page and read every element,
                      instead of only what the changed rules can reach
   --tokens <prefix>  compare, bisect: trace which properties follow design
@@ -215,6 +220,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       "group-by": { type: "string" },
       "no-split": { type: "boolean" },
       "no-scope": { type: "boolean" },
+      confirm: { type: "boolean" },
       report: { type: "string" },
       tokens: { type: "string" },
       property: { type: "string" },
@@ -225,6 +231,17 @@ async function run(argv: string[], io: Io): Promise<number> {
       version: { type: "boolean", short: "v" },
     },
   });
+  const flags: BrowserFlags = {
+    only: values.only,
+    themes: values.themes,
+    viewport: values.viewport,
+    noStates: values["no-states"],
+    engine: values.engine,
+    matcher: values.matcher,
+    concurrency: values.concurrency,
+    url: values.url,
+    tokens: values.tokens,
+  };
   if (values.version) {
     io.out(version);
     return 0;
@@ -267,6 +284,8 @@ async function run(argv: string[], io: Io): Promise<number> {
     throw new UsageError(
       "--summary goes with dead, diff, snapshot-diff, compare and bisect",
     );
+  if (values.confirm && command !== "diff")
+    throw new UsageError("--confirm goes with diff");
   if (values.css && command !== "capture")
     throw new UsageError("--css goes with capture");
   if (
@@ -371,24 +390,29 @@ async function run(argv: string[], io: Io): Promise<number> {
       io.err(`crassus: ${name} is only in the base; skipped`);
     for (const name of onlyHead)
       io.err(`crassus: ${name} is only in the head; skipped`);
+    if (values.confirm)
+      await confirmDiff({
+        results,
+        base: baseSheets,
+        head: headSheets,
+        config,
+        flags,
+        cwd,
+      });
     await summary?.(`crassus diff against ${base.ref}`, () =>
       formatDiff(results, base, "human", verbose),
     );
     io.out(formatDiff(results, base, coreFormat, verbose));
-    return results.some((r) => r.flips.length > 0) ? 1 : 0;
+    // Confirmed, only what Chrome shows changing fails.
+    return results.some((r) =>
+      r.flips.some(
+        (f) => !values.confirm || f.confirmed?.verdict === "confirmed",
+      ),
+    )
+      ? 1
+      : 0;
   }
 
-  const flags: BrowserFlags = {
-    only: values.only,
-    themes: values.themes,
-    viewport: values.viewport,
-    noStates: values["no-states"],
-    engine: values.engine,
-    matcher: values.matcher,
-    concurrency: values.concurrency,
-    url: values.url,
-    tokens: values.tokens,
-  };
   if (command === "snapshot-diff") {
     if (format !== "human" && format !== "json")
       throw new UsageError("snapshot-diff reports as human or json");

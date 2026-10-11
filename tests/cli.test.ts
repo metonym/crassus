@@ -1030,6 +1030,52 @@ describe("crassus capture, snapshot-diff and usage", () => {
     ]);
   }, 60_000);
 
+  it("diff --confirm keeps flips Chrome shows and drops combinations no fixture has", async () => {
+    // Head raises .a .t's specificity: it now beats .b .t (an element with
+    // both exists) and .z .t (none does).
+    const BASE =
+      ".a .t { color: red; }\n.b .t { color: blue; }\n.z .t { color: green; }\n";
+    const root = await project({
+      "crassus.config.ts": `export default {
+        browser: { fixtures: "site", sheetMarker: ".t", settleMs: 0 },
+      };`,
+      "site/lib.css": BASE,
+      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a b"><p class="t">x</p></div><div class="z"><p class="t">y</p></div></body></html>`,
+      "base.css": BASE,
+      "head.css": BASE.replace(".a .t {", ".a .t.t {"),
+    });
+    const plain = await cli(root, "diff", "base.css", "head.css");
+    expect(plain.out).toContain("2 cascade flip(s)");
+    const r = await cli(root, "diff", "base.css", "head.css", "--confirm");
+    expect(r.out).toContain("CASCADE FLIPS confirmed in Chrome");
+    expect(r.out).toContain(
+      "in Chrome, on a default: rgb(0, 0, 255) -> rgb(255, 0, 0)",
+    );
+    expect(r.out).toContain(
+      "1 flip(s) dropped: 1 pair rules no fixture element carries together, 0 change nothing in Chrome.",
+    );
+    expect(r.out).toContain("1 cascade flip(s)");
+    expect(r.code).toBe(1);
+    const json = JSON.parse(
+      (await cli(root, "diff", "base.css", "head.css", "--confirm", "--json"))
+        .out,
+    );
+    expect(
+      json.results[0].flips.map(
+        (f: {
+          other: { selector: string };
+          confirmed: { verdict: string };
+        }) => [f.other.selector, f.confirmed.verdict],
+      ),
+    ).toEqual([
+      [".b .t", "confirmed"],
+      [".z .t", "never seen"],
+    ]);
+    expect((await cli(root, "compare", "--confirm")).err).toContain(
+      "--confirm goes with diff",
+    );
+  }, 60_000);
+
   it("explains winners at their source and compares screenshots", async () => {
     const root = await project({
       "crassus.config.ts": `export default {

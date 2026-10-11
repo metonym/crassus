@@ -47,6 +47,7 @@ crassus dead [file.css...]        # declarations that can never win (proof)
 crassus dead --fix [--dry-run]    # delete them, in the CSS or in its sources
 crassus diff [--base <ref>]       # cascade flips since a git ref (heuristic)
 crassus diff base.css head.css    # or between two files
+crassus diff --confirm            # only the flips Chrome shows changing a value
 
 crassus capture <dir>             # computed styles of every fixture page (rung 3)
 crassus capture --base main <dir> # the same at a git ref, in a worktree
@@ -75,6 +76,7 @@ Browser runs open one tab (a renderer process) per `--concurrency`, by default h
 | `--format <format>` | `human` (default), `json` (stable schema), `github` (workflow annotations at the source line) or `sarif` (code scanning). `compare` and `bisect` take `human`, `json`, `markdown` (change cards for a PR) or `sarif` (one result per change card, at the changed rule's source line). `--json` is short for `--format json`. |
 | `--config <file>` | Config file (default `crassus.config.{ts,js,mjs}`). |
 | `--fix` | `dead`: delete the dead declarations. See [Fixing](#fixing). |
+| `--confirm` | `diff`: render each cascade flip in Chrome and fail only on those whose value changes (needs the config's `browser` block). |
 | `--dry-run` | With `--fix`: print the edits as a unified diff and write nothing. |
 | `--no-cache` | Rebuild the base. |
 | `--verbose` | List every rule in review sections. |
@@ -138,6 +140,8 @@ Before reading styles, `capture` pauses infinite animations at their start and f
 `usage` writes `usage.json` (every matched declaration with its counts, never-matched rules, dead declarations and fold candidates) and `report.md`: declarations that matched and never won, with what they lost to, by size (losses only to `prefers-reduced-motion`, `prefers-contrast` or `forced-colors` rules are left out, as alternatives for a user preference); fold candidates, which always lose to the same single rule; and rules that never matched. All of it is bounded by the fixtures, themes, viewports and states the run covered.
 
 `diff` prints what changed between the two builds: the specificity profile, the files carrying the most selectors at three or more classes, the minified size as Bun minifies it (a trend, not a budget), dropped, new, rewritten and moved rules, and two sections of flips: **cascade flips**, where the winner between two rules that may match one element changed (these fail), and **order-tie flips** from rules that only moved (review). Both are rung 1 heuristics: confirm them with a computed-style snapshot (rung 3).
+
+`diff --confirm` checks each flip in Chrome. Most pair rules no element ever carries together, so a flip is first looked up in the fixtures' page index (the element trees `compare` records): if some element matches both rules (their states and pseudo-elements relaxed), the flip is rendered on that page's tree; if the fixtures use every class and attribute the pair needs and no element matches both, it's dropped as never seen. Otherwise an element both match is built (subjects and ancestors merged, siblings kept beside their element, or one chain nested in the other), as long as it nests components the way some fixture does, and rendered. Each render puts base's stylesheet, then head's, on the tree, with the rules' states set as attributes, and reads the property on the element: a flip whose value doesn't change is dropped too. Only confirmed flips fail the run; ones no element could be built for are listed for review. On 25 runs of CSS refactor commits (`2d710c03e..97164eeec`, `eval/carbon/flips.ts`, white, 1280 × 900), 3,410 of 3,667 flips (order ties included) were never seen on the fixtures and 201 changed nothing; the 42 flips of the two runs known to hold only noise (15 across components, 27 within one) were all dropped, and a real one, the icon-only tab's `padding` against `.bx--tabs--container`, was confirmed on `tabs-variants` and is a change there in `compare` too. The largest run's 1,000 flips took 10 s. Confirming sets a state on every element a rule names, reachable or not, so it can confirm what no user sees: 4 of the 10 confirmed on a fixture don't change in `compare`.
 
 The size line is Bun's minifier (the version is printed) with no browser targets, so it tracks the direction of a change, not what you ship. If you minify with something else or for specific targets, keep your size budget on your own build output.
 

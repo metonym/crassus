@@ -158,6 +158,19 @@
   the fixtures, unused tokens and colors that follow none. On
   carbon-components-svelte: 356 tokens traced over 124 pages in 23.6 s,
   120 followed, 236 unused.
+- `crassus diff --confirm` renders each cascade flip in Chrome: on a
+  fixture page's element tree where some element matches both rules (from
+  the page index), else on an element built for both, as long as its
+  components nest as some fixture's do; a pair no fixture element carries,
+  when the fixtures use all its classes, is dropped as never seen, and a
+  flip whose value doesn't change is dropped too. Only confirmed flips
+  fail. Measured with `CCS_ROOT=… bun eval/carbon/flips.ts` (white,
+  1280 × 900): 3,667 flips over the 25 runs of refactor commits
+  (order ties included), 3,410 never seen, 201 no change, 25 confirmed, 31 left for
+  review; all 42 flips of the two runs known to hold only noise
+  dropped; the icon-only tabs' `padding`
+  flip confirmed on `tabs-variants`, where `compare` sees it too. The
+  largest run's 1,000 flips took 10 s.
 - `crassus reduce <id>` delta-debugs a change card's stylesheet change down
   to a 1-minimal set of declaration edits that still give its element the
   head value: one unit per declaration and selector, a Myers diff for the

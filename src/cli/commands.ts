@@ -1,3 +1,4 @@
+import type { FlipVerdict } from "../browser/flips";
 import {
   type Histogram,
   histogram,
@@ -57,6 +58,8 @@ export interface RuleRef {
 export interface FlipFinding {
   rule: RuleRef;
   other: RuleRef;
+  /** With `diff --confirm`: what rendering it in Chrome showed. */
+  confirmed?: FlipVerdict;
   /** The other rule's selector in the base, when it changed. */
   otherWas?: string;
   property: string;
