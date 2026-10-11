@@ -5,13 +5,15 @@ import {
   groupChanges,
   type Inspected,
   type PageDiff,
+  selectorOf,
   type Uncompared,
+  type Where,
 } from "../core/snapshot-diff";
 import {
   type CaptureManifest,
   MANIFEST,
   parseSnapshotFile,
-  readSnapshot,
+  readCapture,
 } from "./snapshot";
 
 export interface SnapshotPageDiff extends PageDiff, Inspected {
@@ -54,10 +56,10 @@ export class IncompleteCaptureError extends Error {
   }
 }
 
-async function snapshotFiles(dir: string): Promise<string[]> {
+async function readManifest(dir: string): Promise<CaptureManifest> {
   const manifest = Bun.file(path.join(dir, MANIFEST));
   if (!(await manifest.exists())) throw new IncompleteCaptureError(dir);
-  return ((await manifest.json()) as CaptureManifest).files;
+  return manifest.json();
 }
 
 /** Builds a `SnapshotDiff` from page diffs, added in file order. */
@@ -111,32 +113,52 @@ export async function diffSnapshots(
   baseDir: string,
   headDir: string,
   options: SnapshotDiffOptions = {},
-): Promise<SnapshotDiff> {
-  const [base, head] = await Promise.all([
-    snapshotFiles(baseDir),
-    snapshotFiles(headDir),
+): Promise<
+  SnapshotDiff & {
+    /** Pages each capture read without `readySelector` matching, if any. */
+    notReady?: { base: string[]; head: string[] };
+  }
+> {
+  const [baseManifest, headManifest] = await Promise.all([
+    readManifest(baseDir),
+    readManifest(headDir),
   ]);
+  const [base, head] = [baseManifest.files, headManifest.files];
   const inHead = new Set(head);
   const inBase = new Set(base);
-  const pages: { file: string; diff: PageDiff; entries: number }[] = [];
+  const pages: { file: string; diff: PageDiff & Inspected; entries: number }[] =
+    [];
   for (const file of base) {
     if (!inHead.has(file)) continue;
     // One pair in memory at a time: a page's snapshot can be megabytes.
     // biome-ignore lint/performance/noAwaitInLoops: bounded memory
     const [a, b] = await Promise.all([
-      readSnapshot(path.join(baseDir, file)),
-      readSnapshot(path.join(headDir, file)),
+      readCapture(path.join(baseDir, file)),
+      readCapture(path.join(headDir, file)),
     ]);
-    pages.push({
-      file,
-      diff: diffSnapshot(a, b),
-      entries: Object.keys(a).length,
-    });
+    const diff: PageDiff & Inspected = diffSnapshot(a.snapshot, b.snapshot);
+    const where: Record<string, Where> = {};
+    for (const path of [...Object.keys(diff.changed), ...diff.added]) {
+      const selector = selectorOf(b.nth, path);
+      if (selector) where[path] = { selector };
+    }
+    for (const path of diff.removed) {
+      const selector = selectorOf(a.nth, path);
+      if (selector) where[path] = { selector };
+    }
+    if (Object.keys(where).length) diff.where = where;
+    pages.push({ file, diff, entries: Object.keys(a.snapshot).length });
   }
-  return summarizePages(
+  const diff = summarizePages(
     pages,
     base.filter((f) => !inHead.has(f)),
     head.filter((f) => !inBase.has(f)),
     options.examples,
   );
+  return baseManifest.notReady.length || headManifest.notReady.length
+    ? {
+        ...diff,
+        notReady: { base: baseManifest.notReady, head: headManifest.notReady },
+      }
+    : diff;
 }

@@ -6,7 +6,13 @@ import type { Config } from "../core/config";
 import { locator } from "../core/parse";
 import { SHORTHANDS } from "../core/shorthands";
 import { synthesize, type Tree } from "../core/synth";
-import { type BrowserFlags, fixturePages, pick, settings } from "./browser";
+import {
+  type BrowserFlags,
+  fixturePages,
+  notReadyLine,
+  pick,
+  settings,
+} from "./browser";
 import type { Io } from "./main";
 import { stylesheets, UsageError } from "./project";
 import { seconds } from "./report";
@@ -187,6 +193,7 @@ export async function coverageCommand(opts: {
           claim: "evidence",
           pages: r.pages,
           ms: r.ms,
+          notReady: r.notReady,
           summary,
           files,
           components,
@@ -221,5 +228,7 @@ export async function coverageCommand(opts: {
         ),
     ].join("\n"),
   );
+  if (r.notReady.length)
+    io.err(notReadyLine(r.notReady, pages.readySelector, "read"));
   return 0;
 }

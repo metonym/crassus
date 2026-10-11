@@ -5,6 +5,48 @@ import { foldChanges, HIDDEN } from "./fold";
 /** Element path (with `::before`, `@hover` and similar suffixes) → longhand → computed value. */
 export type Snapshot = Record<string, Record<string, string>>;
 
+/**
+ * On an element's plain record, as read: its 1-based index among its
+ * parent's children. A capture file keeps it beside the record.
+ */
+export const NTH = "--cr-nth";
+/** Recorded with the styles, never compared. */
+const META = new Set([HIDDEN, NTH]);
+const SUFFIX_RE = /(@(?:hover|focus|active)\^?)?(::before|::after)?$/;
+const TAG_RE = /^[a-z][\w-]*/i;
+
+/**
+ * `path`'s element as a CSS selector a person can paste (`body > div:nth-child(2)
+ * > p:nth-child(1)`), from each ancestor's index among its parent's children
+ * (`readCapture`); undefined when one is missing (a capture before 0.3).
+ */
+export function selectorOf(
+  nth: Record<string, number>,
+  path: string,
+): string | undefined {
+  const m = SUFFIX_RE.exec(path);
+  const pseudo = m?.[2] ?? "";
+  const element = path.slice(0, path.length - (m?.[0].length ?? 0));
+  const parts: string[] = [];
+  // Ancestors' keys are prefixes ending at a `>` (one inside a class name
+  // just finds no record there).
+  let start = 0;
+  for (let i = 0; i <= element.length; i++) {
+    if (i < element.length && element[i] !== ">") continue;
+    const key = element.slice(0, i);
+    const tag = TAG_RE.exec(element.slice(start, i))?.[0];
+    // The first part is `<body>`, with whatever classes it has.
+    if (start === 0) parts.push("body");
+    else {
+      const n = nth[key];
+      if (!(n && tag)) return undefined;
+      parts.push(`${tag}:nth-child(${n})`);
+    }
+    start = i + 1;
+  }
+  return parts.join(" > ") + pseudo;
+}
+
 export interface PropertyChange {
   property: string;
   before: string;
@@ -58,15 +100,15 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
     }
     const changes: PropertyChange[] = [];
     for (const [property, value] of Object.entries(before)) {
-      // Not a style: why the box can't be seen.
-      if (property === HIDDEN) continue;
+      // Not styles: why the box can't be seen, and where it is.
+      if (META.has(property)) continue;
       const next = after[property];
       if (next === undefined) onlyBase.add(property);
       else if (next !== value)
         changes.push({ property, before: value, after: next });
     }
     for (const property of Object.keys(after))
-      if (!(property in before) && property !== HIDDEN) onlyHead.add(property);
+      if (!(property in before) && !META.has(property)) onlyHead.add(property);
     if (changes.length) changed[path] = foldChanges(changes, path, base, head);
   }
   return {
@@ -116,7 +158,13 @@ export interface ChangeGroup {
   /** Pages it occurs on, in first-seen order. */
   pages: string[];
   /** The first few occurrences, with the winners when explained. */
-  examples: { page: string; path: string; explain?: Explained }[];
+  examples: {
+    page: string;
+    path: string;
+    /** `where[path].selector`, when the page has it. */
+    selector?: string;
+    explain?: Explained;
+  }[];
   /**
    * With element screenshots: how many of its elements' pixels differ, and
    * of those, how many by less than a just-noticeable difference (CIEDE2000
@@ -223,7 +271,15 @@ export function groupChanges(
 ): ChangeGroup[] {
   const groups = new Map<string, ChangeGroup>();
   const means = new Map<ChangeGroup, number[]>();
-  for (const { page, changed, explain, pixels, deltaE, tokens } of pages) {
+  for (const {
+    page,
+    changed,
+    explain,
+    pixels,
+    deltaE,
+    tokens,
+    where,
+  } of pages) {
     for (const [path, changes] of Object.entries(changed)) {
       for (const change of changes) {
         const { property, before, after, aliases, invisible } = change;
@@ -239,8 +295,14 @@ export function groupChanges(
         g.count++;
         if (g.pages.at(-1) !== page) g.pages.push(page);
         const why = explain?.[path]?.[property];
+        const selector = where?.[path]?.selector;
         if (g.examples.length < examples)
-          g.examples.push({ page, path, ...(why && { explain: why }) });
+          g.examples.push({
+            page,
+            path,
+            ...(selector && { selector }),
+            ...(why && { explain: why }),
+          });
         const token = tokenChangeOf(tokens, path, change);
         if (token) {
           g.tokens ??= { detached: 0, retokened: 0, from: [] };

@@ -28,6 +28,8 @@ export interface TokenReport {
   }[];
   pages: number;
   ms: number;
+  /** Pages that never matched `readySelector` (traced anyway). */
+  notReady: string[];
 }
 
 const COLOR_RE = /(?:^|-)color$|^(?:fill|stroke)$/;
@@ -99,5 +101,6 @@ export async function traceTokens(
     hardCoded: [...hard.values()].sort((a, b) => b.count - a.count),
     pages: r.pages,
     ms: r.ms,
+    notReady: r.notReady,
   };
 }

@@ -101,6 +101,8 @@ async function compare(a: string, b: string): Promise<Compare> {
         continue;
       }
       for (const p of Object.keys(va)) {
+        // crassus's own records (`--cr-hidden`, `--cr-nth`), not styles.
+        if (p.startsWith("--cr-")) continue;
         r.props++;
         if (va[p] === vb[p]) continue;
         // Cross-engine noise: a property one engine doesn't implement, and

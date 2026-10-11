@@ -321,6 +321,13 @@ export async function snapshotDiffCommand(opts: {
     formatSnapshotDiff(diff, "human"),
   );
   opts.io.out(formatSnapshotDiff(diff, opts.format));
+  for (const side of ["base", "head"] as const) {
+    const pages = diff.notReady?.[side] ?? [];
+    if (pages.length)
+      opts.io.err(
+        `crassus: ${plural(pages.length, "page")} in ${side} (${relative(opts.io.cwd, side === "base" ? base : head) || "."}) never matched readySelector when captured: ${pages.join(", ")}`,
+      );
+  }
   return differs(diff) ? 1 : 0;
 }
 
@@ -707,6 +714,8 @@ export async function tokensCommand(opts: {
         : []),
     ].join("\n"),
   );
+  if (r.notReady.length)
+    io.err(notReadyLine(r.notReady, pages.readySelector, "traced"));
   return 0;
 }
 
