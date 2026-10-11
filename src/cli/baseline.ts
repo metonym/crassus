@@ -60,6 +60,12 @@ export async function atRef<T>(
   return { sha, result: await inCheckout(cwd, top, sha, fn) };
 }
 
+/** Where builds and indexes are cached for the project at `cwd`. */
+export const cacheDir = (cwd: string) =>
+  existsSync(join(cwd, "node_modules"))
+    ? join(cwd, "node_modules/.cache/crassus")
+    : join(tmpdir(), "crassus-cache");
+
 export async function baseStylesheets(opts: {
   cwd: string;
   ref: string;
@@ -73,15 +79,19 @@ export async function baseStylesheets(opts: {
   const key = Bun.hash(
     JSON.stringify([sha, opts.configText, only, CACHE_VERSION]),
   ).toString(36);
-  const dir = existsSync(join(cwd, "node_modules"))
-    ? join(cwd, "node_modules/.cache/crassus")
-    : join(tmpdir(), "crassus-cache");
+  const dir = cacheDir(cwd);
   const file = join(dir, `base-${key}.json`);
   if (opts.cache && existsSync(file))
     return { sha, sheets: await Bun.file(file).json(), cached: true };
   const sheets = await inCheckout(cwd, top, sha, (root) =>
     stylesheets(root, config, only),
-  );
+  ).catch((e) => {
+    if (e instanceof UsageError)
+      throw new UsageError(
+        `couldn't build the base ${ref} (${sha.slice(0, 9)}): ${e.message}`,
+      );
+    throw e;
+  });
   await mkdir(dir, { recursive: true });
   await Bun.write(file, JSON.stringify(sheets));
   return { sha, sheets, cached: false };

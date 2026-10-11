@@ -3,10 +3,11 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { join, relative, resolve } from "node:path";
+import type { Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { UsageFile } from "../browser/usage";
 import type { BrowserConfig, Config } from "../core/config";
-import { atRef, baseStylesheets } from "./baseline";
+import { atRef, baseStylesheets, cacheDir } from "./baseline";
 import type { Io } from "./main";
 import {
   build,
@@ -325,6 +326,15 @@ export function pick<T extends { name: string }>(
   return sheet;
 }
 
+/** One line on what a change can reach, before its pages are captured. */
+function impactLine(impact: Impact): string {
+  if (impact.everything)
+    return `every page and element is read: ${impact.everything}`;
+  const index =
+    impact.index === "built" ? "; page index built" : "; page index cached";
+  return `the changed rules (${plural(impact.selectors, "selector")}) reach ${impact.pages} of ${plural(impact.total, "page")} (${plural(impact.elements, "element")}, with their descendants)${index}`;
+}
+
 /** What `compare` and `bisect` share: checks first, then a run per stylesheet pair. */
 export function comparer(opts: {
   config: Config;
@@ -332,6 +342,8 @@ export function comparer(opts: {
   cwd: string;
   explain?: boolean;
   visual?: boolean;
+  /** Default true. */
+  scope?: boolean;
 }) {
   const { flags, cwd } = opts;
   const { browser, states, pages } = settings(opts.config, flags);
@@ -347,7 +359,10 @@ export function comparer(opts: {
     /** `pages × fixtures × themes × viewports`, for a summary line. */
     describe: (n: number, fixtures: number) =>
       pagesLine(n, fixtures, pages.themes.length, pages.viewports?.length ?? 1),
-    async run(sides: { base: Sheet; head: Sheet }) {
+    async run(
+      sides: { base: Sheet; head: Sheet },
+      onImpact?: (impact: Impact) => void,
+    ) {
       built ??= fixturePages(cwd, browser, flags);
       const { path, fixtures } = await built;
       const { compareCss } = await import("../browser/compare");
@@ -367,6 +382,9 @@ export function comparer(opts: {
         settleMs: browser.settleMs,
         explain: opts.explain,
         visual: opts.visual,
+        scope: opts.scope,
+        indexDir: cacheDir(cwd),
+        onImpact,
       });
       if (opts.explain) attribute(diff, diff.library, sides);
       const { ms, notReady, library: _, ...result } = diff;
@@ -390,6 +408,7 @@ export async function compareCommand(opts: {
   cache: boolean;
   explain?: boolean;
   visual?: boolean;
+  scope?: boolean;
   format: "human" | "json";
   io: Io;
   summary?: Summary;
@@ -429,7 +448,13 @@ export async function compareCommand(opts: {
         `crassus: base ${refLabel(ref, b.sha)} ${b.cached ? "from cache" : `built in ${seconds(performance.now() - started)}`}`,
       );
   }
-  const { result, ms, notReady, fixtures } = await cmp.run(sides);
+  const { result, ms, notReady, fixtures } = await cmp.run(
+    sides,
+    (impact) =>
+      opts.format === "human" &&
+      opts.scope !== false &&
+      io.err(`crassus: ${impactLine(impact)}`),
+  );
   if (opts.format === "human")
     io.err(
       `crassus: compared ${cmp.describe(result.files, fixtures)} against ${label} in ${seconds(ms)}`,

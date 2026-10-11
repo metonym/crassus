@@ -306,26 +306,67 @@ export async function tagStates(view: View): Promise<string[][]> {
   return view.evaluate<string[][]>(`window.__cr.reachable(${n})`);
 }
 
+/** What `compare` reads of a page: what the changed rules can reach. */
+export interface PageScope {
+  /** Relaxed selectors of the changed rules. */
+  selectors: string[];
+  /**
+   * For the selectors that match on the page (their indexes), the
+   * properties to read (null: all) and whether a box can move, in which
+   * case every element is read.
+   */
+  plan(hits: number[]): { properties: string[] | null; layout: boolean };
+}
+
+/** How much of a page a scoped capture read. */
+export interface ScopeRead {
+  /** Elements the changed selectors matched, before descendants. */
+  matched: number;
+  /** Every element was read: a box can move, or `<html>` or `<body>` matched. */
+  every: boolean;
+}
+
+/** One page as `capture` reads it; with `scope`, only what the change can reach. */
 export async function capturePage(
   view: View,
   opts: PageOptions,
   extraProps: string[] = [],
-): Promise<Snapshot> {
+  scope?: PageScope,
+): Promise<{ snapshot: Snapshot; read?: ScopeRead }> {
   await preparePage(view, opts, extraProps);
+  let forced: number[] | null = null;
+  let read: ScopeRead | undefined;
+  if (scope) {
+    const m = await view.evaluate<{
+      hits: number[];
+      all: boolean;
+      elements: number;
+    }>(`window.__ccs.match(${JSON.stringify(scope.selectors)})`);
+    const { properties, layout } = scope.plan(m.hits);
+    const every = m.all || layout;
+    forced = await view.evaluate<number[] | null>(
+      `window.__ccs.scope(${JSON.stringify(properties)}, ${every}, ${JSON.stringify(INTERACTIVE)}, ${MAX_STATE_ELEMENTS})`,
+    );
+    read = { matched: m.elements, every };
+  }
   const snap = await view.evaluate<Snapshot>("window.__ccs.snapshot()");
-  if (!opts.states) return snap;
+  const out = { snapshot: snap, ...(read && { read }) };
+  if (!opts.states) return out;
   const reach = await tagStates(view);
   const n = reach.length;
+  // Only the elements whose states can record what the change reaches.
+  const indexes = forced ?? Array.from({ length: n }, (_, i) => i);
 
   if (opts.states === "rewrite") {
     await view.evaluate("window.__cr.twinStates()");
+    const only = reach.map((r, i) => (forced && !forced.includes(i) ? [] : r));
     Object.assign(
       snap,
       await view.evaluate<Snapshot>(
-        `window.__cr.allStates(${JSON.stringify(reach)})`,
+        `window.__cr.allStates(${JSON.stringify(only)})`,
       ),
     );
-    return snap;
+    return out;
   }
 
   await view.cdp("DOM.enable");
@@ -334,19 +375,20 @@ export async function capturePage(
     "DOM.getDocument",
     { depth: 0 },
   );
-  for (let i = 0; i < n; i++) {
+  for (const i of indexes) {
+    if (i >= n || reach[i].length === 0) continue;
     // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
     const { nodeId } = await view.cdp<{ nodeId: number }>("DOM.querySelector", {
       nodeId: root.nodeId,
       selector: `[data-ccs-idx="${i}"]`,
     });
     if (!nodeId) continue;
-    for (const [state, forced] of Object.entries(STATE_SETS)) {
+    for (const [state, forcedClasses] of Object.entries(STATE_SETS)) {
       if (!reach[i].includes(state)) continue;
       // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
       await view.cdp("CSS.forcePseudoState", {
         nodeId,
-        forcedPseudoClasses: forced,
+        forcedPseudoClasses: forcedClasses,
       });
       Object.assign(
         snap,
@@ -359,7 +401,7 @@ export async function capturePage(
   }
   await view.cdp("DOM.disable");
   await view.cdp("CSS.disable");
-  return snap;
+  return out;
 }
 
 /** Written last by `capture`: a directory without it is incomplete. */
@@ -412,7 +454,7 @@ export async function capture(
   const files: string[] = [];
   let written = 0;
   const r = await visitPages(opts, async (view, job) => {
-    const snap = await capturePage(view, opts);
+    const { snapshot: snap } = await capturePage(view, opts);
     const file = snapshotFile(job, several);
     written += await Bun.write(
       path.join(opts.outDir, file),

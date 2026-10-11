@@ -127,6 +127,7 @@ export async function bisectCommand(opts: {
   cache: boolean;
   explain?: boolean;
   visual?: boolean;
+  scope?: boolean;
   format: "human" | "json";
   io: Io;
   summary?: Summary;
@@ -180,11 +181,16 @@ export async function bisectCommand(opts: {
     };
     const [base, head] = [await cssAt(seg.from), await cssAt(seg.to)];
     if (base.css === head.css) return result;
-    const run = await cmp.run({ base, head });
+    let reach = "";
+    const run = await cmp.run({ base, head }, (impact) => {
+      reach = impact.everything
+        ? ""
+        : ` reaches ${impact.pages} of ${impact.total} page(s),`;
+    });
     compared++;
     for (const p of run.notReady) notReady.add(p);
     progress(
-      `${label} ${short(seg.from)}..${short(seg.to)}: ${count(run.result, false)} visible change(s) in ${seconds(run.ms)}`,
+      `${label} ${short(seg.from)}..${short(seg.to)}:${reach} ${count(run.result, false)} visible change(s) in ${seconds(run.ms)}`,
     );
     Object.assign(result, {
       css: "changed",

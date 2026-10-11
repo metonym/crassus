@@ -37,7 +37,7 @@ There are two entry points with different runtime rules.
 - `serve.ts` serves fixture pages and injects a theme attribute before first paint (WebView has no init-script API).
 - `snapshot.ts` captures computed styles into gzipped files that store each distinct style once (`encodeSnapshot`, `readSnapshot`), and writes the manifest `snapshot-diff.ts` requires only after the last page. Forced states use CDP (`CSS.forcePseudoState`) or an in-place `selectorText` rewrite (`:hover` → `[data-cr-hover]`, same specificity and order) that works on any engine.
 - `inspect.ts` explains (CDP matched styles through `cascadeWinners`) and screenshots the changed elements of a page for `compare --explain`/`--visual`; it finds them with `resolvePath` (`src/page/resolve-path.ts`, self-contained so it runs in the page).
-- `compare.ts` serves the fixtures twice, each with a library stylesheet swapped in (`serve.ts`), and captures both sides of a page in one tab, keeping only the diff.
+- `compare.ts` serves the fixtures twice, each with a library stylesheet swapped in (`serve.ts`), and captures both sides of a page in one tab, keeping only the diff. It reads only what the change can reach: `changedRules` (`src/core/impact.ts`) diffs the two sheets rule by rule and relaxes the changed rules' selectors to a superset (no states, no pseudo-elements), `page-index.ts` records each page's element tree once and runs those selectors on it to skip pages, and in the page `__ccs.match` and `__ccs.scope` (`page-helpers.ts`) narrow the elements, forced states and properties (`impactProperties`) read. Scoping must only ever read a superset of what can change: `tests/browser.test.ts` and `eval/carbon/scope.ts` check it gives the same results as reading everything.
 - `usage-cdp.ts` asks Chrome for matched rules per element. `usage-dom.ts` plus `src/page/usage-dom.ts` match in the page instead; the pure half (aligning the CSSOM with the parsed sheet, cascade order) is `src/core/align.ts`. The page script is plain DOM code, bundled to an IIFE by a Bun macro (`page-script.ts`) and inlined at build time.
 
 ## Rules every change must keep
@@ -56,6 +56,7 @@ There are two entry points with different runtime rules.
 | `tests/cascade.test.ts` | `parseRules`, specificity, subjects, layers and scopes, co-matchability, `wins`, histograms |
 | `tests/diff.test.ts` | `cascadeDiff` flips, including attribute-styled subjects |
 | `tests/snapshot-diff.test.ts` | `diffSnapshot`, grouping and folding (aliases, shorthands, currentColor followers, invisible changes), the snapshot file encoding, and `resolvePath` |
+| `tests/impact.test.ts` | `changedRules` (in-place edits, moves, keyframes, what can't be scoped), `relaxSelector` and `impactProperties` |
 | `tests/overrides.test.ts` | `deadDeclarations` and shorthand coverage |
 | `tests/align.test.ts` | CSSOM alignment, engine declaration handling and cascade order for the `dom` engine, without a browser |
 | `tests/usage.test.ts` | Cascade replay, aggregation, CDP declaration handling |
@@ -94,6 +95,7 @@ Only the maintainer releases. `feat:`/`fix:` commits land first, each with its `
 | `sourcemap-size.ts` | Source-map attribution and the minified-size line |
 | `snapshot.ts` | `capture` against `e2e/cascade-snapshot.ts`, and WebKit against Chrome |
 | `usage.ts` | `runUsage` (CDP and `dom`) against `e2e/cascade-usage.ts` |
+| `scope.ts` | `compare` reading only what each change reaches against reading everything, on the Oct 2026 audit's 25 segments and the golden cases: identical results, and both timed |
 | `selector-stats.ts` | The selector-stats harness (`selector-stats-harness.ts`) against `e2e/selector-stats.ts`. A measurement spike, not a feature: selector cost isn't a cascade claim, so it won't ship in `src/` (README, "Limitations") |
 
 carbon-components-svelte has since moved onto crassus and deleted the tooling it replaced, so the comparisons against it need a checkout from before the migration. `96ed27f02` is the parent of the migration commit:
