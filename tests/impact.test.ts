@@ -46,6 +46,7 @@ describe("changedRules", () => {
     const css = ".a { color: red; } .b:hover { padding: 0; }";
     expect(changedRules(css, css)).toEqual({
       everything: null,
+      locations: { base: new Set(), head: new Set() },
       selectors: [],
       containers: false,
     });
@@ -65,6 +66,17 @@ describe("changedRules", () => {
         ".a { padding-left: 1px; padding: 0; }",
       ),
     ).toEqual({ ".a": ["padding", "padding-left"] });
+  });
+
+  it("says where the changed rules start on each side", () => {
+    const r = changedRules(
+      ".a { color: red; }\n.b { color: red; }\n.c { top: 0; }",
+      ".a { color: red; }\n.b { color: blue; }\n  .d { top: 0; }",
+    );
+    expect(r.locations).toEqual({
+      base: new Set(["2:0", "3:0"]),
+      head: new Set(["2:0", "3:2"]),
+    });
   });
 
   it("takes rules on one side whole, under their relaxed selector", () => {

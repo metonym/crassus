@@ -85,10 +85,12 @@ const PAINT = new Set([
   "text-decoration-style",
   "text-decoration-thickness",
 ]);
+const TRANSITION_RE = /^transition(?:-|$)/;
 const BORDER_COLOR_RE = /^border-(top|right|bottom|left)-color$/;
 const HIDDEN_VISIBILITY = new Set(["hidden", "collapse"]);
 const NO_BORDER = new Set(["none", "hidden"]);
-const STATE_SUFFIX_RE = /(@(?:hover|focus|active)\^?)?(::before|::after)?$/;
+export const STATE_SUFFIX_RE =
+  /(@(?:hover|focus|active)\^?)?(::before|::after)?$/;
 
 /**
  * The records of the element at `key` and of its recorded ancestors,
@@ -289,6 +291,8 @@ function invisibleOn(
     both((r) => r["text-decoration-line"] === "none")
   )
     return "text-decoration-line: none";
+  // Captures settle transitions: what they'd animate never shows still.
+  if (TRANSITION_RE.test(property)) return "transition only";
   return undefined;
 }
 

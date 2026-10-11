@@ -20,6 +20,16 @@
   `opacity: 0` and 21 off the page: 248 visible changes instead of 327
   (`eval/carbon/scope.ts`, `eval/carbon/visual.ts`).
 - `ChangeGroup.pixels` has an `imperceptible` count.
+- Changes to `transition-*` are invisible ("transition only"): captures
+  settle transitions, so what they animate never shows in a still. They no
+  longer fail a run.
+- `compare` and `bisect` with no rule differing between the stylesheets
+  (comments and whitespace aside) build no fixtures and load no page: they
+  say so and exit 0, so a page that never gets ready can't fail such a run.
+  On a clean carbon-components-svelte checkout (`compare --entry all`,
+  white, 1280 × 900) that's 3.3 s instead of 7.2 s with the page index
+  cached, 21.2 s when it had to build. `--no-scope` still reads
+  everything.
 
 **Features**
 
@@ -96,6 +106,31 @@
   says why (`page index built (fixture files changed: …)`).
 - `compareCss` takes `scope`, `indexDir` and `onImpact`, and returns
   `impact`; the `Impact` type is exported from `crassus/browser`.
+- Change cards: `compare --report <dir>` and `bisect --report <dir>` group
+  changes by root cause, the rule that differs between the stylesheets
+  among each change's winners, into cards with a stable id, a verdict,
+  what changed, where (a CSS selector and the element's markup), why (the
+  rule at its source line with an excerpt and links, and the commit with
+  `bisect`), the blast radius, a suggested fix, crops of each side with a
+  heatmap, and a text alternative. The directory holds `report.json`
+  (`crassus/report@1`), an offline `index.html`, `report.md` and the
+  crops; `--format markdown` and `--format sarif` print the cards.
+  `crassus explain <id>`, `crassus repro <id>` (a standalone page with
+  each side's stylesheet cut to the rules that can style the element, and
+  a toggle) and `crassus verify <id>` (per property: does it match base
+  again) act on one card. On three known changes
+  (`CCS_ROOT=… bun eval/carbon/cards.ts`, 124 fixture pages, white,
+  1280 × 900): the TooltipDefinition regression is one visible card
+  (`.bx--tooltip--definition .bx--tooltip__trigger` no longer sets
+  `color`, 77 elements on 4 pages), #3839's nested child-row cells one
+  card, and the flattening's visible cards are all on the consumer-override
+  fixture. `verify` on the regression's card reports `color` matching base
+  with the upstream fix's stylesheet (`3e7ae6001`), and `position` still
+  changed.
+- `compare` records a CSS selector for each changed element
+  (`pages[].where[path].selector`, `nth-child` from `body`), and with
+  `--explain` flags winners whose rule differs between the sides
+  (`Winner.changed`).
 
 ## 0.2.0 — 2026-10-10
 

@@ -5,11 +5,18 @@ import { baseStylesheets } from "./baseline";
 import { bisectCommand } from "./bisect";
 import {
   type BrowserFlags,
+  COMPARE_FORMATS,
   captureCommand,
   compareCommand,
   snapshotDiffCommand,
   usageCommand,
 } from "./browser";
+import {
+  DEFAULT_REPORT,
+  explainCommand,
+  reproCommand,
+  verifyCommand,
+} from "./card-commands";
 import { runDead, runDiff } from "./commands";
 import { FixCheckError, fix } from "./fix";
 import {
@@ -53,6 +60,12 @@ Usage:
                                  styles on today's fixtures (ground truth)
   crassus usage                  declarations that match but never win on
                                  the fixtures (evidence)
+  crassus explain <id>           one change card from a report, as Markdown
+                                 (or --format json)
+  crassus repro <id>             a standalone page that shows the card's
+                                 element under each side's rules
+  crassus verify <id>            whether the card's elements match base
+                                 again with the stylesheet now
 
 Stylesheets come from the files given, or from crassus.config.ts: \`css\`
 (with an optional \`build\` command) or a \`compile(root)\` hook. Source maps
@@ -63,7 +76,8 @@ Options:
   --base <ref>       git ref to diff against (default: HEAD); built in a
                      temporary worktree and cached by commit
   --entry <name>     only this stylesheet (repeatable)
-  --format <format>  human (default), json, github, sarif
+  --format <format>  human (default), json, github, sarif; compare and
+                     bisect: human, json, markdown or sarif (change cards)
   --json             same as --format json
   --config <file>    config file (default: crassus.config.{ts,js,mjs})
   --fix              dead: delete dead declarations. CSS without a source
@@ -96,6 +110,10 @@ Browser options (capture, compare, bisect, usage; override the config's \`browse
                      are, instead of halving them down to the commits
   --no-scope         compare, bisect: load every page and read every element,
                      instead of only what the changed rules can reach
+  --report <dir>     compare, bisect: write change cards (report.json,
+                     index.html, report.md, crops) to this directory, with
+                     --explain and --visual; explain, repro, verify: read it
+                     (default ${DEFAULT_REPORT})
   --url <base>       use a running server instead of building and serving
   --out <dir>        usage: output directory (default .crassus/usage)
   -h, --help         show this help
@@ -175,6 +193,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       "group-by": { type: "string" },
       "no-split": { type: "boolean" },
       "no-scope": { type: "boolean" },
+      report: { type: "string" },
       visual: { type: "boolean" },
       out: { type: "string" },
       summary: { type: "string" },
@@ -192,9 +211,22 @@ async function run(argv: string[], io: Io): Promise<number> {
     return values.help ? 0 : 2;
   }
   const format = values.json ? "json" : (values.format ?? "human");
-  if (!isOneOf(FORMATS, format))
+  const cardCommand = command === "compare" || command === "bisect";
+  if (
+    cardCommand ? !isOneOf(COMPARE_FORMATS, format) : !isOneOf(FORMATS, format)
+  )
     throw new UsageError(
-      `unknown format ${format} (one of ${FORMATS.join(", ")})`,
+      `unknown format ${format} (one of ${(cardCommand ? COMPARE_FORMATS : FORMATS).join(", ")})`,
+    );
+  // Checked above: what dead and diff take.
+  const coreFormat = isOneOf(FORMATS, format) ? format : "human";
+  if (
+    values.report !== undefined &&
+    !cardCommand &&
+    !["explain", "repro", "verify"].includes(command)
+  )
+    throw new UsageError(
+      "--report goes with compare, bisect, explain, repro and verify",
     );
   const only = values.entry ?? [];
   const verbose = values.verbose ?? false;
@@ -235,7 +267,7 @@ async function run(argv: string[], io: Io): Promise<number> {
     const results = runDead(sheets);
     if (!values.fix) {
       await summary?.("crassus dead", () => formatDead(results, "human"));
-      io.out(formatDead(results, format));
+      io.out(formatDead(results, coreFormat));
       return results.some((r) => r.dead.length > 0) ? 1 : 0;
     }
     if (format !== "human" && format !== "json")
@@ -318,7 +350,7 @@ async function run(argv: string[], io: Io): Promise<number> {
     await summary?.(`crassus diff against ${base.ref}`, () =>
       formatDiff(results, base, "human", verbose),
     );
-    io.out(formatDiff(results, base, format, verbose));
+    io.out(formatDiff(results, base, coreFormat, verbose));
     return results.some((r) => r.flips.length > 0) ? 1 : 0;
   }
 
@@ -341,9 +373,26 @@ async function run(argv: string[], io: Io): Promise<number> {
     throw new UsageError("--group-by and --no-split go with bisect");
   if (values["no-scope"] && command !== "compare" && command !== "bisect")
     throw new UsageError("--no-scope goes with compare and bisect");
-  if (command === "bisect") {
+  if (command === "explain") {
     if (format !== "human" && format !== "json")
-      throw new UsageError("bisect reports as human or json");
+      throw new UsageError("explain prints human (Markdown) or json");
+    return explainCommand({ ids: files, report: values.report, format, io });
+  }
+  if (command === "repro" || command === "verify") {
+    const { config } = await loadConfig(cwd, values.config);
+    return command === "repro"
+      ? reproCommand({ ids: files, report: values.report, config, io })
+      : verifyCommand({
+          ids: files,
+          report: values.report,
+          config,
+          entry: only,
+          io,
+        });
+  }
+  if (command === "bisect") {
+    if (!isOneOf(COMPARE_FORMATS, format))
+      throw new UsageError("bisect reports as human, json, markdown or sarif");
     const { config, file } = await loadConfig(cwd, values.config);
     return bisectCommand({
       config,
@@ -358,13 +407,14 @@ async function run(argv: string[], io: Io): Promise<number> {
       visual: values.visual,
       scope: !values["no-scope"],
       format,
+      report: values.report,
       io,
       summary,
     });
   }
   if (command === "compare") {
-    if (format !== "human" && format !== "json")
-      throw new UsageError("compare reports as human or json");
+    if (!isOneOf(COMPARE_FORMATS, format))
+      throw new UsageError("compare reports as human, json, markdown or sarif");
     const { config, file } = await loadConfig(cwd, values.config);
     return compareCommand({
       config,
@@ -378,6 +428,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       visual: values.visual,
       scope: !values["no-scope"],
       format,
+      report: values.report,
       io,
       summary,
     });

@@ -685,6 +685,142 @@ describe("crassus capture, snapshot-diff and usage", () => {
     ]);
   }, 60_000);
 
+  it("writes change cards, and explains, reproduces and verifies one", async () => {
+    const LIB =
+      ".a { color: red; }\n.a .b { color: blue; }\n.c { color: green; }\n";
+    const root = await project({
+      "crassus.config.ts": `export default {
+        css: "site/lib.css",
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
+      };`,
+      "site/lib.css": LIB,
+      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a <span class="b">bbbbbb</span></div></body></html>`,
+      "site/c.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><p class="c">c</p></body></html>`,
+    });
+    await commitAll(root);
+    // Head drops the rule that colored .b: it inherits red.
+    await Bun.write(
+      join(root, "site/lib.css"),
+      LIB.replace(".a .b { color: blue; }\n", ""),
+    );
+    const r = await cli(root, "compare", "--no-states", "--report", "out");
+    expect(r.code).toBe(1);
+    expect(r.out).toContain(
+      "1 visible, 0 imperceptible, 0 invisible change card(s) (report: out)",
+    );
+    const report = JSON.parse(await read(root, "out/report.json"));
+    expect(report).toMatchObject({
+      schema: "crassus/report@1",
+      command: "compare",
+      summary: { visible: 1 },
+      inputs: { entry: "site/lib.css", base: "HEAD" },
+    });
+    const [card] = report.cards;
+    expect(card).toMatchObject({
+      verdict: "visible",
+      cause: {
+        kind: "lost",
+        rule: { selector: ".a .b", sheet: "site/lib.css", line: 2 },
+      },
+      changes: [
+        {
+          property: "color",
+          before: "rgb(0, 0, 255)",
+          after: "rgb(255, 0, 0)",
+          count: 1,
+        },
+      ],
+      pages: ["a.default"],
+      source: { file: "site/lib.css", line: 2 },
+      fix: { add: { color: "rgb(0, 0, 255)" } },
+    });
+    expect(card.elements[0]).toMatchObject({
+      selector: "body > div:nth-child(1) > span:nth-child(1)",
+      html: '<span class="b">bbbbbb</span>',
+      images: { base: `img/${card.id}-0-base.png` },
+    });
+    expect(card.deltaE.max).toBeGreaterThan(1);
+    expect(card.source.excerpt).toContain("    2 | .a .b { color: blue; }");
+    const written = [
+      "index.html",
+      "report.md",
+      "base.css",
+      "head.css",
+      card.elements[0].images.diff,
+    ];
+    expect(
+      await Promise.all(
+        written.map((f) => Bun.file(join(root, "out", f)).exists()),
+      ),
+    ).toEqual(written.map(() => true));
+    expect(await read(root, "out/index.html")).toContain(card.id);
+
+    const explained = await cli(
+      root,
+      "explain",
+      card.id.slice(0, 5),
+      "--report",
+      "out",
+    );
+    expect(explained.code).toBe(0);
+    expect(explained.out).toContain("Lost on head: `.a .b` at site/lib.css:2");
+    expect(explained.out).toContain(`crassus verify ${card.id}`);
+    expect(
+      JSON.parse(
+        (await cli(root, "explain", card.id, "--report", "out", "--json")).out,
+      ),
+    ).toMatchObject({ id: card.id });
+
+    const repro = await cli(root, "repro", card.id, "--report", "out");
+    expect(repro.out).toBe(join("out", "repro", `${card.id}.html`));
+    const page = await read(root, repro.out);
+    expect(page).toContain('<span class="b">bbbbbb</span>');
+    expect(page).toContain(".a .b { color: blue; }");
+    // Only the rules that can style it.
+    expect(page).not.toContain(".c {");
+
+    const still = await cli(root, "verify", card.id, "--report", "out");
+    expect(still.code).toBe(1);
+    expect(still.out).toContain(
+      "color: still differs, rgb(0, 0, 255) -> rgb(255, 0, 0) on 1",
+    );
+    await Bun.write(join(root, "site/lib.css"), LIB);
+    const fixed = await cli(root, "verify", card.id, "--report", "out");
+    expect(fixed.out).toContain(`crassus: ${card.id} is resolved`);
+    expect(fixed.code).toBe(0);
+
+    // The same cards as Markdown and SARIF, without a directory.
+    await Bun.write(
+      join(root, "site/lib.css"),
+      LIB.replace(".a .b { color: blue; }\n", ""),
+    );
+    const md = await cli(
+      root,
+      "compare",
+      "--no-states",
+      "--format",
+      "markdown",
+    );
+    expect(md.out).toContain("<details open><summary><b>visible");
+    const sarif = JSON.parse(
+      (await cli(root, "compare", "--no-states", "--format", "sarif")).out,
+    );
+    expect(sarif.runs[0].results[0]).toMatchObject({
+      ruleId: "change-visible",
+      locations: [
+        {
+          physicalLocation: {
+            artifactLocation: { uri: "site/lib.css" },
+            region: { startLine: 2 },
+          },
+        },
+      ],
+    });
+    expect(
+      (await cli(root, "explain", "zzz", "--report", "out")).err,
+    ).toContain("no card zzz");
+  }, 120_000);
+
   it("explains winners at their source and compares screenshots", async () => {
     const root = await project({
       "crassus.config.ts": `export default {

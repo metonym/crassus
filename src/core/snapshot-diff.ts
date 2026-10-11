@@ -91,6 +91,10 @@ export interface Winner {
   column?: number;
   /** Set when an ancestor's declaration was inherited. */
   inherited?: true;
+  /** Set when the rule differs between the sides: removed, added, edited or moved. */
+  changed?: true;
+  /** The rule's whole selector list, when it has more than one. */
+  list?: string;
 }
 
 /** Per side, the winning declaration (`null`: none declared, an initial value). */
@@ -139,6 +143,18 @@ export interface Inspected {
   pixels?: Record<string, boolean>;
   /** For screenshots that differ at the same size: how far apart they look. */
   deltaE?: Record<string, DeltaE>;
+  /** Where each changed element is in the page. */
+  where?: Record<string, Where>;
+}
+
+/** A changed element, as a person finds it. */
+export interface Where {
+  /** A CSS selector for it (`nth-child` from `body`), with `::before`/`::after`. */
+  selector: string;
+  /** With a report: its markup (cut at 20,000 characters)… */
+  html?: string;
+  /** …and its ancestors' opening tags, `<html>` first. */
+  ancestors?: string[];
 }
 
 /**

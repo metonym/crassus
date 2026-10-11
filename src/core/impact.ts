@@ -29,6 +29,12 @@ export interface RuleChanges {
   /** Set when any element may change, and why: such a change isn't scoped. */
   everything: string | null;
   /**
+   * Where the changed rules' selectors start on each side, as
+   * `line:column` (1-based line, 0-based column): what a browser reports
+   * for a rule's selector, so a winner can be told to be one of them.
+   */
+  locations: { base: Set<string>; head: Set<string> };
+  /**
    * The changed rules by relaxed selector: an element none of them matches
    * is styled by the same rules on both sides, in every state.
    */
@@ -174,8 +180,19 @@ export const nothingChanged = (c: ReturnType<typeof changedRules>) =>
  */
 export function changedRules(base: string, head: string): RuleChanges {
   const containers = base.includes("@container") || head.includes("@container");
+  const rules = { base: parseRules(base, true), head: parseRules(head, true) };
+  const changed = changedDeclarations(rules.base, rules.head);
+  const where = (side: Rule[]) => {
+    const own = new Set(side);
+    const out = new Set<string>();
+    for (const r of changed.keys())
+      if (own.has(r) && r.loc) out.add(`${r.loc.line}:${r.loc.column}`);
+    return out;
+  };
+  const locations = { base: where(rules.base), head: where(rules.head) };
   const none = (everything: string): RuleChanges => ({
     everything,
+    locations,
     selectors: [],
     containers,
   });
@@ -184,8 +201,6 @@ export function changedRules(base: string, head: string): RuleChanges {
     return none("an at-rule other than a style rule's group changed");
   if (!sameRanks(layerRanks(baseNodes), layerRanks(headNodes)))
     return none("the cascade layer order changed");
-  const rules = { base: parseRules(base), head: parseRules(head) };
-  const changed = changedDeclarations(rules.base, rules.head);
   // A changed keyframe changes what the rules running it animate, so
   // they count as changed, for what the keyframes declare.
   const frames = new Set<string>();
@@ -217,6 +232,7 @@ export function changedRules(base: string, head: string): RuleChanges {
   }
   return {
     everything: null,
+    locations,
     selectors: [...by]
       .map(([selector, e]) => ({
         selector,
@@ -291,7 +307,10 @@ function changedDeclarations(
     const props = stable.has(i)
       ? declarationChanges(b.decls, h.decls)
       : [...new Set([...b.decls.keys(), ...h.decls.keys()])];
-    if (props.length > 0) out.set(h, new Set(props));
+    if (props.length > 0) {
+      out.set(b, new Set(props));
+      out.set(h, new Set(props));
+    }
   });
   return out;
 }

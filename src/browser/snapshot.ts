@@ -143,6 +143,32 @@ const CR_HELPERS = `
       // The target's box in document coordinates, padded to at least 24 × 16
       // and by 8 px for outlines and shadows; null when it renders no box
       // (its 0 × 0 rect would sit at the page's origin, over other content).
+      // Each key's element as a CSS selector a person can paste, and with
+      // \`html\`, its markup (instrumentation stripped) and the opening tags
+      // of its ancestors.
+      where(keys, html) {
+        const MARK = / data-(?:ccs-idx|cr-[\\w-]+)(?:="[^"]*")?/g;
+        const open = (el) => el.cloneNode(false).outerHTML.replace(/<\\/[^>]+>$/, "").replace(MARK, "");
+        return keys.map((key) => {
+          const el = resolvePath(key, document.documentElement);
+          if (!el) return null;
+          const parts = [];
+          for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement)
+            parts.unshift(e.localName + ":nth-child(" + (Array.prototype.indexOf.call(e.parentElement.children, e) + 1) + ")");
+          const pseudo = /::(before|after)$/.exec(key);
+          const out = { selector: ["body", ...parts].join(" > ") + (pseudo ? pseudo[0] : "") };
+          if (html) {
+            // Without comments: frameworks' empty anchors (Svelte's <!---->).
+            out.html = el.outerHTML.replace(MARK, "").replace(/<!--[\\s\\S]*?-->/g, "").slice(0, 20000);
+            out.ancestors = [];
+            for (let a = el.parentElement; a; a = a.parentElement) out.ancestors.unshift(open(a));
+          }
+          return out;
+        });
+      },
+      // The target's box in document coordinates, padded to at least 24 × 16
+      // and by 8 px for outlines and shadows; null when it renders no box
+      // (its 0 × 0 rect would sit at the page's origin, over other content).
       rect() {
         const el = document.querySelector("[data-cr-target]");
         if (el.getClientRects().length === 0) return null;

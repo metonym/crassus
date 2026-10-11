@@ -3,11 +3,19 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { join, relative, resolve } from "node:path";
-import type { Impact } from "../browser/compare";
+import type { Crops, Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { UsageFile } from "../browser/usage";
+import { buildCards, buildReport, type Card, type Report } from "../core/cards";
 import type { BrowserConfig, Config } from "../core/config";
 import { atRef, baseStylesheets, cacheDir } from "./baseline";
+import {
+  attachSources,
+  formatCardsMarkdown,
+  formatCardsSarif,
+  formatCardsSummary,
+  writeReport,
+} from "./cards";
 import type { Io } from "./main";
 import {
   build,
@@ -344,6 +352,8 @@ export function comparer(opts: {
   visual?: boolean;
   /** Default true. */
   scope?: boolean;
+  /** Keep what change cards need (markup, crops). */
+  report?: boolean;
 }) {
   const { flags, cwd } = opts;
   const { browser, states, pages } = settings(opts.config, flags);
@@ -362,9 +372,12 @@ export function comparer(opts: {
     async run(
       sides: { base: Sheet; head: Sheet },
       onImpact?: (impact: Impact) => void,
+      /** Only these fixtures (by name). */
+      only?: string[],
     ) {
       built ??= fixturePages(cwd, browser, flags);
-      const { path, fixtures } = await built;
+      const { path, fixtures: all } = await built;
+      const fixtures = only ? all.filter((f) => only.includes(f)) : all;
       const { compareCss } = await import("../browser/compare");
       const diff = await compareCss({
         ...pages,
@@ -385,10 +398,11 @@ export function comparer(opts: {
         scope: opts.scope,
         indexDir: cacheDir(cwd),
         onImpact,
+        report: opts.report,
       });
       if (opts.explain) attribute(diff, diff.library, sides);
-      const { ms, notReady, library: _, ...result } = diff;
-      return { result, ms, notReady, fixtures: fixtures.length };
+      const { ms, notReady, library: _, crops, ...result } = diff;
+      return { result, ms, notReady, crops, fixtures: fixtures.length };
     },
   };
 }
@@ -409,13 +423,24 @@ export async function compareCommand(opts: {
   explain?: boolean;
   visual?: boolean;
   scope?: boolean;
-  format: "human" | "json";
+  format: CompareFormat;
+  /** Write change cards to this directory. */
+  report?: string;
   io: Io;
   summary?: Summary;
 }): Promise<number> {
   const { io, files } = opts;
   const { cwd } = io;
-  const cmp = comparer({ ...opts, cwd });
+  const cards = cardsWanted(opts);
+  const cmp = comparer({
+    ...opts,
+    cwd,
+    explain: opts.explain || cards,
+    visual: opts.visual || Boolean(opts.report),
+    report: Boolean(opts.report),
+  });
+  let baseSha: string | undefined;
+  let entry: string | undefined;
   let label: string;
   let sides: { base: Sheet; head: Sheet };
   if (files.length > 0) {
@@ -443,12 +468,14 @@ export async function compareCommand(opts: {
     });
     sides = { base: pick(b.sheets, [sheet.name]), head: sheet };
     label = `${sheet.name} at ${refLabel(ref, b.sha)}`;
+    baseSha = b.sha;
+    entry = sheet.name;
     if (opts.format === "human")
       io.err(
         `crassus: base ${refLabel(ref, b.sha)} ${b.cached ? "from cache" : `built in ${seconds(performance.now() - started)}`}`,
       );
   }
-  const { result, ms, notReady, fixtures } = await cmp.run(
+  const { result, ms, notReady, crops, fixtures } = await cmp.run(
     sides,
     (impact) =>
       opts.format === "human" &&
@@ -462,10 +489,83 @@ export async function compareCommand(opts: {
   await opts.summary?.(`crassus compare against ${label}`, () =>
     formatSnapshotDiff(result, "human", "compare"),
   );
-  io.out(formatSnapshotDiff(result, opts.format, "compare"));
+  const report = cards
+    ? await changeCards({
+        runs: [{ pages: result.pages, crops }],
+        command: "compare",
+        base: label,
+        head: files[1] ?? "the working tree",
+        cwd,
+        shas: () => ({ base: baseSha }),
+        css: { base: sides.base.css, head: sides.head.css },
+        dir: opts.report,
+        inputs: {
+          entry,
+          base: files[0] ?? opts.base ?? "HEAD",
+          ...(files[1] && { head: files[1] }),
+          themes: cmp.pages.themes,
+          viewports: cmp.pages.viewports,
+          flags: opts.flags,
+        },
+      })
+    : undefined;
+  io.out(
+    report && opts.format !== "human" && opts.format !== "json"
+      ? formatCards(report, opts.format)
+      : formatSnapshotDiff(
+          result,
+          opts.format === "json" ? "json" : "human",
+          "compare",
+        ) +
+          (report
+            ? `\n\n${formatCardsSummary(report, opts.report && (relative(cwd, resolve(cwd, opts.report)) || "."))}`
+            : ""),
+  );
   if (notReady.length)
     io.err(notReadyLine(notReady, cmp.pages.readySelector, "compared"));
   return differs(result) || notReady.length > 0 ? 1 : 0;
+}
+
+export const COMPARE_FORMATS = ["human", "json", "markdown", "sarif"] as const;
+export type CompareFormat = (typeof COMPARE_FORMATS)[number];
+
+/** Cards come with `--report`, Markdown and SARIF: they need the winners. */
+export const cardsWanted = (o: { report?: string; format: CompareFormat }) =>
+  Boolean(o.report) || o.format === "markdown" || o.format === "sarif";
+
+export function formatCards(report: Report, format: "markdown" | "sarif") {
+  return format === "markdown"
+    ? formatCardsMarkdown(report)
+    : formatCardsSarif(report);
+}
+
+/** Builds a run's change cards, reads their sources, and writes the report directory. */
+export async function changeCards(o: {
+  runs: {
+    pages: Parameters<typeof buildCards>[0][number]["pages"];
+    crops?: Crops;
+    commits?: { sha: string; subject: string }[];
+    commit?: string;
+  }[];
+  command: Report["command"];
+  base: string;
+  head: string;
+  cwd: string;
+  shas: (card: Card) => { base?: string; head?: string };
+  css: { base: string; head: string };
+  dir?: string;
+  inputs: object;
+}): Promise<Report> {
+  const report = buildReport(o.command, o.base, o.head, buildCards(o.runs));
+  await attachSources(report, { cwd: o.cwd, shas: o.shas });
+  if (o.dir)
+    await writeReport(resolve(o.cwd, o.dir), report, {
+      crops: new Map(o.runs.map((r) => [r.commit ?? "", r.crops ?? {}])),
+      base: o.css.base,
+      head: o.css.head,
+      inputs: { command: o.command, ...o.inputs },
+    });
+  return report;
 }
 
 /** `crassus usage`: writes usage.json and report.md. Always exit 0: evidence, not proof. */
