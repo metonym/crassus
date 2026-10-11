@@ -324,6 +324,8 @@ Measured against carbon-components-svelte's original tooling (css-tree, source-m
 
 Coming from scripts of your own built on css-tree and Playwright? See [Migrating from css-tree-based cascade tools](docs/migrating-from-css-tree-tools.md).
 
+What's next: [the state and data matrix](docs/design/state-matrix.md), a design (not built yet) for checking invariants such as focus visible, contrast, target size and layout stability across component variants, real data, environments and JS-driven states, with covering arrays and shrinking.
+
 ## Limitations
 
 - **`dead` assumes the later declaration applies.** If a browser rejects its value or its selector, the earlier declaration still wins there. Known fallback patterns (vendor prefixes, `fit-content`, `dvh`, legacy aliases) aren't reported.
