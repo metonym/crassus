@@ -328,7 +328,11 @@ it("compareCss diffs two stylesheets on the same pages, forced states included",
       count: 1,
       pages: ["page.white"],
       examples: [
-        { page: "page.white", path: "body>div.bx--wrap>button.bx--btn@hover" },
+        {
+          page: "page.white",
+          path: "body>div.bx--wrap>button.bx--btn@hover",
+          selector: "body > div:nth-child(1) > button:nth-child(1)",
+        },
       ],
     }),
   ]);
@@ -504,6 +508,39 @@ a:active { text-decoration: underline; }
   );
 }, 60_000);
 
+// The 0.2.0 note: an element under several forced elements has one record
+// per state, and the last forced element (in document order) that can
+// reach that state writes it, even where a user, hovering the inner one,
+// would hover the outer one too.
+it("keeps the state of the last forced element that can reach it", async () => {
+  await withStates(
+    "last-state",
+    `<!doctype html><html><head><style>
+.inner:hover .x { color: blue; }
+.outer:hover .x { color: red; }
+.inner:focus .x { background-color: blue; }
+.outer:focus .x { background-color: red; }
+</style></head><body>
+<div class="outer" tabindex="0"><button class="inner"><span class="x">x</span></button></div>
+<div class="outer" tabindex="0"><button class="inner" disabled><span class="x">x</span></button></div>
+</body></html>`,
+    async (read) => {
+      const { snapshot } = await read();
+      const x = "body>div.outer>button.inner>span.x";
+      const x2 = "body>div.outer[1]>button.inner>span.x";
+      // Hovering the button hovers the div too, which would give red; the
+      // record is the button's own forced hover, the later of the two.
+      expect(snapshot[`${x}@hover`].color).toBe("rgb(0, 0, 255)");
+      expect(snapshot[`${x}@focus`]["background-color"]).toBe("rgb(0, 0, 255)");
+      // A disabled button can be hovered but not focused: focus is the div's.
+      expect(snapshot[`${x2}@hover`].color).toBe("rgb(0, 0, 255)");
+      expect(snapshot[`${x2}@focus`]["background-color"]).toBe(
+        "rgb(255, 0, 0)",
+      );
+    },
+  );
+}, 60_000);
+
 it("swaps the largest stylesheet that contains the marker", async () => {
   const root = join(dir, "swap");
   await Promise.all([
@@ -603,6 +640,7 @@ it("compareCss explains winners and compares element screenshots", async () => {
   expect(color?.examples[0]).toEqual({
     page: "page.white",
     path: "body>div.bx--wrap>button.bx--btn",
+    selector: "body > div:nth-child(1) > button:nth-child(1)",
     explain: {
       // `color: inherit` hands it to the wrapper.
       base: {
@@ -791,9 +829,22 @@ it("diffSnapshots groups a seeded color change once and lists one-sided pages", 
       count: 3,
       pages: ["diff.white.json.gz"],
       examples: [
-        { page: "diff.white.json.gz", path: "body>div.bx--d" },
-        { page: "diff.white.json.gz", path: "body>div.bx--d>p.bx--d" },
-        { page: "diff.white.json.gz", path: "body>div.bx--d>p.bx--d[1]" },
+        // `[1]` counts siblings with the same classes; the selector, all.
+        {
+          page: "diff.white.json.gz",
+          path: "body>div.bx--d",
+          selector: "body > div:nth-child(1)",
+        },
+        {
+          page: "diff.white.json.gz",
+          path: "body>div.bx--d>p.bx--d",
+          selector: "body > div:nth-child(1) > p:nth-child(1)",
+        },
+        {
+          page: "diff.white.json.gz",
+          path: "body>div.bx--d>p.bx--d[1]",
+          selector: "body > div:nth-child(1) > p:nth-child(2)",
+        },
       ],
     },
   ]);

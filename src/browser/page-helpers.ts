@@ -136,6 +136,8 @@ export const PAGE_HELPERS = `
       into[key] = read(el, null);
       const why = unseen(el);
       if (why) into[key]["--cr-hidden"] = why;
+      // Its place among its parent's children, for an nth-child selector.
+      if (!suffix) into[key]["--cr-nth"] = String(Array.prototype.indexOf.call(el.parentElement.children, el) + 1);
       const b = read(el, "::before"); if (b) into[key + "::before"] = b;
       const a = read(el, "::after"); if (a) into[key + "::after"] = a;
     };

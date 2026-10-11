@@ -5,18 +5,72 @@
 // Unlike it, a property one side didn't record is listed, not a change.
 
 import {
+  decodeCapture,
   decodeSnapshot,
   encodeSnapshot,
   parseSnapshotFile,
 } from "../src/browser/snapshot";
+import { foldNames } from "../src/core/fold";
 import {
   diffSnapshot,
   groupChanges,
   type Snapshot,
+  selectorOf,
 } from "../src/core/snapshot-diff";
 import { resolvePath } from "../src/page/resolve-path";
 
 const WHITE = "rgb(255, 255, 255)";
+
+describe("selectorOf", () => {
+  // As read in the page: plain records carry their child index.
+  const snap: Snapshot = {
+    "body>ul.list": { color: "red", "--cr-nth": "2" },
+    "body>ul.list>li": { color: "red", "--cr-nth": "1" },
+    "body>ul.list>li[1]": { color: "red", "--cr-nth": "3" },
+    "body>ul.list>li[1]::before": { color: "red" },
+    "body>ul.list>li[1]@hover": { color: "blue" },
+  };
+
+  it("builds an nth-child selector from the indexes a capture file keeps", () => {
+    const { snapshot, nth } = decodeCapture(encodeSnapshot(snap));
+    // Kept beside the records, so equal styles still share one.
+    expect(snapshot["body>ul.list"]).toEqual({ color: "red" });
+    expect(snapshot["body>ul.list"]).toBe(snapshot["body>ul.list>li"]);
+    expect(selectorOf(nth, "body>ul.list>li[1]")).toBe(
+      "body > ul:nth-child(2) > li:nth-child(3)",
+    );
+    // A state names the same element; a pseudo-element stays.
+    expect(selectorOf(nth, "body>ul.list>li[1]@hover")).toBe(
+      "body > ul:nth-child(2) > li:nth-child(3)",
+    );
+    expect(selectorOf(nth, "body>ul.list>li[1]::before")).toBe(
+      "body > ul:nth-child(2) > li:nth-child(3)::before",
+    );
+  });
+
+  it("takes <body> with classes as the root", () => {
+    expect(
+      selectorOf({ "body.modal-open>div": 2 }, "body.modal-open>div"),
+    ).toBe("body > div:nth-child(2)");
+  });
+
+  it("gives none when an ancestor has no index (an older capture)", () => {
+    expect(selectorOf({ "body>p": 1 }, "body>p>a")).toBeUndefined();
+  });
+
+  it("never compares the index", () => {
+    const head = structuredClone(snap);
+    head["body>ul.list"]["--cr-nth"] = "1";
+    const { "--cr-nth": _, ...li } = head["body>ul.list>li"];
+    head["body>ul.list>li"] = li;
+    const d = diffSnapshot(snap, head);
+    expect(d.changed).toEqual({});
+    expect(d.uncompared).toEqual({
+      onlyBase: [],
+      onlyHead: [],
+    });
+  });
+});
 
 describe("diffSnapshot", () => {
   it("is empty for identical snapshots", () => {
@@ -429,5 +483,53 @@ describe("resolvePath", () => {
     // An SVG className isn't a string: no classes, as `capture` records it.
     expect(resolvePath("body>div>svg", html)).toBe(svg);
     expect(resolvePath("body>div>p.a.b[2]", html)).toBeNull();
+  });
+});
+describe("foldNames", () => {
+  it("folds followers into color, twins into physical, sets into shorthands", () => {
+    expect(
+      foldNames([
+        "-webkit-text-fill-color",
+        "border-block-end-color",
+        "caret-color",
+        "color",
+        "outline-color",
+        "text-decoration-color",
+      ]),
+    ).toEqual([
+      {
+        property: "color",
+        also: [
+          "-webkit-text-fill-color",
+          "border-block-end-color",
+          "border-bottom-color",
+          "caret-color",
+          "outline-color",
+          "text-decoration-color",
+        ],
+      },
+    ]);
+    expect(
+      foldNames([
+        "border-top-color",
+        "border-right-color",
+        "border-block-end-color",
+        "border-left-color",
+      ]),
+    ).toEqual([
+      {
+        property: "border-color",
+        also: [
+          "border-block-end-color",
+          "border-bottom-color",
+          "border-left-color",
+          "border-right-color",
+          "border-top-color",
+        ],
+      },
+    ]);
+    expect(foldNames(["padding-top"])).toEqual([
+      { property: "padding-top", also: [] },
+    ]);
   });
 });

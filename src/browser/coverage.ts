@@ -141,9 +141,12 @@ const MUTATE = `((plans) => {
  * removed. Rules in `@media` or `@supports` that don't hold at the run's
  * viewports are left alone.
  */
-export async function mutationCoverage(
-  opts: CoverageOptions,
-): Promise<{ rules: RuleCoverage[]; pages: number; ms: number }> {
+export async function mutationCoverage(opts: CoverageOptions): Promise<{
+  rules: RuleCoverage[];
+  pages: number;
+  ms: number;
+  notReady: string[];
+}> {
   const path = swappedSheet(opts.dir, opts.sheetMarker).split("\\").join("/");
   const server = serveFixtures(opts.dir, {
     swap: { marker: opts.sheetMarker, css: opts.css },
@@ -202,7 +205,7 @@ export async function mutationCoverage(
         }
       },
     );
-    return { rules, pages: r.pages, ms: r.ms };
+    return { rules, ...r };
   } finally {
     server.stop();
   }

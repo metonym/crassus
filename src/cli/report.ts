@@ -515,6 +515,7 @@ export function formatSnapshotDiff(
       `     ${dim("pages:")} ${g.pages.slice(0, MAX_PAGES).join(", ")}${more > 0 ? ` (+${more})` : ""}`,
       ...g.examples.flatMap((e) => [
         `     ${dim("e.g.")} ${e.page}  ${e.path}`,
+        ...(e.selector ? [`          ${dim(e.selector)}`] : []),
         ...(e.explain ? [`          ${explained(e.explain)}`] : []),
       ]),
     );

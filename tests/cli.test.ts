@@ -39,6 +39,8 @@ const DOCTOR_CHROME_RE = /ok {5}chrome starts and runs a page in \d+ ms/;
 const REACH_RE =
   /crassus: the changed rules \(\d+ selectors?\) reach \d of 2 pages/;
 const read = (root: string, file: string) => Bun.file(join(root, file)).text();
+const libPage = (body: string) =>
+  `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body>${body}</body></html>`;
 
 async function commitAll(root: string) {
   const git = (...args: string[]) =>
@@ -499,6 +501,8 @@ describe("crassus dead --fix", () => {
 
 const RECOLOR_FINDING_RE = /== \w+\.\.\w+ {2}\w+ perf: recolor/;
 const SEGMENT_FINDING_RE = /== \w+\.\.\w+ {2}3 commits \(perf\)/;
+const EXAMPLE_SELECTOR_RE =
+  /e\.g\. button\.g100\.1280x900\.json\.gz {2}body>\S+\n {10}.*body > \w+:nth-child\(\d+\)/;
 const SYSTEM_ERROR_RE = /^crassus: E[A-Z]+: /;
 const CAPTURED_RE =
   /^crassus: captured 8 pages \(2 fixtures × 2 themes × 2 viewports\) into snap\/a in /;
@@ -581,6 +585,8 @@ describe("crassus capture, snapshot-diff and usage", () => {
       "12×  color: rgb(0, 0, 255) -> rgb(128, 0, 128)",
     );
     expect(diff.out).toContain("1 distinct change(s), 12 in all, on 4 page(s)");
+    // Each example comes with a selector to paste into DevTools.
+    expect(diff.out).toMatch(EXAMPLE_SELECTOR_RE);
     const json = JSON.parse(
       (await cli(root, "snapshot-diff", "snap/a", "snap/b", "--json")).out,
     );
@@ -1074,6 +1080,43 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect((await cli(root, "compare", "--confirm")).err).toContain(
       "--confirm goes with diff",
     );
+  }, 60_000);
+
+  it("names the pages that never got ready, in every command that loads them", async () => {
+    const root = await project({
+      "crassus.config.ts": `export default {
+        css: "site/lib.css",
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0, tokens: "--x-", readySelector: ".never", readyTimeoutMs: 200 },
+      };`,
+      "site/lib.css": ":root { --x-c: red; }\n.a { color: var(--x-c); }\n",
+      "site/a.html": libPage(`<div class="a">a</div>`),
+    });
+    const line = (verb: string) =>
+      `crassus: 1 page never matched readySelector ".never" (${verb} anyway): a default`;
+    const tokens = await cli(root, "tokens", "--no-states");
+    expect(tokens.err).toContain(line("traced"));
+    const coverage = await cli(root, "coverage");
+    expect(coverage.err).toContain(line("read"));
+    expect(
+      JSON.parse((await cli(root, "coverage", "--json")).out).notReady,
+    ).toEqual(["a default"]);
+    const captured = await Promise.all(
+      ["snap/a", "snap/b"].map((out) =>
+        cli(root, "capture", out, "--no-states"),
+      ),
+    );
+    expect(captured.map((c) => c.code)).toEqual([1, 1]);
+    const diff = await cli(root, "snapshot-diff", "snap/a", "snap/b");
+    expect(diff.code).toBe(0);
+    expect(diff.err).toContain(
+      "crassus: 1 page in base (snap/a) never matched readySelector when captured: a default",
+    );
+    expect(diff.err).toContain("1 page in head (snap/b)");
+    expect(
+      JSON.parse(
+        (await cli(root, "snapshot-diff", "snap/a", "snap/b", "--json")).out,
+      ).notReady,
+    ).toEqual({ base: ["a default"], head: ["a default"] });
   }, 60_000);
 
   it("coverage tells declarations that decide a value from those that don't", async () => {

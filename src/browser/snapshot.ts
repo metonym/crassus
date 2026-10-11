@@ -1,7 +1,7 @@
 import { mkdir, rm, statfs } from "node:fs/promises";
 import path from "node:path";
 import { type StateTrigger, stateTriggers } from "../core/impact";
-import type { Snapshot } from "../core/snapshot-diff";
+import { NTH, type Snapshot } from "../core/snapshot-diff";
 import { resolvePath } from "../page/resolve-path";
 import {
   INTERACTIVE,
@@ -146,9 +146,6 @@ const CR_HELPERS = `
         forced.setAttribute("data-cr-forced", "");
         return { state: m[1], forced: Number(forced.getAttribute("data-ccs-idx")) };
       },
-      // The target's box in document coordinates, padded to at least 24 × 16
-      // and by 8 px for outlines and shadows; null when it renders no box
-      // (its 0 × 0 rect would sit at the page's origin, over other content).
       // Each key's element as a CSS selector a person can paste, and with
       // \`html\`, its markup (instrumentation stripped) and the opening tags
       // of its ancestors.
@@ -271,12 +268,17 @@ interface SnapshotFile {
   props: string[];
   /** Values in `props` order; `null` where the record lacks the property. */
   styles: (string | null)[][];
-  /** Element path and its index in `styles`, in document order. */
-  elements: [string, number][];
+  /**
+   * Element path, its index in `styles`, and (plain records) its index
+   * among its parent's children, kept out of the style so it stays shared.
+   */
+  elements: [string, number, number?][];
 }
 
 export function encodeSnapshot(snap: Snapshot): Uint8Array<ArrayBuffer> {
-  const props = [...new Set(Object.values(snap).flatMap(Object.keys))];
+  const props = [...new Set(Object.values(snap).flatMap(Object.keys))].filter(
+    (p) => p !== NTH,
+  );
   const index = new Map<string, number>();
   const file: SnapshotFile = { props, styles: [], elements: [] };
   for (const [path, record] of Object.entries(snap)) {
@@ -287,13 +289,22 @@ export function encodeSnapshot(snap: Snapshot): Uint8Array<ArrayBuffer> {
       i = file.styles.push(style) - 1;
       index.set(key, i);
     }
-    file.elements.push([path, i]);
+    file.elements.push(
+      record[NTH] ? [path, i, Number(record[NTH])] : [path, i],
+    );
   }
   return Bun.gzipSync(JSON.stringify(file));
 }
 
-/** Elements with the same style share one record object. */
-export function decodeSnapshot(bytes: Uint8Array<ArrayBuffer>): Snapshot {
+/**
+ * A `capture` file's records (elements with the same style share one
+ * record object), and each element's index among its parent's children,
+ * for `selectorOf`.
+ */
+export function decodeCapture(bytes: Uint8Array<ArrayBuffer>): {
+  snapshot: Snapshot;
+  nth: Record<string, number>;
+} {
   const file: SnapshotFile = JSON.parse(
     new TextDecoder().decode(Bun.gunzipSync(bytes)),
   );
@@ -304,14 +315,26 @@ export function decodeSnapshot(bytes: Uint8Array<ArrayBuffer>): Snapshot {
     });
     return record;
   });
-  const snap: Snapshot = {};
-  for (const [path, i] of file.elements) snap[path] = records[i];
-  return snap;
+  const snapshot: Snapshot = {};
+  const nth: Record<string, number> = {};
+  for (const [path, i, n] of file.elements) {
+    snapshot[path] = records[i];
+    if (n) nth[path] = n;
+  }
+  return { snapshot, nth };
 }
+
+export const decodeSnapshot = (bytes: Uint8Array<ArrayBuffer>): Snapshot =>
+  decodeCapture(bytes).snapshot;
 
 /** Reads one `capture` file (`.json.gz`). */
 export async function readSnapshot(file: string): Promise<Snapshot> {
   return decodeSnapshot(await Bun.file(file).bytes());
+}
+
+/** Reads one `capture` file with its elements' child indexes. */
+export async function readCapture(file: string) {
+  return decodeCapture(await Bun.file(file).bytes());
 }
 
 type PageOptions = Pick<
@@ -463,8 +486,9 @@ export async function capturePage(
       frozen: Record<string, string>;
     }>(`window.__ccs.statePaths(${JSON.stringify(pending)})`);
     // The freeze stops transitions and animations: their values, as read.
+    // Only plain records carry the element's index.
     const thaw = (r: Record<string, string>) => {
-      const out = { ...r };
+      const { [NTH]: _, ...out } = r;
       for (const p in frozen) if (p in out) out[p] = frozen[p];
       return out;
     };

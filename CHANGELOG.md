@@ -230,6 +230,21 @@
 - `diff --confirm` sets a state's attribute only when a rule doesn't
   match without it, so a state under `:not()` no longer stops a rule
   matching.
+- `tokens` and `coverage` name the pages that never matched
+  `readySelector`, as `capture`, `compare`, `bisect` and `usage` do, and
+  `snapshot-diff` names those of each capture it compares (`notReady` in
+  JSON).
+- `snapshot-diff` gives each example element a CSS selector to paste into
+  DevTools (`body > div:nth-child(2) > p:nth-child(1)`), as `compare`
+  does. `capture` files keep each element's index among its parent's
+  children beside its record, so equal styles stay shared and
+  `readSnapshot` returns the same records as before. On carbon-components-svelte's
+  124 fixture pages (`crassus capture --themes white --viewport 1280x900`)
+  snapshots grow 1.1% (791,358 → 800,034 bytes gzipped, 8,578 distinct
+  styles either way), and each of the 10,356 element paths' selectors finds
+  the same element as the path in Chrome.
+- `browser.allowNotReady` lists fixtures known never to match
+  `readySelector`: still read, with no warning and no failed run.
 
 **Documentation**
 
