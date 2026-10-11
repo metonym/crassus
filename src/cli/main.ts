@@ -16,6 +16,7 @@ import {
   approveCommand,
   DEFAULT_REPORT,
   explainCommand,
+  reduceCommand,
   reproCommand,
   verifyCommand,
 } from "./card-commands";
@@ -73,6 +74,9 @@ Usage:
                                  element under each side's rules
   crassus verify <id>            whether the card's elements match base
                                  again with the stylesheet now
+  crassus reduce <id>            the fewest declaration edits of the change
+                                 that still give the card's element its
+                                 head value (delta debugging)
   crassus approve <id...>        record cards as intended changes in
                                  crassus.approved.json: compare and bisect
                                  then fail only on visible cards it lacks
@@ -126,6 +130,8 @@ Browser options (capture, compare, bisect, usage; override the config's \`browse
                      and fail where one stops following them; tokens: the
                      prefix to report on (default: the config's
                      browser.tokens)
+  --property <name>  reduce: the property to reproduce (default: the card's
+                     most frequent change)
   --report <dir>     compare, bisect: write change cards (report.json,
                      index.html, report.md, crops) to this directory, with
                      --explain and --visual; explain, repro, verify: read it
@@ -211,6 +217,7 @@ async function run(argv: string[], io: Io): Promise<number> {
       "no-scope": { type: "boolean" },
       report: { type: "string" },
       tokens: { type: "string" },
+      property: { type: "string" },
       visual: { type: "boolean" },
       out: { type: "string" },
       summary: { type: "string" },
@@ -240,10 +247,10 @@ async function run(argv: string[], io: Io): Promise<number> {
   if (
     values.report !== undefined &&
     !cardCommand &&
-    !["explain", "repro", "verify", "approve"].includes(command)
+    !["explain", "repro", "verify", "approve", "reduce"].includes(command)
   )
     throw new UsageError(
-      "--report goes with compare, bisect, explain, repro, verify and approve",
+      "--report goes with compare, bisect, explain, repro, verify, approve and reduce",
     );
   const only = values.entry ?? [];
   const verbose = values.verbose ?? false;
@@ -397,6 +404,19 @@ async function run(argv: string[], io: Io): Promise<number> {
     if (format !== "human" && format !== "json")
       throw new UsageError("explain prints human (Markdown) or json");
     return explainCommand({ ids: files, report: values.report, format, io });
+  }
+  if (command === "reduce") {
+    if (format !== "human" && format !== "json")
+      throw new UsageError("reduce reports as human or json");
+    const { config } = await loadConfig(cwd, values.config);
+    return reduceCommand({
+      ids: files,
+      report: values.report,
+      property: values.property,
+      config,
+      format,
+      io,
+    });
   }
   if (command === "repro" || command === "verify") {
     const { config } = await loadConfig(cwd, values.config);

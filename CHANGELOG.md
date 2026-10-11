@@ -158,6 +158,15 @@
   the fixtures, unused tokens and colors that follow none. On
   carbon-components-svelte: 356 tokens traced over 124 pages in 23.6 s,
   120 followed, 236 unused.
+- `crassus reduce <id>` delta-debugs a change card's stylesheet change down
+  to a 1-minimal set of declaration edits that still give its element the
+  head value: one unit per declaration and selector, a Myers diff for the
+  edits, and ddmin over them in one loaded page with the library
+  stylesheet swapped in place. On carbon-components-svelte
+  (`28e700f30..7e301af6f`, white, 1280 × 900): the TooltipDefinition card
+  reduces to the single dropped `color` declaration out of 4,224 edits, in
+  19 tries and 2.6 s; #3839's nested-cell `border-top-color` to 3 edits in
+  161 tries (5.8 s), its `tbody th` color to 1 in 12.
 - Cheaper forced states: `capture`, `compare` and `bisect` force a state
   over CDP only on elements some rule's state applies to (a state selector
   index from every stylesheet: the selector up to the compound holding the

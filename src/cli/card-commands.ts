@@ -5,7 +5,14 @@ import { mkdir } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import { approve, type Card, emptyApprovals, type Report } from "../core/cards";
 import type { Config } from "../core/config";
-import { type BrowserFlags, comparer, pick } from "./browser";
+import { serializeUnit } from "../core/reduce";
+import {
+  type BrowserFlags,
+  comparer,
+  fixturePages,
+  pick,
+  settings,
+} from "./browser";
 import { APPROVED_FILE, DEFAULT_DIR, formatCard, readApprovals } from "./cards";
 import type { Io } from "./main";
 import { stylesheets, UsageError } from "./project";
@@ -217,4 +224,85 @@ export async function verifyCommand(opts: {
     ].join("\n"),
   );
   return remaining === 0 ? 0 : 1;
+}
+
+/**
+ * `crassus reduce <id>`: delta-debugs the report's stylesheet change down to
+ * the fewest declaration edits that still give the card's element its head
+ * value, and writes them to reduce/<id>.json.
+ */
+export async function reduceCommand(opts: {
+  ids: string[];
+  report?: string;
+  property?: string;
+  config: Config;
+  format: "human" | "json";
+  io: Io;
+}): Promise<number> {
+  if (opts.ids.length !== 1) throw new UsageError("reduce takes one card id");
+  const { io } = opts;
+  const { cwd } = io;
+  const { card, dir, report } = await load(cwd, opts.report, opts.ids[0]);
+  const el =
+    card.elements.find((e) => e.pixels) ??
+    card.elements.find((e) => !e.path.includes("@")) ??
+    card.elements[0];
+  const property = opts.property ?? card.changes[0].property;
+  const page = PAGE_RE.exec(el.page);
+  if (!page) throw new UsageError(`can't read the page name ${el.page}`);
+  const { browser, pages } = settings(opts.config, report.inputs.flags);
+  if (!browser.sheetMarker)
+    throw new UsageError("reduce needs `browser.sheetMarker`");
+  const { path } = await fixturePages(cwd, browser, report.inputs.flags);
+  const [width, height] = page[3]?.split("x").map(Number) ?? [];
+  const { reduceChange } = await import("../browser/reduce");
+  const r = await reduceChange({
+    dir: path,
+    sheetMarker: browser.sheetMarker,
+    base: await Bun.file(join(dir, "base.css")).text(),
+    head: await Bun.file(join(dir, "head.css")).text(),
+    fixture: page[1],
+    theme: page[2],
+    themeAttribute: pages.themeAttribute,
+    viewport: width && height ? { width, height } : pages.viewports?.[0],
+    path: el.path,
+    property,
+    engine: pages.engine,
+    chromePath: pages.chromePath,
+    emulate: pages.engine === "chrome" ? "cdp" : "cssom",
+    readySelector: pages.readySelector,
+    readyTimeoutMs: pages.readyTimeoutMs,
+    settleMs: browser.settleMs,
+  });
+  const out = {
+    card: card.id,
+    page: el.page,
+    path: el.path,
+    property,
+    ...r,
+    edits: r.edits.map(({ op, unit }) => ({
+      op: op === "-" ? "removed" : "added",
+      ...unit,
+      css: serializeUnit(unit),
+    })),
+  };
+  await mkdir(join(dir, "reduce"), { recursive: true });
+  await Bun.write(
+    join(dir, "reduce", `${card.id}.json`),
+    JSON.stringify(out, null, 2),
+  );
+  if (opts.format === "json") {
+    io.out(JSON.stringify(out, null, 2));
+    return 0;
+  }
+  io.out(
+    [
+      `crassus: ${card.id}: ${property} on ${el.page} ${el.selector ?? el.path} goes ${r.before} -> ${r.after} with ${r.edits.length} of the change's ${r.total} declaration edit(s) (${r.tests} tries, ${(r.ms / 1000).toFixed(1)} s):`,
+      ...out.edits.map(
+        (e) =>
+          `  ${e.op === "removed" ? "-" : "+"} ${e.css}${e.line ? `  (${e.op === "removed" ? "base" : "head"}.css:${e.line})` : ""}`,
+      ),
+    ].join("\n"),
+  );
+  return 0;
 }

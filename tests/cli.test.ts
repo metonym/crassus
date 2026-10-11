@@ -975,6 +975,61 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(fixed.code).toBe(0);
   }, 60_000);
 
+  it("reduces a card to the declaration edits that make it", async () => {
+    // Head drops a whole rule, and edits others: only one declaration
+    // gives .b its head color.
+    const BASE =
+      ".a { color: red; }\n.a .b { color: blue; padding: 2px; margin: 1px; }\n.c { color: green; top: 0; }\n.d { left: 0; }\n";
+    const HEAD = ".a { color: red; }\n.c { color: lime; }\n.d { left: 1px; }\n";
+    const root = await project({
+      "crassus.config.ts": `export default {
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
+      };`,
+      "site/lib.css": BASE,
+      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a <span class="b">b</span></div><p class="c d">c</p></body></html>`,
+      "base.css": BASE,
+      "head.css": HEAD,
+    });
+    await cli(
+      root,
+      "compare",
+      "base.css",
+      "head.css",
+      "--no-states",
+      "--report",
+      "out",
+    );
+    const report = JSON.parse(await read(root, "out/report.json"));
+    const card = report.cards.find(
+      (c: { cause: { rule?: { selector: string } } }) =>
+        c.cause.rule?.selector === ".a .b",
+    );
+    const r = await cli(
+      root,
+      "reduce",
+      card.id,
+      "--report",
+      "out",
+      "--property",
+      "color",
+    );
+    expect(r.code).toBe(0);
+    expect(r.out).toContain(
+      "goes rgb(0, 0, 255) -> rgb(255, 0, 0) with 1 of the change's 8 declaration edit(s)",
+    );
+    expect(r.out).toContain("  - .a .b { color: blue }  (base.css:2)");
+    expect(
+      JSON.parse(await read(root, `out/reduce/${card.id}.json`)).edits,
+    ).toEqual([
+      expect.objectContaining({
+        op: "removed",
+        selector: ".a .b",
+        property: "color",
+        value: "blue",
+      }),
+    ]);
+  }, 60_000);
+
   it("explains winners at their source and compares screenshots", async () => {
     const root = await project({
       "crassus.config.ts": `export default {
