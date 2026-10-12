@@ -1,6 +1,6 @@
 // Paths on one side only are DOM or forced-state changes, and properties one
 // side only recorded have no value to compare: listed, not diffed.
-import { foldChanges, HIDDEN } from "./fold";
+import { foldChanges, HIDDEN, STATE_SUFFIX_RE } from "./fold";
 
 /** Element path (with `::before`, `@hover` and similar suffixes) → longhand → computed value. */
 export type Snapshot = Record<string, Record<string, string>>;
@@ -12,7 +12,6 @@ export type Snapshot = Record<string, Record<string, string>>;
 export const NTH = "--cr-nth";
 /** Recorded with the styles, never compared. */
 const META = new Set([HIDDEN, NTH]);
-const SUFFIX_RE = /(@(?:hover|focus|active)\^?)?(::before|::after)?$/;
 const TAG_RE = /^[a-z][\w-]*/i;
 
 /**
@@ -24,7 +23,7 @@ export function selectorOf(
   nth: Record<string, number>,
   path: string,
 ): string | undefined {
-  const m = SUFFIX_RE.exec(path);
+  const m = STATE_SUFFIX_RE.exec(path);
   const pseudo = m?.[2] ?? "";
   const element = path.slice(0, path.length - (m?.[0].length ?? 0));
   const parts: string[] = [];
@@ -100,7 +99,6 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
     }
     const changes: PropertyChange[] = [];
     for (const [property, value] of Object.entries(before)) {
-      // Not styles: why the box can't be seen, and where it is.
       if (META.has(property)) continue;
       const next = after[property];
       if (next === undefined) onlyBase.add(property);

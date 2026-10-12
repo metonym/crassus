@@ -10,6 +10,7 @@ import {
   encodeSnapshot,
   parseSnapshotFile,
 } from "../src/browser/snapshot";
+import { formatSnapshotDiff, uncolored } from "../src/cli/report";
 import { foldNames } from "../src/core/fold";
 import {
   diffSnapshot,
@@ -485,6 +486,44 @@ describe("resolvePath", () => {
     expect(resolvePath("body>div>p.a.b[2]", html)).toBeNull();
   });
 });
+
+describe("formatSnapshotDiff", () => {
+  const diffWith = (path: string) => {
+    const changed = {
+      [path]: [{ property: "color", before: "red", after: "blue" }],
+    };
+    return {
+      files: 1,
+      entries: 1,
+      onlyBase: [],
+      onlyHead: [],
+      pages: [
+        {
+          file: "a.white.json.gz",
+          fixture: "a",
+          theme: "white",
+          changed,
+          removed: [],
+          added: [],
+          uncompared: { onlyBase: [], onlyHead: [] },
+        },
+      ],
+      groups: groupChanges([{ page: "a.white.json.gz", changed }]),
+      uncompared: { onlyBase: [], onlyHead: [] },
+    };
+  };
+
+  it("explains state suffixes when an example path has one", () => {
+    const legend = "@hover, @focus, @active read with that state forced";
+    expect(
+      uncolored(() => formatSnapshotDiff(diffWith("body>a@hover^"), "human")),
+    ).toContain(legend);
+    expect(
+      uncolored(() => formatSnapshotDiff(diffWith("body>a"), "human")),
+    ).not.toContain(legend);
+  });
+});
+
 describe("foldNames", () => {
   it("folds followers into color, twins into physical, sets into shorthands", () => {
     expect(

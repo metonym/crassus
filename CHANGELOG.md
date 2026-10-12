@@ -128,7 +128,14 @@
   card, and the flattening's visible cards are all on the consumer-override
   fixture. `verify` on the regression's card reports `color` matching base
   with the upstream fix's stylesheet (`3e7ae6001`), and `position` still
-  changed.
+  changed. A cause is the rule that stopped winning, the one that started,
+  or a rule edited in place that wins on both sides (`.bx--tag` changes
+  `background-color` from one value to another); a rule is one cause
+  whichever selector of its list matched (`selectors` counts the elements
+  per selector), and what one cause hides is one invisible card with its
+  reasons listed. Card markup leaves out comments (frameworks' empty
+  anchors). Without `--report`, `compare` prints the cards' counts and a
+  line per visible or token-detached card, built from the values.
 - Approvals: `crassus approve <id...>` records change cards as intended in
   `crassus.approved.json` (`crassus/approved@1`: each card's id and its
   `property: before -> after` changes). With the file, `compare` and
@@ -138,7 +145,9 @@
   builds the command. On carbon-components-svelte (white, 1280 × 900),
   approving #3839's two cards made `bisect 660b2936a^..660b2936a --only
   data-table` exit 0 instead of 1, and `28e700f30..7e301af6f` still
-  failed on its own cards.
+  failed on its own cards. With cards,
+  `--format json` stays one document and adds `cards: { summary,
+  failing }`.
 - Token tracing: `compare --tokens cds-` and `bisect --tokens cds-` (or
   `browser.tokens: "--cds-"`) read each page again with every token set to
   a sentinel of its type, and note which properties follow which token. A
@@ -155,9 +164,15 @@
   twins and longhand sets folded: the TooltipDefinition trigger's is one
   line, `30×  color: --cds-text-01 -> none`, with the rest under `also:`.
 - `crassus tokens --tokens cds-`: which tokens drive which properties on
-  the fixtures, unused tokens and colors that follow none. On
-  carbon-components-svelte: 356 tokens traced over 124 pages in 23.6 s,
-  120 followed, 236 unused.
+  the fixtures, unused tokens, and colors that follow none in two lists:
+  hard-coded, where an author rule sets a literal, and user agent
+  defaults, where none does (on a themed element, a missed token). Each
+  says what it leaves out: colors no one can see, and inherited ones,
+  counted in the list of the ancestor that sets them (`omitted` in JSON).
+  On carbon-components-svelte: 356 tokens traced over 124 pages in 23.5 s,
+  120 followed, 236 unused; the hard-coded list leads with avatar and
+  header backgrounds, and the user agent's `color: rgb(0, 0, 0)` is 285
+  `<button>`s listed, 386 unseen and 841 inherited.
 - `crassus diff --confirm` renders each cascade flip in Chrome: on a
   fixture page's element tree where some element matches both rules (from
   the page index), else on an element built for both, as long as its
@@ -227,9 +242,6 @@
   never won. In a sample of 12 unmatched declarations, 11 name a class no
   fixture renders (`.bx--box-pl-12`, `.bx--col-lg-5`, the overflow
   menu's options) and one an element none does (`sup`).
-- `diff --confirm` sets a state's attribute only when a rule doesn't
-  match without it, so a state under `:not()` no longer stops a rule
-  matching.
 - `tokens` and `coverage` name the pages that never matched
   `readySelector`, as `capture`, `compare`, `bisect` and `usage` do, and
   `snapshot-diff` names those of each capture it compares (`notReady` in

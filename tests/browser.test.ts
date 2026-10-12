@@ -14,8 +14,11 @@ import {
   serveFixtures,
   type UsageFile,
 } from "crassus/browser";
+import { switchSheet } from "../src/browser/compare";
+import { pageIndex } from "../src/browser/page-index";
 import { capturePage, checkDisk } from "../src/browser/snapshot";
 import { headlessShell, View, visitPages } from "../src/browser/view";
+import { settings, throttled } from "../src/cli/browser";
 import {
   parseSelectorList,
   resolveNested,
@@ -145,6 +148,10 @@ afterAll(async () => {
 
 const readJson = <T>(...path: string[]): Promise<T> =>
   Bun.file(join(...path)).json();
+
+const LOAD_NOTICE_RE =
+  /^crassus: load average 1000000\.0 is above \d+ cores: running on one tab until it settles$/;
+const ONE_TAB_RE = /^ \(4\.0 s on one tab: load above \d+ cores\)$/;
 
 const base = () => ({
   baseUrl: server.url,
@@ -310,10 +317,19 @@ it("compareCss diffs two stylesheets on the same pages, forced states included",
     emulate: "cdp" as const,
     settleMs: 0,
   };
+  // No rule differs: nothing read; unscoped, the page is, with no change.
   const same = await compareCss({ ...opts, base: LIB_CSS, head: LIB_CSS });
-  expect(same.files).toBe(1);
-  expect(same.groups).toEqual([]);
-  expect(same.pages).toEqual([]);
+  expect(same.impact.unchanged).toBe(true);
+  expect(same.files).toBe(0);
+  const read = await compareCss({
+    ...opts,
+    base: LIB_CSS,
+    head: LIB_CSS,
+    scope: false,
+  });
+  expect(read.files).toBe(1);
+  expect(read.groups).toEqual([]);
+  expect(read.pages).toEqual([]);
 
   const diff = await compareCss({
     ...opts,
@@ -416,7 +432,71 @@ it("compareCss reads only what the change reaches, with the same results", async
     expect(scoped.impact).toEqual(impact);
     expect(full.impact.everything).toBe("scope is off");
   }
+  // No rule differs: nothing indexed or loaded.
+  const same = await compareCss({
+    ...opts,
+    head: `${SCOPE_CSS}\n/* a comment */\n`,
+  });
+  expect(same.impact).toMatchObject({ unchanged: true, pages: 0 });
+  expect(same.pages).toEqual([]);
 }, 120_000);
+
+it("keeps the page index across a stylesheet edit that renames hashed assets", async () => {
+  const root = join(dir, "hashed");
+  const page = (sheet: string, body: string) =>
+    `<!doctype html><html><head><link rel="stylesheet" href="assets/${sheet}"><script type="module" src="assets/main-Ab3_x9Zq.js"></script></head><body>${body}</body></html>`;
+  // Two chunks that share a name once hashes go; a rebuild can swap which
+  // hash holds which content.
+  const build = async (
+    sheet: string,
+    css: string,
+    body: string,
+    chunks = ["x", "y"],
+  ) => {
+    await rm(root, { recursive: true, force: true });
+    await Promise.all([
+      Bun.write(join(root, "page.html"), page(sheet, body)),
+      Bun.write(join(root, "assets", sheet), css),
+      Bun.write(join(root, "assets/main-Ab3_x9Zq.js"), `import "./${sheet}";`),
+      Bun.write(join(root, "assets/chunk-AAAAAAAA.js"), chunks[0]),
+      Bun.write(join(root, "assets/chunk-ZZZZZZZZ.js"), chunks[1]),
+    ]);
+  };
+  const index = () =>
+    pageIndex({
+      ...base(),
+      dir: root,
+      fixtures: ["page"],
+      sheetMarker: ".bx--",
+      emulate: "cdp",
+      settleMs: 0,
+      cacheDir: join(dir, "hashed-index"),
+    });
+  await build(
+    "lib-AAAAAAAA.css",
+    ".bx--a { color: red }",
+    '<p class="bx--a">a</p>',
+  );
+  expect((await index()).cached).toBe(false);
+  // A rebuild after a CSS edit: new hash, and every file naming it changes.
+  await build(
+    "lib-BBBBBBBB.css",
+    ".bx--a { color: blue }",
+    '<p class="bx--a">a</p>',
+    ["y", "x"],
+  );
+  expect((await index()).cached).toBe(true);
+  // The DOM changed: rebuilt.
+  await build(
+    "lib-BBBBBBBB.css",
+    ".bx--a { color: blue }",
+    '<p class="bx--a">b</p><i></i>',
+  );
+  expect(await index()).toMatchObject({
+    cached: false,
+    why: "fixture files changed: page.html",
+  });
+}, 60_000);
 
 it("records boxes no one can see: offscreen, or clipped by an overflow ancestor", async () => {
   const root = join(dir, "geometry");
@@ -564,6 +644,64 @@ it("swaps the largest stylesheet that contains the marker", async () => {
     serveFixtures(root, { swap: { marker: ".nope--", css: "" } }),
   ).toThrow("no .css file under");
 });
+
+it("serves the swap's alt sheet at the same path on request", async () => {
+  const root = join(dir, "swap-alt");
+  await Bun.write(join(root, "lib.css"), ".bx--a { color: red; }");
+  const site = serveFixtures(root, {
+    swap: { marker: ".bx--", css: ".head{}", alt: ".base{}" },
+  });
+  try {
+    const get = (p: string) => fetch(`${site.url}/${p}`).then((r) => r.text());
+    expect(await get("lib.css")).toBe(".head{}");
+    expect(await get("lib.css?cr-sheet=alt")).toBe(".base{}");
+  } finally {
+    site.stop();
+  }
+});
+
+it("switches a page's library sheet to the alt side in place", async () => {
+  const root = join(dir, "switch");
+  await Promise.all([
+    Bun.write(join(root, "lib.css"), ".bx--a { color: red; }"),
+    Bun.write(
+      join(root, "linked.html"),
+      `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><p class="bx--a" id="p">x</p></body></html>`,
+    ),
+    Bun.write(
+      join(root, "inline.html"),
+      `<!doctype html><html><head><style>.bx--a { color: red; }</style></head><body><p class="bx--a">x</p></body></html>`,
+    ),
+  ]);
+  const site = serveFixtures(root, {
+    swap: {
+      marker: ".bx--",
+      css: ".bx--a { color: rgb(0, 0, 255); }",
+      alt: ".bx--a { color: rgb(0, 128, 0); }",
+    },
+  });
+  const view = new View({ engine: "chrome" });
+  try {
+    await view.navigate(`${site.url}/linked.html`);
+    const color = () =>
+      view.evaluate<string>(
+        "getComputedStyle(document.getElementById('p')).color",
+      );
+    // Mark the element: the switch keeps the DOM, so the mark survives.
+    await view.evaluate("document.getElementById('p').dataset.mark = '1'");
+    expect(await color()).toBe("rgb(0, 0, 255)");
+    expect(await switchSheet(view, "/lib.css")).toBe(true);
+    expect(await color()).toBe("rgb(0, 128, 0)");
+    expect(
+      await view.evaluate<string>("document.getElementById('p').dataset.mark"),
+    ).toBe("1");
+    await view.navigate(`${site.url}/inline.html`);
+    expect(await switchSheet(view, "/lib.css")).toBe(false);
+  } finally {
+    view.close();
+    site.stop();
+  }
+}, 60_000);
 
 it("resolves every captured path to its element", async () => {
   const outDir = join(dir, "snap-resolve");
@@ -733,6 +871,7 @@ it("stops the pool at the first failure", async () => {
       fixtures: ["page", "page", "page", "page"],
       concurrency: 2,
       emulate: "cdp",
+      loadAverage: () => 0,
     },
     async () => {
       if (++started === 1) throw new Error("boom");
@@ -740,10 +879,52 @@ it("stops the pool at the first failure", async () => {
     },
   );
   await expect(run).rejects.toThrow("boom");
-  // The other view finished its page and took no more (under load it
-  // backs off, sees the failure and starts none).
+  // The other view finished its page and took no more.
   await Bun.sleep(200);
-  expect(started).toBeLessThanOrEqual(2);
+  expect(started).toBe(2);
+}, 60_000);
+
+it("runs on one tab while the load is high, and says so once a run", async () => {
+  const err: string[] = [];
+  const configured = () =>
+    settings(
+      { browser: { fixtures: "site" } },
+      {},
+      { cwd: "/", out: () => {}, err: (t) => err.push(t) },
+    );
+  const busy = configured();
+  // Busy, settled, busy again, then settled: two waits of the second tab.
+  const loads = [1e6, 0, 1e6];
+  await visitPages(
+    {
+      ...base(),
+      fixtures: ["page", "page", "page", "page"],
+      concurrency: 2,
+      emulate: "cdp",
+      loadAverage: () => loads.shift() ?? 0,
+      onBusy: busy.pages.onBusy,
+    },
+    () => Bun.sleep(2500),
+  );
+  expect(err).toHaveLength(1);
+  expect(err[0]).toMatch(LOAD_NOTICE_RE);
+  expect(busy.throttle.ms).toBe(4000);
+  expect(throttled(busy.throttle)).toMatch(ONE_TAB_RE);
+  // Never busy: no notice, no suffix.
+  const quiet = configured();
+  await visitPages(
+    {
+      ...base(),
+      fixtures: ["page", "page"],
+      concurrency: 2,
+      emulate: "cdp",
+      loadAverage: () => 0,
+      onBusy: quiet.pages.onBusy,
+    },
+    async () => {},
+  );
+  expect(err).toHaveLength(1);
+  expect(throttled(quiet.throttle)).toBe("");
 }, 60_000);
 
 it("checkDisk stops a capture that would fill the disk", async () => {

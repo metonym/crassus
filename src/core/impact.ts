@@ -381,7 +381,7 @@ function changedDeclarations(
   pairs.forEach(([b, h], i) => {
     const props = stable.has(i)
       ? declarationChanges(b.decls, h.decls)
-      : [...new Set([...b.decls.keys(), ...h.decls.keys()])];
+      : allProperties(b.decls, h.decls);
     if (props.length > 0) {
       out.set(b, new Set(props));
       out.set(h, new Set(props));
@@ -412,7 +412,7 @@ const CONTEXT = [
   "height",
   "background-color",
   "background-image",
-  ...["top", "right", "bottom", "left"].flatMap((s) => [
+  ...SIDES.flatMap((s) => [
     `border-${s}-width`,
     `border-${s}-style`,
     `padding-${s}`,

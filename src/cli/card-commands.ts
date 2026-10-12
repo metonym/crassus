@@ -2,23 +2,23 @@
 // directory (`compare --report`), for a person or an agent.
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { approve, type Card, emptyApprovals, type Report } from "../core/cards";
 import type { Config } from "../core/config";
 import { serializeUnit } from "../core/reduce";
 import {
   type BrowserFlags,
   comparer,
+  EMULATE,
   fixturePages,
   pick,
   settings,
 } from "./browser";
 import { APPROVED_FILE, DEFAULT_DIR, formatCard, readApprovals } from "./cards";
 import type { Io } from "./main";
-import { stylesheets, UsageError } from "./project";
+import { shownPath, stylesheets, UsageError } from "./project";
+import { seconds } from "./report";
 import type { Sheet } from "./sources";
-
-export { DEFAULT_DIR as DEFAULT_REPORT } from "./cards";
 
 interface Inputs {
   command: Report["command"];
@@ -33,7 +33,7 @@ async function readReport(cwd: string, dir: string | undefined) {
   const file = join(at, "report.json");
   if (!existsSync(file))
     throw new UsageError(
-      `no report at ${relative(cwd, at) || "."}: run crassus compare --report first`,
+      `no report at ${shownPath(cwd, at)}: run crassus compare --report first`,
     );
   return {
     report: (await Bun.file(file).json()) as Report & { inputs: Inputs },
@@ -48,7 +48,7 @@ function cardOf(report: Report, id: string, cwd: string, file: string): Card {
     throw new UsageError(
       matches.length
         ? `${id} matches ${matches.length} cards: ${matches.map((c) => c.id).join(", ")}`
-        : `no card ${id} in ${relative(cwd, file)}`,
+        : `no card ${id} in ${shownPath(cwd, file)}`,
     );
   return matches[0];
 }
@@ -90,14 +90,7 @@ async function load(
   id: string,
 ): Promise<{ report: Report & { inputs: Inputs }; card: Card; dir: string }> {
   const { report, file, at } = await readReport(cwd, dir);
-  const matches = report.cards.filter((c) => c.id.startsWith(id));
-  if (matches.length !== 1)
-    throw new UsageError(
-      matches.length
-        ? `${id} matches ${matches.length} cards: ${matches.map((c) => c.id).join(", ")}`
-        : `no card ${id} in ${relative(cwd, file)}`,
-    );
-  return { report, card: matches[0], dir: at };
+  return { report, card: cardOf(report, id, cwd, file), dir: at };
 }
 
 /** `crassus explain <id>`: the card as Markdown, or JSON. */
@@ -142,7 +135,7 @@ export async function reproCommand(opts: {
   await mkdir(join(dir, "repro"), { recursive: true });
   const out = join(dir, "repro", `${card.id}.html`);
   await Bun.write(out, html);
-  opts.io.out(relative(cwd, out));
+  opts.io.out(shownPath(cwd, out));
   return 0;
 }
 
@@ -187,6 +180,7 @@ export async function verifyCommand(opts: {
       ...(themed && { themes: themes.join(",") }),
     },
     cwd,
+    io,
   });
   const { result } = await cmp.run({ base, head: now }, undefined, fixtures);
   // Per property of the card: its elements that still differ, and how.
@@ -250,7 +244,7 @@ export async function reduceCommand(opts: {
   const property = opts.property ?? card.changes[0].property;
   const page = PAGE_RE.exec(el.page);
   if (!page) throw new UsageError(`can't read the page name ${el.page}`);
-  const { browser, pages } = settings(opts.config, report.inputs.flags);
+  const { browser, pages } = settings(opts.config, report.inputs.flags, io);
   if (!browser.sheetMarker)
     throw new UsageError("reduce needs `browser.sheetMarker`");
   const { path } = await fixturePages(cwd, browser, report.inputs.flags);
@@ -269,7 +263,7 @@ export async function reduceCommand(opts: {
     property,
     engine: pages.engine,
     chromePath: pages.chromePath,
-    emulate: pages.engine === "chrome" ? "cdp" : "cssom",
+    emulate: EMULATE[pages.engine],
     readySelector: pages.readySelector,
     readyTimeoutMs: pages.readyTimeoutMs,
     settleMs: browser.settleMs,
@@ -297,7 +291,7 @@ export async function reduceCommand(opts: {
   }
   io.out(
     [
-      `crassus: ${card.id}: ${property} on ${el.page} ${el.selector ?? el.path} goes ${r.before} -> ${r.after} with ${r.edits.length} of the change's ${r.total} declaration edit(s) (${r.tests} tries, ${(r.ms / 1000).toFixed(1)} s):`,
+      `crassus: ${card.id}: ${property} on ${el.page} ${el.selector ?? el.path} goes ${r.before} -> ${r.after} with ${r.edits.length} of the change's ${r.total} declaration edit(s) (${r.tests} tries, ${seconds(r.ms)}):`,
       ...out.edits.map(
         (e) =>
           `  ${e.op === "removed" ? "-" : "+"} ${e.css}${e.line ? `  (${e.op === "removed" ? "base" : "head"}.css:${e.line})` : ""}`,

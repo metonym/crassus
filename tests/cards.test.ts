@@ -133,6 +133,28 @@ describe("buildCards", () => {
     );
   });
 
+  it("calls a rule edited in place what it is, not lost to itself", () => {
+    const tag = rule(".bx--tag", 20, true);
+    const [card] = cardsOn({
+      "body>span": {
+        changes: [
+          {
+            property: "background-color",
+            before: "rgb(255, 215, 217)",
+            after: "rgb(255, 0, 0)",
+          },
+        ],
+        explain: { "background-color": [tag, tag] },
+        pixels: true,
+      },
+    });
+    expect(card.cause).toEqual({ kind: "edited", rule: tag });
+    expect(card.title).toBe(
+      "`.bx--tag` (css/_a.scss:20) changes background-color from rgb(255, 215, 217) to rgb(255, 0, 0)",
+    );
+    expect(card.fix?.add).toEqual({ "background-color": "rgb(255, 215, 217)" });
+  });
+
   it("names a rule that now wins, and the one it beat", () => {
     const won = rule(".override", 3, true);
     const [card] = cardsOn({
@@ -171,6 +193,47 @@ describe("buildCards", () => {
       invisible: 1,
       approved: 0,
     });
+  });
+
+  it("keeps a rule one cause whichever of its selectors matched", () => {
+    const matchedBy = (selector: string) => {
+      const of: Winner = {
+        ...rule(selector, 17, true),
+        list: ".assistive, .hidden",
+      };
+      return {
+        changes: [{ ...color(), invisible: "clip: rect(0 0 0 0)" }],
+        explain: { color: [of, of] } as Record<string, [Winner, Winner]>,
+      };
+    };
+    const cards = cardsOn({
+      "body>span": matchedBy(".hidden"),
+      "body>span[1]": matchedBy(".hidden"),
+      "body>div": matchedBy(".assistive"),
+    });
+    expect(cards).toHaveLength(1);
+    expect(
+      cards[0].title.startsWith("`.hidden, .assistive` (css/_a.scss:17)"),
+    ).toBe(true);
+    expect(cards[0].selectors).toEqual({ ".hidden": 2, ".assistive": 1 });
+  });
+
+  it("keeps one invisible card per cause, whatever hides each element", () => {
+    const hidden = (why: string) => ({
+      changes: [{ ...color(), invisible: why }],
+      explain: { color: [LOST, UA] } as Record<string, [Winner, Winner]>,
+    });
+    const cards = cardsOn({
+      "body>span": hidden("offscreen"),
+      "body>span[1]": hidden("offscreen"),
+      "body>label>span": hidden("clip: rect(0 0 0 0)"),
+      "body>div>span": hidden("display: none"),
+    });
+    expect(
+      cards.map((c) => [c.verdict, c.invisible, c.elements.length]),
+    ).toEqual([
+      ["invisible", "offscreen; clip: rect(0 0 0 0); display: none", 4],
+    ]);
   });
 
   it("falls back to the winners, then to the values, without a changed rule", () => {

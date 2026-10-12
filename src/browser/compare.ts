@@ -3,6 +3,7 @@ import {
   type ChangedSelector,
   changedRules,
   impactProperties,
+  nothingChanged,
 } from "../core/impact";
 import {
   diffSnapshot,
@@ -15,7 +16,7 @@ import {
 import { inspectPage, type PageInspection, type Shot } from "./inspect";
 import { matchPages, pageIndex } from "./page-index";
 import { crop, decodePng, difference, type Image } from "./png";
-import { serveFixtures, swappedSheet } from "./serve";
+import { ALT_PARAM, serveFixtures, swappedSheet } from "./serve";
 import {
   type CaptureOptions,
   capturePage,
@@ -76,6 +77,8 @@ export type Crops = Record<
 
 /** What a stylesheet change can reach on the fixtures. */
 export interface Impact {
+  /** No rule differs between the stylesheets: nothing was loaded. */
+  unchanged?: true;
   /** Pages (fixture × theme × viewport) in all. */
   total: number;
   /** Pages a changed rule's selector matches: the only ones captured. */
@@ -88,6 +91,8 @@ export interface Impact {
   everything?: string;
   /** Built this run, or read from `indexDir`. */
   index?: "built" | "cached";
+  /** Why it was built: what changed since the last one kept. */
+  indexWhy?: string;
 }
 
 interface Plan {
@@ -194,14 +199,34 @@ export async function compareCss(opts: CompareOptions): Promise<
   const library = swappedSheet(opts.dir, opts.sheetMarker)
     .split(path.sep)
     .join("/");
+  // No rule differs: no value can, and no token can be followed otherwise.
+  if (changes && nothingChanged(changes)) {
+    const impact: Impact = {
+      unchanged: true,
+      total: 0,
+      pages: 0,
+      elements: 0,
+      selectors: 0,
+    };
+    opts.onImpact?.(impact);
+    return {
+      ...summarizePages([], [], [], opts.examples),
+      ms: performance.now() - started,
+      library,
+      notReady: [],
+      impact,
+    };
+  }
   const crops: Crops | undefined = opts.report && opts.visual ? {} : undefined;
   const plan = await planIn(
     opts,
     [opts.base, opts.head],
     changes?.selectors ?? [],
   );
-  const swap = (css: string) =>
-    serveFixtures(opts.dir, { swap: { marker: opts.sheetMarker, css } });
+  const swap = (css: string, alt?: string) =>
+    serveFixtures(opts.dir, {
+      swap: { marker: opts.sheetMarker, css, alt },
+    });
   const viewports = viewportsOf(opts);
   const several = viewports.length > 1;
   const pageFile = (job: PageJob) =>
@@ -228,6 +253,7 @@ export async function compareCss(opts: CompareOptions): Promise<
   if (!impact.everything) {
     const built = await pageIndex({ ...opts, cacheDir: opts.indexDir });
     impact.index = built.cached ? "cached" : "built";
+    if (built.why) impact.indexWhy = built.why;
     const matches = await matchPages(built.index, jobs, selectors, opts);
     hit = new Set();
     impact.pages = 0;
@@ -266,7 +292,8 @@ export async function compareCss(opts: CompareOptions): Promise<
   };
 
   const base = swap(opts.base);
-  const head = swap(opts.head);
+  // Head serves base as its alt sheet, for `switchSheet`.
+  const head = swap(opts.head, opts.base);
   const pages: { file: string; diff: PageDiff & Inspected; entries: number }[] =
     [];
   const headNotReady: string[] = [];
@@ -294,7 +321,7 @@ export async function compareCss(opts: CompareOptions): Promise<
           const tokens = diffTokens(a.tokens, b.tokens, b.snapshot);
           if (Object.keys(tokens).length) diff.tokens = tokens;
         }
-        const file = snapshotFile(job, several).replace(".json.gz", "");
+        const file = pageFile(job);
         const keys = Object.keys(diff.changed);
         if (keys.length) {
           const found = await view.evaluate<(Where | null)[]>(
@@ -308,11 +335,15 @@ export async function compareCss(opts: CompareOptions): Promise<
           diff.where = where;
         }
         if ((opts.explain || opts.visual) && keys.length) {
-          // Head is loaded; base is loaded again, prepared the same way.
+          // Base is read on the very elements head was read on, by switching
+          // the sheet in place. An inlined sheet has no <link> to switch:
+          // base is loaded again, prepared the same way.
           const after = await inspectPage(view, diff.changed, opts);
-          await loadPage(view, job.url, opts);
-          await preparePage(view, opts, plan.declared);
-          if (opts.states) await tagStates(view);
+          if (!(await switchSheet(view, `/${library}`))) {
+            await loadPage(view, job.url, opts);
+            await preparePage(view, opts, plan.declared);
+            if (opts.states) await tagStates(view);
+          }
           const before = await inspectPage(
             view,
             diff.changed,
@@ -359,6 +390,33 @@ export async function compareCss(opts: CompareOptions): Promise<
     base.stop();
     head.stop();
   }
+}
+
+/**
+ * Points the page's `<link>` to the sheet at `pathname` at the swapping
+ * server's `alt` sheet, waits for it to apply, and freezes the animations it
+ * starts. False when no such `<link>` exists.
+ */
+export async function switchSheet(
+  view: View,
+  pathname: string,
+): Promise<boolean> {
+  return view.evaluate<boolean>(`(async (pathname, param) => {
+    const link = [...document.querySelectorAll('link[rel~="stylesheet"]')]
+      .find((l) => new URL(l.href).pathname === pathname);
+    if (!link) return false;
+    const url = new URL(link.href);
+    url.searchParams.set(param, "alt");
+    await new Promise((resolve, reject) => {
+      link.addEventListener("load", resolve, { once: true });
+      link.addEventListener("error", reject, { once: true });
+      link.href = url.href;
+    });
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    // The helpers are there only on a page compare prepared.
+    if (window.__cr) window.__cr.freezeAnimations();
+    return true;
+  })(${JSON.stringify(pathname)}, ${JSON.stringify(ALT_PARAM)})`);
 }
 
 /** Flags winners that are rules the two stylesheets differ in. */
