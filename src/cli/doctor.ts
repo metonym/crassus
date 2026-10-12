@@ -5,6 +5,7 @@ import { statfs } from "node:fs/promises";
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 import type { Config } from "../core/config";
+import { defaultConcurrency } from "./browser";
 import type { Io } from "./main";
 
 type Level = "ok" | "warn" | "error";
@@ -50,24 +51,25 @@ export async function doctorCommand(opts: {
   const add = (level: Level, what: string, fix?: string) =>
     checks.push({ level, what, ...(fix && { fix }) });
   const { browser } = config;
+  const engine = browser?.engine ?? "chrome";
   const cores = availableParallelism();
 
   add("ok", `Bun ${Bun.version}`);
   if (typeof Bun.WebView !== "function")
     add("error", "Bun.WebView is missing", "upgrade Bun: bun upgrade");
 
-  // The browser.
   const { headlessShell, View } = await import("../browser/view");
   const shell = headlessShell();
-  if (browser?.chromePath)
+  if (browser?.chromePath) {
+    const found = existsSync(browser.chromePath);
     add(
-      existsSync(browser.chromePath) ? "ok" : "error",
+      found ? "ok" : "error",
       `Chrome: ${browser.chromePath} (browser.chromePath)`,
-      existsSync(browser.chromePath)
+      found
         ? undefined
         : "point browser.chromePath at a Chrome or Chromium binary",
     );
-  else if (shell) add("ok", `Chrome: chrome-headless-shell at ${shell}`);
+  } else if (shell) add("ok", `Chrome: chrome-headless-shell at ${shell}`);
   else
     add(
       "warn",
@@ -78,7 +80,7 @@ export async function doctorCommand(opts: {
     const started = performance.now();
     try {
       const view = new View({
-        engine: browser?.engine ?? "chrome",
+        engine,
         chromePath: browser?.chromePath,
       });
       try {
@@ -86,7 +88,7 @@ export async function doctorCommand(opts: {
         const two = await view.evaluate<number>("1 + 1");
         add(
           two === 2 ? "ok" : "error",
-          `${browser?.engine ?? "chrome"} starts and runs a page in ${Math.round(performance.now() - started)} ms`,
+          `${engine} starts and runs a page in ${Math.round(performance.now() - started)} ms`,
         );
       } finally {
         view.close();
@@ -94,14 +96,13 @@ export async function doctorCommand(opts: {
     } catch (e) {
       add(
         "error",
-        `${browser?.engine ?? "chrome"} doesn't start: ${(e as Error).message}`,
+        `${engine} doesn't start: ${(e as Error).message}`,
         "install Chrome, or set browser.chromePath",
       );
     }
   }
 
-  // The machine.
-  const tabs = browser?.concurrency ?? Math.min(4, Math.max(1, cores >> 1));
+  const tabs = browser?.concurrency ?? defaultConcurrency();
   add(
     tabs > cores / 2 ? "warn" : "ok",
     `${tabs} tab(s) on ${cores} cores${browser?.concurrency ? " (browser.concurrency)" : ""}`,
@@ -133,7 +134,6 @@ export async function doctorCommand(opts: {
     );
   });
 
-  // The project.
   if (!opts.configFile)
     add(
       "warn",

@@ -30,13 +30,14 @@ export type Verdict =
 export interface Cause {
   /**
    * `lost`: a rule that differs between the sides set these on base and
-   * no longer does. `won`: one now sets them on head. `shifted`: the
+   * no longer does. `won`: one now sets them on head. `edited`: the same
+   * rule wins on both sides, with other values. `shifted`: the
    * winners differ but neither rule changed (the cascade moved around
    * them). `value`: no winners known (run with `explain`). `token`:
    * no value changed, but what drives it did (see `Card.tokens`).
    */
-  kind: "lost" | "won" | "shifted" | "value" | "token";
-  /** The rule that changed, for `lost` and `won`. */
+  kind: "lost" | "won" | "edited" | "shifted" | "value" | "token";
+  /** The rule that changed, for `lost`, `won` and `edited`. */
   rule?: Winner;
   /** The winners on each side, when they're the same for every element. */
   base?: Winner | null;
@@ -82,13 +83,15 @@ export interface Card {
   /** Stable across runs: the cause and the properties it moved. */
   id: string;
   verdict: Verdict;
-  /** Why no one can see it, for an invisible card. */
+  /** Why no one can see it, for an invisible card: its reasons, most common first. */
   invisible?: string;
   title: string;
   cause: Cause;
   changes: CardChange[];
   /** Elements, first page first. */
   elements: CardElement[];
+  /** Elements per selector, when the cause's rule matched through several. */
+  selectors?: Record<string, number>;
   pages: string[];
   pixels?: { differ: number; same: number; imperceptible: number };
   deltaE?: DeltaE;
@@ -196,8 +199,9 @@ export const loc = (w: Winner) => `${w.sheet}${w.line ? `:${w.line}` : ""}`;
 /** `selector (sheet:line, inherited)`. */
 export const where = (w: Winner) =>
   `${w.selector} (${loc(w)}${w.inherited ? ", inherited" : ""})`;
+// A rule is one cause whichever of its selectors matched.
 const winnerKey = (w: Winner | null | undefined) =>
-  w ? `${w.selector}@${w.sheet}${w.inherited ? "^" : ""}` : "none";
+  w ? `${w.list ?? w.selector}@${w.sheet}${w.inherited ? "^" : ""}` : "none";
 const list = (items: string[], max = 4) =>
   items.slice(0, max).join(", ") +
   (items.length > max ? ` and ${items.length - max} more` : "");
@@ -205,7 +209,10 @@ const list = (items: string[], max = 4) =>
 interface Slot {
   key: string;
   cause: Cause;
-  invisible?: string;
+  /** Invisible changes' reasons, counted. */
+  reasons?: Map<string, number>;
+  /** Elements per selector of the cause's rule that matched them. */
+  selectors: Map<string, number>;
   commits: Map<string, string>;
   changes: Map<string, CardChange>;
   elements: Map<string, CardElement>;
@@ -249,7 +256,7 @@ export function buildCards(
       slot = {
         key,
         cause,
-        ...(invisible && { invisible }),
+        selectors: new Map(),
         commits: new Map(),
         changes: new Map(),
         elements: new Map(),
@@ -257,6 +264,10 @@ export function buildCards(
         heads: new Set(),
       };
       slots.set(key, slot);
+    }
+    if (invisible) {
+      slot.reasons ??= new Map();
+      slot.reasons.set(invisible, (slot.reasons.get(invisible) ?? 0) + 1);
     }
     for (const commit of run.commits ?? [])
       slot.commits.set(commit.sha, commit.subject);
@@ -306,6 +317,9 @@ export function buildCards(
         ...(w?.html && { html: w.html }),
         ...(w?.ancestors && { ancestors: w.ancestors }),
       };
+      const s = cause.rule?.selector;
+      if (s !== undefined)
+        slot.selectors.set(s, (slot.selectors.get(s) ?? 0) + 1);
       slot.elements.set(elKey, el);
     }
     if (!el.properties.includes(c.property)) el.properties.push(c.property);
@@ -316,7 +330,10 @@ export function buildCards(
         const explained = page.explain?.[path] ?? {};
         const own = (property: string): Cause | undefined => {
           const e = explained[property];
-          if (e?.base?.changed) return { kind: "lost", rule: e.base };
+          if (e?.base?.changed)
+            return e.head?.changed && winnerKey(e.base) === winnerKey(e.head)
+              ? { kind: "edited", rule: e.head }
+              : { kind: "lost", rule: e.base };
           if (e?.head?.changed) return { kind: "won", rule: e.head };
           return undefined;
         };
@@ -341,7 +358,8 @@ export function buildCards(
               : cause.kind === "shifted"
                 ? `${winnerKey(cause.base)}>${winnerKey(cause.head)}`
                 : `${c.property}:${c.before}>${c.after}`,
-            invisible ?? "",
+            // One invisible card per cause, whatever hides each element.
+            invisible ? "invisible" : "",
           ].join("|");
           add(run, page, path, c, cause, key, invisible, e);
         }
@@ -423,10 +441,16 @@ function toCard(slot: Slot): Card {
         mean: deltas.reduce((n, d) => n + d.mean, 0) / deltas.length,
       }
     : undefined;
+  const invisible =
+    slot.reasons &&
+    [...slot.reasons]
+      .sort((a, b) => b[1] - a[1])
+      .map(([why]) => why)
+      .join("; ");
   // A detached token is a broken contract even where it's hidden now.
   const verdict: Verdict = slot.tokens?.detached
     ? "token-detached"
-    : slot.invisible
+    : invisible
       ? "invisible"
       : slot.cause.kind === "token" ||
           (pixels &&
@@ -440,32 +464,49 @@ function toCard(slot: Slot): Card {
     slot[side].size === 1 ? [...slot[side]][0] : undefined;
   const props = list(properties);
   const rule = cause.rule;
+  // A rule matched through several of its selectors is named by them all.
+  const named =
+    slot.selectors.size > 1
+      ? [...slot.selectors.keys()].join(", ")
+      : rule?.selector;
   const target = rule && {
     ...(rule.sheet && { file: rule.sheet }),
     ...(rule.line && { line: rule.line }),
     selector: rule.selector,
   };
+  const restore = () => {
+    const add: Record<string, string> = {};
+    for (const c of changes) add[c.property] ??= c.before;
+    const values = Object.entries(add)
+      .map(([p, v]) => `${p}: ${v}`)
+      .join("; ");
+    return { add, values };
+  };
   let title: string;
   let fix: Fix | undefined;
   if (cause.kind === "lost" && rule) {
     const instead = other("heads");
-    title = `\`${rule.selector}\` (${loc(rule)}) no longer sets ${props}${instead ? (instead === "none" ? "; nothing does now" : `; \`${instead.split("@")[0]}\` wins instead`) : ""}`;
-    const add: Record<string, string> = {};
-    for (const c of changes) add[c.property] ??= c.before;
+    const { add, values } = restore();
+    title = `\`${named}\` (${loc(rule)}) no longer sets ${props}${instead ? (instead === "none" ? "; nothing does now" : `; \`${instead.split("@")[0]}\` wins instead`) : ""}`;
     fix = {
-      text: `\`${rule.selector}\` (${loc(rule)}) set ${props} on these elements and no longer applies. If that's not intended, restore it for them: ${Object.entries(
-        add,
-      )
-        .map(([p, v]) => `${p}: ${v}`)
-        .join("; ")}.`,
+      text: `\`${named}\` (${loc(rule)}) set ${props} on these elements and no longer applies. If that's not intended, restore it for them: ${values}.`,
+      ...target,
+      add,
+    };
+  } else if (cause.kind === "edited" && rule) {
+    const one = changes.length === 1 && changes[0];
+    const { add, values } = restore();
+    title = `\`${named}\` (${loc(rule)}) changes ${one ? `${one.property} from ${one.before} to ${one.after}` : props}`;
+    fix = {
+      text: `\`${named}\` (${loc(rule)}) now gives ${props} other values. If that's not intended, restore them: ${values}.`,
       ...target,
       add,
     };
   } else if (cause.kind === "won" && rule) {
     const over = other("bases");
-    title = `\`${rule.selector}\` (${loc(rule)}) now sets ${props}${over && over !== "none" ? ` over \`${over.split("@")[0]}\`` : ""}`;
+    title = `\`${named}\` (${loc(rule)}) now sets ${props}${over && over !== "none" ? ` over \`${over.split("@")[0]}\`` : ""}`;
     fix = {
-      text: `\`${rule.selector}\` now wins ${props} on these elements. If it shouldn't, narrow its selector or lower its specificity below what won before.`,
+      text: `\`${named}\` now wins ${props} on these elements. If it shouldn't, narrow its selector or lower its specificity below what won before.`,
       ...target,
     };
   } else if (cause.kind === "token" && slot.tokens) {
@@ -484,11 +525,14 @@ function toCard(slot: Slot): Card {
     .slice(0, 3)
     .map((c) => `${c.property} ${c.before} -> ${c.after}`)
     .join("; ");
-  const alt = `${elements.length} element(s) on ${list(pages, 3)}: ${shown}${changes.length > 3 ? `; and ${changes.length - 3} more change(s)` : ""}${slot.invisible ? ` (invisible: ${slot.invisible})` : ""}${pixels ? `; pixels differ on ${pixels.differ} of ${checked.length}` : ""}${deltaE ? `, CIEDE2000 up to ${deltaE.max.toFixed(1)} (mean ${deltaE.mean.toFixed(1)})` : ""}.`;
+  const alt = `${elements.length} element(s) on ${list(pages, 3)}: ${shown}${changes.length > 3 ? `; and ${changes.length - 3} more change(s)` : ""}${invisible ? ` (invisible: ${invisible})` : ""}${pixels ? `; pixels differ on ${pixels.differ} of ${checked.length}` : ""}${deltaE ? `, CIEDE2000 up to ${deltaE.max.toFixed(1)} (mean ${deltaE.mean.toFixed(1)})` : ""}.`;
   return {
     id,
     verdict,
-    ...(slot.invisible && { invisible: slot.invisible }),
+    ...(invisible && { invisible }),
+    ...(slot.selectors.size > 1 && {
+      selectors: Object.fromEntries(slot.selectors),
+    }),
     title,
     cause,
     changes,

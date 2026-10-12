@@ -2,13 +2,17 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 
 const HEAD_OPEN_RE = /<head[^>]*>/i;
+/** The query parameter that asks a swapping server for its `alt` sheet. */
+export const ALT_PARAM = "cr-sheet";
 
 export interface ServeOptions {
   /**
    * Serves `css` in place of the library stylesheet: of the `.css` files
-   * under `dir`, the largest that contains `marker`, replaced whole.
+   * under `dir`, the largest that contains `marker`, replaced whole. With
+   * `alt`, the same path with `?cr-sheet=alt` serves `alt` instead, so a
+   * page can switch sheets without reloading.
    */
-  swap?: { marker: string; css: string };
+  swap?: { marker: string; css: string; alt?: string };
 }
 
 function cssFiles(dir: string, at = ""): string[] {
@@ -43,8 +47,8 @@ export function serveFixtures(
   options: ServeOptions = {},
 ): { url: string; stop: () => void } {
   const swapped = options.swap && {
+    ...options.swap,
     path: `/${swappedSheet(dir, options.swap.marker).split(path.sep).join("/")}`,
-    css: options.swap.css,
   };
   const server = Bun.serve({
     port: 0,
@@ -52,9 +56,14 @@ export function serveFixtures(
       const u = new URL(req.url);
       const pathname = decodeURIComponent(u.pathname);
       if (pathname === swapped?.path)
-        return new Response(swapped.css, {
-          headers: { "content-type": "text/css" },
-        });
+        return new Response(
+          swapped.alt !== undefined && u.searchParams.get(ALT_PARAM) === "alt"
+            ? swapped.alt
+            : swapped.css,
+          {
+            headers: { "content-type": "text/css" },
+          },
+        );
       const file = Bun.file(path.join(dir, pathname));
       if (!(await file.exists()))
         return new Response("not found", { status: 404 });

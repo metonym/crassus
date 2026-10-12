@@ -102,13 +102,13 @@ Only the maintainer releases. `feat:`/`fix:` commits land first, each with its `
 | `sourcemap-size.ts` | Source-map attribution and the minified-size line |
 | `snapshot.ts` | `capture` against `e2e/cascade-snapshot.ts`, and WebKit against Chrome |
 | `usage.ts` | `runUsage` (CDP and `dom`) against `e2e/cascade-usage.ts` |
-| `tokens.ts` | Token tracing on the audit's cases with `--visual` off: the TooltipDefinition regression is a token-detached card; tracing's cost against the same compare |
+| `tokens.ts` | Token tracing on the eval's stylesheet changes with `--visual` off: the TooltipDefinition regression is a token-detached card; tracing's cost against the same compare |
 | `coverage.ts` | `crassus coverage` against `crassus usage`: covered declarations won somewhere, unmatched ones never matched |
-| `flips.ts` | `diff --confirm` on the audit's segments: flips never seen, unchanged, confirmed; those confirmed on a fixture against `compare` |
+| `flips.ts` | `diff --confirm` on the 25 runs of refactor commits: flips never seen, unchanged, confirmed; those confirmed on a fixture against `compare` |
 | `states.ts` | Forced states three ways (CDP forcing every state, CDP with the state selector index, selector rewriting): records against the first, state-phase time and CDP calls |
-| `cards.ts` | Change cards on the audit's three findings: the TooltipDefinition regression and #3839's nested cells each one card, the flattening's only on the consumer-override fixture |
-| `visual.ts` | `compare --visual` against a plain `compare`: its cost, pixels that differ, ΔE and invisible changes by reason, on the audit's cases |
-| `scope.ts` | `compare` reading only what each change reaches against reading everything, on the Oct 2026 audit's 25 segments and the golden cases: identical results, and both timed |
+| `cards.ts` | Change cards on three known changes: the TooltipDefinition regression and #3839's nested cells each one card, the flattening's only on the consumer-override fixture |
+| `visual.ts` | `compare --visual` against a plain `compare`: its cost, pixels that differ, ΔE and invisible changes by reason, on the eval's stylesheet changes |
+| `scope.ts` | `compare` reading only what each change reaches against reading everything, on 25 runs of CSS refactor commits (`2d710c03e..97164eeec`) and the golden cases: identical results, and both timed |
 | `selector-stats.ts` | The selector-stats harness (`selector-stats-harness.ts`) against `e2e/selector-stats.ts`. A measurement spike, not a feature: selector cost isn't a cascade claim, so it won't ship in `src/` (README, "Limitations") |
 
 carbon-components-svelte has since moved onto crassus and deleted the tooling it replaced, so the comparisons against it need a checkout from before the migration. `96ed27f02` is the parent of the migration commit:

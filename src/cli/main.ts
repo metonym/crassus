@@ -15,12 +15,12 @@ import {
 } from "./browser";
 import {
   approveCommand,
-  DEFAULT_REPORT,
   explainCommand,
   reduceCommand,
   reproCommand,
   verifyCommand,
 } from "./card-commands";
+import { DEFAULT_DIR } from "./cards";
 import { runDead, runDiff } from "./commands";
 import { FixCheckError, fix } from "./fix";
 import {
@@ -142,7 +142,7 @@ Browser options (capture, compare, bisect, usage; override the config's \`browse
   --report <dir>     compare, bisect: write change cards (report.json,
                      index.html, report.md, crops) to this directory, with
                      --explain and --visual; explain, repro, verify: read it
-                     (default ${DEFAULT_REPORT})
+                     (default ${DEFAULT_DIR})
   --url <base>       use a running server instead of building and serving
   --out <dir>        usage: output directory (default .crassus/usage)
   -h, --help         show this help
@@ -400,6 +400,7 @@ async function run(argv: string[], io: Io): Promise<number> {
         config,
         flags,
         cwd,
+        io,
       });
     await summary?.(`crassus diff against ${base.ref}`, () =>
       formatDiff(results, base, "human", verbose),

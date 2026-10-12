@@ -10,7 +10,9 @@ import type { Crops } from "../browser/compare";
 import {
   type Approvals,
   blocking,
+  buildReport,
   type Card,
+  loc,
   type Report,
 } from "../core/cards";
 
@@ -31,7 +33,6 @@ export async function readApprovals(
   return (await file.exists()) ? ((await file.json()) as Approvals) : undefined;
 }
 
-/** Elements per card written with images. */
 const IMAGES_PER_CARD = 3;
 const CONTEXT_LINES = 2;
 
@@ -181,20 +182,35 @@ export async function writeReport(
 /** One line per verdict, then one per card: what CI logs and agents read first. */
 export function formatCardsSummary(report: Report, dir?: string): string {
   const { approved } = report.summary;
-  const open = blocking(report.cards).length;
+  const open = blocking(report.cards);
   const lines = [
-    `${counts(report.summary)} change card(s)${approved ? `; ${approved} approved, ${open} visible card(s) not` : ""}${dir ? ` (report: ${dir})` : ""}`,
+    `${counts(report.summary)} change card(s)${approved ? `; ${approved} approved, ${open.length} visible card(s) not` : ""}${dir ? ` (report: ${dir})` : ""}`,
   ];
   for (const c of report.cards)
     lines.push(
       `  ${c.id}  ${(c.approved ? `approved ${c.verdict}` : label(c)).padEnd(12)}  ${c.title}  [${c.elements.length} element(s), ${c.pages.length} page(s)]`,
     );
-  if (open)
-    lines.push(
-      `Intended? crassus approve ${blocking(report.cards)
-        .map((c) => c.id)
-        .join(" ")}`,
-    );
+  if (open.length)
+    lines.push(`Intended? crassus approve ${open.map((c) => c.id).join(" ")}`);
+  return lines.join("\n");
+}
+
+/**
+ * The cards of a run without `--report`, built from the values alone (no
+ * winners): their counts, then the visible and token-detached ones. Only a
+ * token card's id is shown: the others' come from their causes, which
+ * `--report` finds.
+ */
+export function formatCardsBrief(cards: Card[]): string {
+  const { summary } = buildReport("compare", "", "", cards);
+  const lines = [
+    `${counts(summary)} change card(s) (--report for their causes, images and ids to approve)`,
+  ];
+  for (const c of cards)
+    if (c.verdict === "visible" || c.verdict === "token-detached")
+      lines.push(
+        `  ${(c.cause.kind === "token" ? c.id : "").padEnd(10)}  ${label(c).padEnd(12)}  ${c.title}  [${c.elements.length} element(s), ${c.pages.length} page(s)]`,
+      );
   return lines.join("\n");
 }
 
@@ -213,7 +229,7 @@ const shownElement = (card: Card) =>
   card.elements[0];
 
 /** One card as Markdown: what `crassus explain <id>` prints. */
-export function formatCard(card: Card, images = true): string {
+export function formatCard(card: Card): string {
   const lines = [
     `### ${label(card)}: ${card.title}`,
     "",
@@ -235,11 +251,11 @@ export function formatCard(card: Card, images = true): string {
       "",
       `Came in with ${card.commits.map((c) => `\`${c.sha.slice(0, 9)}\` ${c.subject}`).join("; ")}.`,
     );
-  const shown = shownElement(card);
-  if (images && shown.images)
+  const el = shownElement(card);
+  if (el.images)
     lines.push(
       "",
-      `| base | head | differs |\n|:--|:--|:--|\n| ![base](${shown.images.base}) | ![head](${shown.images.head}) | ![diff](${shown.images.diff}) |`,
+      `| base | head | differs |\n|:--|:--|:--|\n| ![base](${el.images.base}) | ![head](${el.images.head}) | ![diff](${el.images.diff}) |`,
     );
   lines.push(
     "",
@@ -254,7 +270,6 @@ export function formatCard(card: Card, images = true): string {
   );
   if (card.changes.length > 12)
     lines.push(`- and ${card.changes.length - 12} more`);
-  const el = shownElement(card);
   lines.push(
     "",
     "**Where**",
@@ -267,7 +282,14 @@ export function formatCard(card: Card, images = true): string {
   const rule = card.cause.rule;
   if (rule)
     lines.push(
-      `${card.cause.kind === "lost" ? "Lost on head" : "Won on head"}: \`${rule.selector}\` at ${rule.sheet}${rule.line ? `:${rule.line}` : ""}${card.source?.github ? ` ([source](${card.source.github}))` : ""}`,
+      `${card.cause.kind === "lost" ? "Lost on head" : card.cause.kind === "edited" ? "Edited on head" : "Won on head"}: \`${rule.list ?? rule.selector}\` at ${loc(rule)}${card.source?.github ? ` ([source](${card.source.github}))` : ""}`,
+      ...(card.selectors
+        ? [
+            `Elements by selector: ${Object.entries(card.selectors)
+              .map(([s, n]) => `\`${s}\` ${n}`)
+              .join(", ")}`,
+          ]
+        : []),
     );
   else if (card.cause.kind === "shifted")
     lines.push(
@@ -492,7 +514,7 @@ function show() {
   html += "<h3>Where</h3><p><code>" + esc(el.selector || el.path) + '</code> on ' + esc(el.page) + '</p><p class="mute">' + esc(el.path) + "</p>";
   if (el.html) html += "<pre>" + esc(el.html.length > 1200 ? el.html.slice(0, 1200) + "…" : el.html) + "</pre>";
   html += "<h3>Why</h3>";
-  if (rule) html += "<p>" + (c.cause.kind === "lost" ? "No longer applies on head: " : "Now wins on head: ") + "<code>" + esc(rule.selector) + "</code> at " +
+  if (rule) html += "<p>" + (c.cause.kind === "lost" ? "No longer applies on head: " : c.cause.kind === "edited" ? "Edited on head: " : "Now wins on head: ") + "<code>" + esc(rule.list || rule.selector) + "</code> at " +
     (c.source && c.source.vscode ? '<a href="' + esc(c.source.vscode) + '">' : "") + esc(rule.sheet + (rule.line ? ":" + rule.line : "")) + (c.source && c.source.vscode ? "</a>" : "") +
     (c.source && c.source.github ? ' · <a href="' + esc(c.source.github) + '">GitHub</a>' : "") + "</p>";
   else if (c.cause.kind === "shifted") html += "<p>The winner moved: <code>" + esc(c.cause.base ? c.cause.base.selector : "no declaration") + "</code> → <code>" + esc(c.cause.head ? c.cause.head.selector : "no declaration") + "</code></p>";

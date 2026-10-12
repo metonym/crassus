@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { $ } from "bun";
 import { readSnapshot, type UsageFile } from "crassus/browser";
 import { type BisectResult, found, segments } from "../src/cli/bisect";
+import { settings, throttled } from "../src/cli/browser";
 import { main } from "../src/cli/main";
 import { appendSummary } from "../src/cli/report";
 
@@ -24,13 +25,20 @@ async function project(files: Record<string, string>): Promise<string> {
   return root;
 }
 
+// The machine's own load can hold tabs back mid-test: not what's tested.
+const BUSY_RE =
+  /^crassus: load average .* running on one tab until it settles$/;
+const ONE_TAB_SUFFIX_RE = / \([\d.]+ s on one tab: load above \d+ cores\)/g;
+
 async function cli(cwd: string, ...argv: string[]) {
   const out: string[] = [];
   const err: string[] = [];
   const code = await main(argv, {
     cwd,
     out: (t) => out.push(t),
-    err: (t) => err.push(t),
+    err: (t) => {
+      if (!BUSY_RE.test(t)) err.push(t.replace(ONE_TAB_SUFFIX_RE, ""));
+    },
   });
   return { code, out: out.join("\n"), err: err.join("\n") };
 }
@@ -166,6 +174,24 @@ describe("crassus dead", () => {
   });
 });
 
+describe("load backoff", () => {
+  it("says so once a run, and puts the time on one tab on the summary", () => {
+    const err: string[] = [];
+    const io = { cwd: "/", out: () => {}, err: (t: string) => err.push(t) };
+    const { pages, throttle } = settings(
+      { browser: { fixtures: "site" } },
+      {},
+      io,
+    );
+    expect(throttled(throttle)).toBe("");
+    for (const load of [8.4, 8.9]) pages.onBusy?.({ load, cores: 8, ms: 2000 });
+    expect(err).toEqual([
+      "crassus: load average 8.4 is above 8 cores: running on one tab until it settles",
+    ]);
+    expect(throttled(throttle)).toBe(" (4.0 s on one tab: load above 8 cores)");
+  });
+});
+
 describe("usage errors exit 2", () => {
   it.each([
     [["nope"], "unknown command"],
@@ -179,6 +205,36 @@ describe("usage errors exit 2", () => {
     const r = await cli(root, ...argv);
     expect(r.code).toBe(2);
     expect(r.err).toContain(message);
+  });
+
+  it("compiles only the entries asked for", async () => {
+    // Another entry doesn't build (at an older ref, say).
+    const root = await project({
+      "crassus.config.ts": `export default {
+        compile: (root, o) => {
+          if (!o?.entries) throw new Error("Can't find stylesheet to import.");
+          return Object.fromEntries(o.entries.map((e) => [e, { css: ".a{color:red}" }]));
+        },
+      };`,
+    });
+    const r = await cli(root, "dead", "--entry", "all");
+    expect(r.err).toBe("");
+    expect(r.code).toBe(0);
+  });
+
+  it("cuts a compile error to one line", async () => {
+    const root = await project({
+      "crassus.config.ts": `export default {
+        compile: () => {
+          throw new Error("Can't find stylesheet to import.\\n  ╷\\n3 │ @import 'vendor/a';\\n  ╵\\n  css/all.scss 3:9  root stylesheet");
+        },
+      };`,
+    });
+    const r = await cli(root, "dead");
+    expect(r.code).toBe(2);
+    expect(r.err.trim()).toBe(
+      "crassus: compile failed: Can't find stylesheet to import. (css/all.scss 3:9  root stylesheet)",
+    );
   });
 
   it("names the entries there are", async () => {
@@ -501,6 +557,8 @@ describe("crassus dead --fix", () => {
 
 const RECOLOR_FINDING_RE = /== \w+\.\.\w+ {2}\w+ perf: recolor/;
 const SEGMENT_FINDING_RE = /== \w+\.\.\w+ {2}3 commits \(perf\)/;
+const TOKEN_CARD_RE =
+  /\n {2}[0-9a-z]{6,10} {2}token-detached \(--x-text\) {2}color no longer follows --x-text {2}\[1 element\(s\), 1 page\(s\)\]/;
 const EXAMPLE_SELECTOR_RE =
   /e\.g\. button\.g100\.1280x900\.json\.gz {2}body>\S+\n {10}.*body > \w+:nth-child\(\d+\)/;
 const SYSTEM_ERROR_RE = /^crassus: E[A-Z]+: /;
@@ -692,24 +750,27 @@ describe("crassus capture, snapshot-diff and usage", () => {
     ]);
   }, 60_000);
 
+  const SITE_CONFIG = `export default {
+    css: "site/lib.css",
+    browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
+  };`;
+  const CARDS_LIB =
+    ".a { color: red; }\n.a .b { color: blue; }\n.c { color: green; }\n";
+  // Head drops the rule that colored .b: it inherits red.
+  const CARDS_HEAD = CARDS_LIB.replace(".a .b { color: blue; }\n", "");
+
   it("writes change cards, and explains, reproduces and verifies one", async () => {
-    const LIB =
-      ".a { color: red; }\n.a .b { color: blue; }\n.c { color: green; }\n";
     const root = await project({
-      "crassus.config.ts": `export default {
-        css: "site/lib.css",
-        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
-      };`,
-      "site/lib.css": LIB,
-      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a <span class="b">bbbbbb</span></div></body></html>`,
-      "site/c.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><p class="c">c</p></body></html>`,
+      "crassus.config.ts": SITE_CONFIG,
+      "site/lib.css": CARDS_LIB,
+      // A framework's empty anchor, left out of the card's markup.
+      "site/a.html": libPage(
+        `<div class="a">a <span class="b">bbb<!---->bbb</span></div>`,
+      ),
+      "site/c.html": libPage(`<p class="c">c</p>`),
     });
     await commitAll(root);
-    // Head drops the rule that colored .b: it inherits red.
-    await Bun.write(
-      join(root, "site/lib.css"),
-      LIB.replace(".a .b { color: blue; }\n", ""),
-    );
+    await Bun.write(join(root, "site/lib.css"), CARDS_HEAD);
     const r = await cli(root, "compare", "--no-states", "--report", "out");
     expect(r.code).toBe(1);
     expect(r.out).toContain(
@@ -791,16 +852,13 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(still.out).toContain(
       "color: still differs, rgb(0, 0, 255) -> rgb(255, 0, 0) on 1",
     );
-    await Bun.write(join(root, "site/lib.css"), LIB);
+    await Bun.write(join(root, "site/lib.css"), CARDS_LIB);
     const fixed = await cli(root, "verify", card.id, "--report", "out");
     expect(fixed.out).toContain(`crassus: ${card.id} is resolved`);
     expect(fixed.code).toBe(0);
 
     // The same cards as Markdown and SARIF, without a directory.
-    await Bun.write(
-      join(root, "site/lib.css"),
-      LIB.replace(".a .b { color: blue; }\n", ""),
-    );
+    await Bun.write(join(root, "site/lib.css"), CARDS_HEAD);
     const md = await cli(
       root,
       "compare",
@@ -829,19 +887,16 @@ describe("crassus capture, snapshot-diff and usage", () => {
   }, 120_000);
 
   it("fails only on visible changes crassus.approved.json doesn't approve", async () => {
-    const LIB =
-      ".a { color: red; }\n.a .b { color: blue; }\n.c { color: green; }\n";
     const root = await project({
-      "crassus.config.ts": `export default {
-        css: "site/lib.css",
-        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
-      };`,
-      "site/lib.css": LIB,
-      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a <span class="b">bbbbbb</span></div><p class="c">c</p></body></html>`,
+      "crassus.config.ts": SITE_CONFIG,
+      "site/lib.css": CARDS_LIB,
+      "site/a.html": libPage(
+        `<div class="a">a <span class="b">bbbbbb</span></div><p class="c">c</p>`,
+      ),
     });
     await commitAll(root);
     const head = (css: string) => Bun.write(join(root, "site/lib.css"), css);
-    const intended = LIB.replace(".a .b { color: blue; }\n", "");
+    const intended = CARDS_HEAD;
     await head(intended);
     const flags = ["--no-states"];
     const first = await cli(root, "compare", ...flags, "--report", "out");
@@ -875,6 +930,12 @@ describe("crassus capture, snapshot-diff and usage", () => {
     const passed = await cli(root, "compare", ...flags);
     expect(passed.out).toContain("1 approved, 0 visible card(s) not");
     expect(passed.code).toBe(0);
+    // --json stays one document, with the cards' counts in it.
+    const json = await cli(root, "compare", ...flags, "--json");
+    expect(JSON.parse(json.out).cards).toMatchObject({
+      summary: { approved: 1 },
+      failing: [],
+    });
     // A new card fails.
     await head(intended.replace("color: green", "color: purple"));
     expect((await cli(root, "compare", ...flags)).code).toBe(1);
@@ -898,23 +959,55 @@ describe("crassus capture, snapshot-diff and usage", () => {
   it("traces design tokens: compare fails where a property stops following one, and tokens reports who uses them", async () => {
     const TOKENS =
       ":root { --x-text: #222; --x-gap: 6px; --x-font: Georgia, serif; --x-unused: #f00; }\n";
-    const LIB = `${TOKENS}.a { color: var(--x-text); padding: var(--x-gap); font-family: var(--x-font); }\n.b { color: #0a0a0a; }\n`;
+    // .sr is screen-reader-only: its color is no finding.
+    const LIB = `${TOKENS}.a { color: var(--x-text); padding: var(--x-gap); font-family: var(--x-font); }\n.b { color: #0a0a0a; }\n.sr { position: absolute; clip: rect(0 0 0 0); color: #0c0c0c; }\n`;
     const root = await project({
       "crassus.config.ts": `export default {
         browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0, tokens: "--x-" },
       };`,
       "site/lib.css": LIB,
-      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a</div><p class="b">b</p></body></html>`,
+      "site/a.html": libPage(
+        `<div class="a">a</div><p class="b">b <i>i</i></p><span class="sr">s</span><button>u</button>`,
+      ),
     });
     const flags = ["--no-states"];
     const tokens = await cli(root, "tokens", ...flags);
+    expect(tokens.out).not.toContain("rgb(12, 12, 12)");
     expect(tokens.code).toBe(0);
     expect(tokens.out).toContain("4 --x-* token(s) traced over 1 page");
     expect(tokens.out).toContain("--x-text  1 element(s) on 1 page(s): ");
     expect(tokens.out).toContain("Unused on the fixtures: --x-unused");
+    // Where the rule sets it, not again on what inherits it (the <i>).
     expect(tokens.out).toContain("1×  color: rgb(10, 10, 10)");
     const json = JSON.parse(
       (await cli(root, "tokens", ...flags, "--json")).out,
+    );
+    // The button's color is the user agent's: listed apart.
+    type Use = {
+      property: string;
+      value: string;
+      examples: { path: string }[];
+    };
+    const black = (l: Use[]) =>
+      l.find((h) => h.property === "color" && h.value === "rgb(0, 0, 0)");
+    expect(black(json.hardCoded)).toBeUndefined();
+    expect(black(json.uaDefaults)?.examples.map((e) => e.path)).toContain(
+      "body>button",
+    );
+    expect(tokens.out).toContain("User agent defaults:");
+    // What each list leaves out adds up: the <i> inherits .b's color, and
+    // no one sees .sr.
+    expect(json.hardCoded[0]).toMatchObject({
+      value: "rgb(10, 10, 10)",
+      count: 1,
+      omitted: { invisible: 0, inherited: 1 },
+    });
+    expect(json.omitted.hardCoded).toEqual({ invisible: 1, inherited: 1 });
+    expect(tokens.out).toContain(
+      "1×  color: rgb(10, 10, 10) (+1 inherited with the same value, counted where it's set)",
+    );
+    expect(tokens.out).toContain(
+      "(left out of this list: +1 on elements no one can see; +1 inherited with the same value, counted where it's set)",
     );
     expect(json.used["--x-gap"].properties).toMatchObject({ "padding-top": 1 });
     expect(json.used["--x-font"].properties).toMatchObject({
@@ -942,7 +1035,15 @@ describe("crassus capture, snapshot-diff and usage", () => {
     expect(traced.out).toContain(
       "1 element(s) whose properties stopped following a design token with no change in value",
     );
-    expect(traced.out).toContain("color: --x-text -> none (rgb(34, 34, 34))");
+    // One line per detachment, with its count, as style changes read.
+    expect(traced.out).toContain(
+      "1×  color: --x-text -> none (rgb(34, 34, 34))",
+    );
+    // The cards' counts without --report, with the token card's id.
+    expect(traced.out).toContain(
+      "1 token-detached, 0 visible, 0 imperceptible, 0 invisible change card(s) (--report for",
+    );
+    expect(traced.out).toMatch(TOKEN_CARD_RE);
     const md = await cli(
       root,
       "compare",
@@ -992,7 +1093,9 @@ describe("crassus capture, snapshot-diff and usage", () => {
         browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
       };`,
       "site/lib.css": BASE,
-      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a <span class="b">b</span></div><p class="c d">c</p></body></html>`,
+      "site/a.html": libPage(
+        `<div class="a">a <span class="b">b</span></div><p class="c d">c</p>`,
+      ),
       "base.css": BASE,
       "head.css": HEAD,
     });
@@ -1046,7 +1149,9 @@ describe("crassus capture, snapshot-diff and usage", () => {
         browser: { fixtures: "site", sheetMarker: ".t", settleMs: 0 },
       };`,
       "site/lib.css": BASE,
-      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a b"><p class="t">x</p></div><div class="z"><p class="t">y</p></div></body></html>`,
+      "site/a.html": libPage(
+        `<div class="a b"><p class="t">x</p></div><div class="z"><p class="t">y</p></div>`,
+      ),
       "base.css": BASE,
       "head.css": BASE.replace(".a .t {", ".a .t.t {"),
     });
@@ -1117,6 +1222,55 @@ describe("crassus capture, snapshot-diff and usage", () => {
         (await cli(root, "snapshot-diff", "snap/a", "snap/b", "--json")).out,
       ).notReady,
     ).toEqual({ base: ["a default"], head: ["a default"] });
+
+    // A fixture known never to get ready: no warning, no failed run.
+    await Bun.write(
+      join(root, "allow.config.ts"),
+      `export default {
+        css: "site/lib.css",
+        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0, readySelector: ".never", readyTimeoutMs: 200, allowNotReady: ["a"] },
+      };`,
+    );
+    const allow = ["--config", "allow.config.ts", "--no-states"];
+    const allowed = await cli(root, "capture", "snap/c", ...allow);
+    expect(allowed.code).toBe(0);
+    expect(allowed.err).not.toContain("never matched");
+    // A rule no element matches: the pages are indexed, none is loaded.
+    await Bun.write(
+      join(root, "base.css"),
+      `${await read(root, "site/lib.css")}.none { color: red; }\n`,
+    );
+    const strict = await cli(
+      root,
+      "compare",
+      "base.css",
+      "site/lib.css",
+      "--no-states",
+    );
+    expect(strict.err).toContain("never matched");
+    expect(strict.code).toBe(1);
+    const lax = await cli(
+      root,
+      "compare",
+      "base.css",
+      "site/lib.css",
+      ...allow,
+    );
+    expect(lax.err).not.toContain("never matched");
+    expect(lax.code).toBe(0);
+
+    // No rule differs: nothing is built or loaded.
+    const same = await cli(
+      root,
+      "compare",
+      "site/lib.css",
+      "site/lib.css",
+      "--no-states",
+    );
+    expect(same.err.trim()).toBe(
+      "crassus: no rule differs between the stylesheets: nothing to compare (no page was loaded, so none was checked for readySelector)",
+    );
+    expect(same.code).toBe(0);
   }, 60_000);
 
   it("coverage tells declarations that decide a value from those that don't", async () => {
@@ -1130,12 +1284,9 @@ describe("crassus capture, snapshot-diff and usage", () => {
       "",
     ].join("\n");
     const root = await project({
-      "crassus.config.ts": `export default {
-        css: "site/lib.css",
-        browser: { fixtures: "site", sheetMarker: ".a", settleMs: 0 },
-      };`,
+      "crassus.config.ts": SITE_CONFIG,
       "site/lib.css": LIB,
-      "site/a.html": `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body><div class="a">a</div><span class="b">b</span></body></html>`,
+      "site/a.html": libPage(`<div class="a">a</div><span class="b">b</span>`),
     });
     const r = await cli(root, "coverage");
     expect(r.code).toBe(0);

@@ -7,6 +7,12 @@ import { readStylesheet, type Sheet } from "./sources";
 /** A mistake in how crassus was called or configured (exit code 2). */
 export class UsageError extends Error {}
 
+/** `file` as the project at `cwd` names it; absolute when it's outside. */
+export function shownPath(cwd: string, file: string): string {
+  const rel = relative(cwd, file);
+  return rel.startsWith("..") ? resolve(cwd, file) : rel || ".";
+}
+
 export const isOneOf = <T extends string>(
   options: readonly T[],
   value: string,
@@ -85,9 +91,50 @@ const compiledSheets = (
     root,
   }));
 
-async function configuredSheets(root: string, config: Config) {
+const ERROR_PREFIX_RE = /^Error: /;
+
+/**
+ * The config's `compile`, its errors cut to a line: the message's first,
+ * and its last (where a compiler like Sass says where it failed).
+ */
+async function compileWith(
+  config: Config & { compile: NonNullable<Config["compile"]> },
+  root: string,
+  options?: { entries?: string[] },
+) {
+  try {
+    return await config.compile(root, options);
+  } catch (e) {
+    if (e instanceof UsageError) throw e;
+    // Paths as the project names them (a base builds in a temporary checkout).
+    const lines = String((e as Error).message ?? e)
+      .replaceAll(`${root}/`, "")
+      .replace(ERROR_PREFIX_RE, "")
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const at = lines.length > 1 ? ` (${lines.at(-1)})` : "";
+    throw new UsageError(`compile failed: ${lines[0] ?? "no message"}${at}`);
+  }
+}
+
+async function configuredSheets(
+  root: string,
+  config: Config,
+  only: string[] = [],
+) {
+  // Only the entries asked for: another may not build at an older ref.
   if (config.compile)
-    return compiledSheets(root, Object.entries(await config.compile(root)));
+    return compiledSheets(
+      root,
+      Object.entries(
+        await compileWith(
+          { ...config, compile: config.compile },
+          root,
+          only.length ? { entries: only } : undefined,
+        ),
+      ),
+    );
   if (!config.css)
     throw new UsageError(
       "no stylesheets: pass CSS files, or add a crassus.config.ts with `css` or `compile`",
@@ -124,7 +171,11 @@ export async function fixStylesheets(
     throw new UsageError(
       `fixEntries names ${extra.join(", ")}, which \`css\` doesn't list`,
     );
-  const compiled = await config.compile(root, { entries: extra });
+  const compiled = await compileWith(
+    { ...config, compile: config.compile },
+    root,
+    { entries: extra },
+  );
   const missing = extra.filter((n) => !compiled[n]);
   if (missing.length > 0)
     throw new UsageError(
@@ -145,7 +196,7 @@ export async function stylesheets(
   config: Config,
   only: string[],
 ): Promise<Sheet[]> {
-  const sheets = await configuredSheets(root, config);
+  const sheets = await configuredSheets(root, config, only);
   if (only.length === 0) return sheets;
   const unknown = only.filter((n) => !sheets.some((s) => s.name === n));
   if (unknown.length > 0)

@@ -3,15 +3,20 @@
 import type { RuleCoverage } from "../browser/coverage";
 import { alignRules, libraryRules } from "../core/align";
 import type { Config } from "../core/config";
+import { defaultComponentOf } from "../core/diff";
 import { locator } from "../core/parse";
 import { SHORTHANDS } from "../core/shorthands";
 import { synthesize, type Tree } from "../core/synth";
+import { pushTo } from "../core/util";
 import {
   type BrowserFlags,
+  EMULATE,
   fixturePages,
-  notReadyLine,
+  needMarker,
   pick,
+  reportNotReady,
   settings,
+  throttled,
 } from "./browser";
 import type { Io } from "./main";
 import { stylesheets, UsageError } from "./project";
@@ -44,8 +49,6 @@ interface DeclarationCoverage {
   example?: string;
 }
 
-const PREFIX_RE = /^[a-z]+--/;
-const ROOT_SPLIT_RE = /__|--/;
 const CLASS_RE = /\.(-?[_a-zA-Z][\w-]*)/;
 
 const html = ([tag, attrs, children]: Tree): string => {
@@ -118,11 +121,8 @@ export async function coverageCommand(opts: {
 }): Promise<number> {
   const { io, flags } = opts;
   const { cwd } = io;
-  const { browser, pages } = settings(opts.config, flags);
-  if (!browser.sheetMarker)
-    throw new UsageError(
-      "coverage needs `browser.sheetMarker`: text only the library stylesheet contains",
-    );
+  const { browser, pages, throttle } = settings(opts.config, flags, io);
+  const marker = needMarker(browser, "coverage");
   if (flags.url)
     throw new UsageError("coverage serves the fixtures: drop --url");
   const sheet = pick(
@@ -135,16 +135,14 @@ export async function coverageCommand(opts: {
     ...pages,
     dir: path,
     fixtures,
-    sheetMarker: browser.sheetMarker,
+    sheetMarker: marker,
     css: sheet.css,
-    emulate: pages.engine === "chrome" ? "cdp" : "cssom",
+    emulate: EMULATE[pages.engine],
     settleMs: browser.settleMs,
   });
   const at = locator(sheet.css);
   const locate = locateIn(sheet);
-  const componentOf =
-    opts.config.componentOf ??
-    ((cls: string) => cls.replace(PREFIX_RE, "").split(ROOT_SPLIT_RE)[0]);
+  const componentOf = opts.config.componentOf ?? defaultComponentOf;
   const decls = declarationCoverage(
     r.rules,
     sheet.css,
@@ -158,25 +156,20 @@ export async function coverageCommand(opts: {
     list.filter((d) => d.status === s).length;
   const by = (key: (d: DeclarationCoverage) => string) => {
     const m = new Map<string, DeclarationCoverage[]>();
-    for (const d of decls) {
-      const k = key(d);
-      m.set(k, [...(m.get(k) ?? []), d]);
-    }
-    return [...m].map(([name, list]) => ({
-      name,
-      total: list.length,
-      covered: count("covered", list),
-      unmatched: count("unmatched", list),
-      nothing: count("decides nothing", list),
-      conditions: count("condition never holds", list),
-    }));
+    for (const d of decls) pushTo(m, key(d), d);
+    return [...m]
+      .map(([name, list]) => ({
+        name,
+        total: list.length,
+        covered: count("covered", list),
+        unmatched: count("unmatched", list),
+        nothing: count("decides nothing", list),
+        conditions: count("condition never holds", list),
+      }))
+      .sort((a, b) => b.total - b.covered - (a.total - a.covered));
   };
-  const files = by((d) => d.file ?? sheet.name).sort(
-    (a, b) => b.total - b.covered - (a.total - a.covered),
-  );
-  const components = by((d) => d.component).sort(
-    (a, b) => b.total - b.covered - (a.total - a.covered),
-  );
+  const files = by((d) => d.file ?? sheet.name);
+  const components = by((d) => d.component);
   const summary = {
     declarations: decls.length,
     covered: count("covered"),
@@ -210,8 +203,9 @@ export async function coverageCommand(opts: {
   const uncovered = decls.filter((d) => d.status !== "covered");
   io.out(
     [
-      `crassus: ${summary.covered} of ${summary.declarations} declarations decide a value the fixtures render: ${pct(summary.covered, summary.declarations)} (${r.pages} page(s), ${seconds(r.ms)}; evidence, bounded by the fixtures, themes, viewports and states run)`,
+      `crassus: ${summary.covered} of ${summary.declarations} declarations decide a value the fixtures render: ${pct(summary.covered, summary.declarations)} (${r.pages} page(s), ${seconds(r.ms)}${throttled(throttle)}; evidence, bounded by the fixtures, themes, viewports and states run)`,
       `  ${summary.unmatched} in rules no fixture element matches; ${summary.decidesNothing} in rules that match, deciding nothing (overridden, or the same as what wins without them); ${summary.conditionNeverHolds} under @media or @supports that never held`,
+      "  Markup the fixtures only show after an interaction (an open menu, a modal) reads as unmatched: it isn't on the page they load.",
       "",
       "Least covered files:",
       ...files.slice(0, 12).map(row),
@@ -228,7 +222,6 @@ export async function coverageCommand(opts: {
         ),
     ].join("\n"),
   );
-  if (r.notReady.length)
-    io.err(notReadyLine(r.notReady, pages.readySelector, "read"));
+  reportNotReady(io, r.notReady, pages, "read");
   return 0;
 }

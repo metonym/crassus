@@ -2,9 +2,10 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import { availableParallelism } from "node:os";
-import { join, relative, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import type { Crops, Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
+import type { TokenReport } from "../browser/tokens";
 import type { UsageFile } from "../browser/usage";
 import {
   type Approvals,
@@ -15,9 +16,11 @@ import {
   type Report,
 } from "../core/cards";
 import type { BrowserConfig, Config } from "../core/config";
+import { changedRules, nothingChanged } from "../core/impact";
 import { atRef, baseStylesheets, cacheDir } from "./baseline";
 import {
   attachSources,
+  formatCardsBrief,
   formatCardsMarkdown,
   formatCardsSarif,
   formatCardsSummary,
@@ -30,6 +33,7 @@ import {
   build,
   filesAsSheets,
   isOneOf,
+  shownPath,
   stylesheets,
   UsageError,
 } from "./project";
@@ -53,10 +57,10 @@ const VIEWPORT_RE = /^(\d+)x(\d+)$/;
 const TRAILING_SLASH_RE = /\/$/;
 const ENGINES = ["chrome", "webkit"] as const;
 const MATCHERS = ["cdp", "dom"] as const;
-const EMULATE = { chrome: "cdp", webkit: "cssom" } as const;
+export const EMULATE = { chrome: "cdp", webkit: "cssom" } as const;
 
 /** Half the cores, at most 4: each tab is a renderer process. */
-const defaultConcurrency = () =>
+export const defaultConcurrency = () =>
   Math.min(4, Math.max(1, Math.floor(availableParallelism() / 2)));
 
 function parseViewport(text: string) {
@@ -66,7 +70,7 @@ function parseViewport(text: string) {
   return { width: Number(m[1]), height: Number(m[2]) };
 }
 
-export function settings(config: Config, flags: BrowserFlags) {
+export function settings(config: Config, flags: BrowserFlags, io?: Io) {
   const { browser } = config;
   if (!browser)
     throw new UsageError(
@@ -83,15 +87,16 @@ export function settings(config: Config, flags: BrowserFlags) {
   const themes = flags.themes
     ? flags.themes.split(",").filter(Boolean)
     : browser.themes;
+  const tokens = flags.tokens ?? browser.tokens;
+  // Told once a run; its time goes on the summary line (`throttled`).
+  const throttle = { ms: 0, cores: 0 };
   return {
+    throttle,
     browser,
     states: !flags.noStates,
     /** Design-token prefix to trace (`compare`, `bisect`, `tokens`). */
     // `cds-` or `--cds-`: the shell can't pass a value that starts with `--`.
-    tokens: (() => {
-      const t = flags.tokens ?? browser.tokens;
-      return t && (t.startsWith("--") ? t : `--${t}`);
-    })(),
+    tokens: tokens && (tokens.startsWith("--") ? tokens : `--${tokens}`),
     /** What `capture` and `runUsage` share. */
     pages: {
       engine,
@@ -107,6 +112,17 @@ export function settings(config: Config, flags: BrowserFlags) {
         : browser.viewports,
       readySelector: browser.readySelector,
       readyTimeoutMs: browser.readyTimeoutMs,
+      allowNotReady: browser.allowNotReady,
+      onBusy:
+        io &&
+        ((w: { load: number; cores: number; ms: number }) => {
+          if (!throttle.ms)
+            io.err(
+              `crassus: load average ${w.load.toFixed(1)} is above ${w.cores} cores: running on one tab until it settles`,
+            );
+          throttle.ms += w.ms;
+          throttle.cores = w.cores;
+        }),
     },
   };
 }
@@ -167,12 +183,29 @@ const pagesLine = (
   viewports: number,
 ) =>
   `${plural(pages, "page")} (${plural(fixtures, "fixture")} × ${plural(themes, "theme")} × ${plural(viewports, "viewport")})`;
-export const notReadyLine = (
-  pages: string[],
-  readySelector: string | undefined,
+
+/** A summary line's note of the time a run spent on one tab, if any. */
+export const throttled = (t: { ms: number; cores: number }) =>
+  t.ms ? ` (${seconds(t.ms)} on one tab: load above ${t.cores} cores)` : "";
+
+/**
+ * Names the pages that never matched `readySelector`, but those of
+ * `allowNotReady` fixtures, on stderr; returns how many it named.
+ */
+export function reportNotReady(
+  io: Io,
+  labels: string[],
+  pages: { readySelector?: string; allowNotReady?: string[] },
   anyway: string,
-) =>
-  `crassus: ${plural(pages.length, "page")} never matched readySelector ${JSON.stringify(readySelector)} (${anyway} anyway): ${pages.join(", ")}`;
+): number {
+  const allowed = new Set(pages.allowNotReady);
+  const late = labels.filter((l) => !allowed.has(l.split(" ")[0]));
+  if (late.length)
+    io.err(
+      `crassus: ${plural(late.length, "page")} never matched readySelector ${JSON.stringify(pages.readySelector)} (${anyway} anyway): ${late.join(", ")}`,
+    );
+  return late.length;
+}
 
 /** The marked stylesheet's replacement, read from `file`. */
 async function swapFrom(
@@ -188,7 +221,7 @@ async function swapFrom(
   return { marker, css: await Bun.file(path).text() };
 }
 
-function needMarker(browser: BrowserConfig, what: string): string {
+export function needMarker(browser: BrowserConfig, what: string): string {
   if (!browser.sheetMarker)
     throw new UsageError(
       `${what} needs \`browser.sheetMarker\`: text only the library stylesheet contains`,
@@ -207,7 +240,7 @@ export async function captureCommand(opts: {
 }): Promise<number> {
   const { flags, io, base } = opts;
   const { cwd } = io;
-  const { browser, states, pages } = settings(opts.config, flags);
+  const { browser, states, pages, throttle } = settings(opts.config, flags, io);
   if (base && flags.url)
     throw new UsageError("--base builds its own fixtures: drop --url");
   if (base && opts.css)
@@ -251,15 +284,11 @@ export async function captureCommand(opts: {
       ? ` with ${opts.css}`
       : "";
   io.out(
-    `crassus: captured ${pagesLine(r.pages, r.fixtures, pages.themes.length, pages.viewports?.length ?? 1)}${at} into ${relative(cwd, outDir) || "."} in ${seconds(r.ms)}`,
+    `crassus: captured ${pagesLine(r.pages, r.fixtures, pages.themes.length, pages.viewports?.length ?? 1)}${at} into ${shownPath(cwd, outDir)} in ${seconds(r.ms)}${throttled(throttle)}`,
   );
-  if (r.notReady.length === 0) return 0;
-  io.err(notReadyLine(r.notReady, pages.readySelector, "captured"));
-  return 1;
+  return reportNotReady(io, r.notReady, pages, "captured") ? 1 : 0;
 }
 
-// Properties one side didn't record, and changes no one can see, are listed
-// for review, not failed on.
 /** Elements or pages on one side only: what cards don't cover. */
 const domDiffers = (diff: SnapshotDiff) =>
   diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
@@ -287,12 +316,10 @@ const detached = (diff: SnapshotDiff) =>
     ),
   );
 
+// Properties one side didn't record, and changes no one can see, are listed
+// for review, not failed on.
 export const differs = (diff: SnapshotDiff) =>
-  detached(diff) ||
-  diff.groups.some((g) => !g.invisible) ||
-  diff.pages.some((p) => p.removed.length > 0 || p.added.length > 0) ||
-  diff.onlyBase.length > 0 ||
-  diff.onlyHead.length > 0;
+  detached(diff) || diff.groups.some((g) => !g.invisible) || domDiffers(diff);
 
 /** `crassus snapshot-diff <baseDir> <headDir>`. Exit 1 when anything differs. */
 export async function snapshotDiffCommand(opts: {
@@ -314,7 +341,7 @@ export async function snapshotDiffCommand(opts: {
   const diff = await diffSnapshots(base, head).catch((e) => {
     if (!(e instanceof IncompleteCaptureError)) throw e;
     throw new UsageError(
-      e.message.replace(e.dir, relative(opts.io.cwd, e.dir) || "."),
+      e.message.replace(e.dir, shownPath(opts.io.cwd, e.dir)),
     );
   });
   await opts.summary?.(`crassus snapshot-diff ${opts.dirs.join(" ")}`, () =>
@@ -325,7 +352,7 @@ export async function snapshotDiffCommand(opts: {
     const pages = diff.notReady?.[side] ?? [];
     if (pages.length)
       opts.io.err(
-        `crassus: ${plural(pages.length, "page")} in ${side} (${relative(opts.io.cwd, side === "base" ? base : head) || "."}) never matched readySelector when captured: ${pages.join(", ")}`,
+        `crassus: ${plural(pages.length, "page")} in ${side} (${shownPath(opts.io.cwd, side === "base" ? base : head)}) never matched readySelector when captured: ${pages.join(", ")}`,
       );
   }
   return differs(diff) ? 1 : 0;
@@ -387,10 +414,14 @@ export function pick<T extends { name: string }>(
 
 /** One line on what a change can reach, before its pages are captured. */
 function impactLine(impact: Impact): string {
+  if (impact.unchanged)
+    return "no rule differs between the stylesheets: nothing to compare (no page was loaded, so none was checked for readySelector)";
   if (impact.everything)
     return `every page and element is read: ${impact.everything}`;
   const index =
-    impact.index === "built" ? "; page index built" : "; page index cached";
+    impact.index === "built"
+      ? `; page index built${impact.indexWhy ? ` (${impact.indexWhy})` : ""}`
+      : "; page index cached";
   return `the changed rules (${plural(impact.selectors, "selector")}) reach ${impact.pages} of ${plural(impact.total, "page")} (${plural(impact.elements, "element")}, with their descendants)${index}`;
 }
 
@@ -405,9 +436,14 @@ export function comparer(opts: {
   scope?: boolean;
   /** Keep what change cards need (markup, crops). */
   report?: boolean;
+  io?: Io;
 }) {
   const { flags, cwd } = opts;
-  const { browser, states, pages, tokens } = settings(opts.config, flags);
+  const { browser, states, pages, tokens, throttle } = settings(
+    opts.config,
+    flags,
+    opts.io,
+  );
   const marker = needMarker(browser, "compare");
   if (flags.url)
     throw new UsageError("compare serves the fixtures twice: drop --url");
@@ -417,6 +453,7 @@ export function comparer(opts: {
   let built: Promise<{ path: string; fixtures: string[] }> | undefined;
   return {
     pages,
+    throttle,
     /** `pages × fixtures × themes × viewports`, for a summary line. */
     describe: (n: number, fixtures: number) =>
       pagesLine(n, fixtures, pages.themes.length, pages.viewports?.length ?? 1),
@@ -426,6 +463,23 @@ export function comparer(opts: {
       /** Only these fixtures (by name). */
       only?: string[],
     ) {
+      // Nothing to load, nor fixtures to build, when no rule differs.
+      if (
+        opts.scope !== false &&
+        nothingChanged(changedRules(sides.base.css, sides.head.css))
+      ) {
+        const impact: Impact = {
+          unchanged: true,
+          total: 0,
+          pages: 0,
+          elements: 0,
+          selectors: 0,
+        };
+        onImpact?.(impact);
+        const { summarizePages } = await import("../browser/snapshot-diff");
+        const result = { ...summarizePages([], [], []), impact };
+        return { result, ms: 0, notReady: [], crops: undefined, fixtures: 0 };
+      }
       built ??= fixturePages(cwd, browser, flags);
       const { path, fixtures: all } = await built;
       const fixtures = only ? all.filter((f) => only.includes(f)) : all;
@@ -483,16 +537,7 @@ export async function compareCommand(opts: {
 }): Promise<number> {
   const { io, files } = opts;
   const { cwd } = io;
-  const approvals = await readApprovals(cwd);
-  // Approvals are by card: they need the winners.
-  const cards = cardsWanted(opts) || Boolean(approvals);
-  const cmp = comparer({
-    ...opts,
-    cwd,
-    explain: opts.explain || cards,
-    visual: opts.visual || Boolean(opts.report),
-    report: Boolean(opts.report),
-  });
+  const { approvals, cards, cmp } = await cardComparer({ ...opts, cwd });
   let baseSha: string | undefined;
   let entry: string | undefined;
   let label: string;
@@ -536,13 +581,18 @@ export async function compareCommand(opts: {
       opts.scope !== false &&
       io.err(`crassus: ${impactLine(impact)}`),
   );
+  const text = (format: "human" | "json") =>
+    formatSnapshotDiff(result, format, "compare");
+  if (result.impact?.unchanged) {
+    if (opts.format !== "human")
+      io.out(cardsOrText(undefined, { ...opts, cwd }, text));
+    return 0;
+  }
   if (opts.format === "human")
     io.err(
-      `crassus: compared ${cmp.describe(result.files, fixtures)} against ${label} in ${seconds(ms)}`,
+      `crassus: compared ${cmp.describe(result.files, fixtures)} against ${label} in ${seconds(ms)}${throttled(cmp.throttle)}`,
     );
-  await opts.summary?.(`crassus compare against ${label}`, () =>
-    formatSnapshotDiff(result, "human", "compare"),
-  );
+  await opts.summary?.(`crassus compare against ${label}`, () => text("human"));
   const report = cards
     ? await changeCards({
         runs: [{ pages: result.pages, crops }],
@@ -564,34 +614,74 @@ export async function compareCommand(opts: {
         },
       })
     : undefined;
-  io.out(
-    report && opts.format !== "human" && opts.format !== "json"
-      ? formatCards(report, opts.format)
-      : formatSnapshotDiff(
-          result,
-          opts.format === "json" ? "json" : "human",
-          "compare",
-        ) +
-          (report
-            ? `\n\n${formatCardsSummary(report, opts.report && (relative(cwd, resolve(cwd, opts.report)) || "."))}`
-            : ""),
-  );
-  if (notReady.length)
-    io.err(notReadyLine(notReady, cmp.pages.readySelector, "compared"));
-  return fails(result, report, approvals) || notReady.length > 0 ? 1 : 0;
+  io.out(cardsOrText(report, { ...opts, cwd }, text));
+  // Without a report, still the cards' counts: what they'd be.
+  if (!report && opts.format === "human")
+    io.out(`\n${formatCardsBrief(buildCards([{ pages: result.pages }]))}`);
+  const late = reportNotReady(io, notReady, cmp.pages, "compared");
+  return fails(result, report, approvals) || late ? 1 : 0;
 }
 
 export const COMPARE_FORMATS = ["human", "json", "markdown", "sarif"] as const;
 export type CompareFormat = (typeof COMPARE_FORMATS)[number];
 
 /** Cards come with `--report`, Markdown and SARIF: they need the winners. */
-export const cardsWanted = (o: { report?: string; format: CompareFormat }) =>
+const cardsWanted = (o: { report?: string; format: CompareFormat }) =>
   Boolean(o.report) || o.format === "markdown" || o.format === "sarif";
 
-export function formatCards(report: Report, format: "markdown" | "sarif") {
-  return format === "markdown"
-    ? formatCardsMarkdown(report)
-    : formatCardsSarif(report);
+/** `comparer` for compare and bisect, keeping what their change cards need. */
+export async function cardComparer(
+  opts: Omit<Parameters<typeof comparer>[0], "report"> & {
+    report?: string;
+    format: CompareFormat;
+  },
+) {
+  const approvals = await readApprovals(opts.cwd);
+  // Approvals are by card: they need the winners.
+  const cards = cardsWanted(opts) || Boolean(approvals);
+  const cmp = comparer({
+    ...opts,
+    explain: opts.explain || cards,
+    visual: opts.visual || Boolean(opts.report),
+    report: Boolean(opts.report),
+  });
+  return { approvals, cards, cmp };
+}
+
+/**
+ * What compare and bisect print: the cards as Markdown or SARIF, else
+ * `text` as human or json, then the cards' summary when `summary`.
+ */
+export function cardsOrText(
+  report: Report | undefined,
+  o: { format: CompareFormat; report?: string; cwd: string },
+  text: (format: "human" | "json") => string,
+  summary = Boolean(report),
+): string {
+  if (report && (o.format === "markdown" || o.format === "sarif"))
+    return o.format === "markdown"
+      ? formatCardsMarkdown(report)
+      : formatCardsSarif(report);
+  // JSON stays one document: the cards' counts and what fails go in it.
+  if (o.format === "json")
+    return report
+      ? JSON.stringify(
+          {
+            ...JSON.parse(text("json")),
+            cards: {
+              summary: report.summary,
+              failing: blocking(report.cards).map((c) => c.id),
+            },
+          },
+          null,
+          2,
+        )
+      : text("json");
+  const dir = o.report && shownPath(o.cwd, resolve(o.cwd, o.report));
+  return (
+    text("human") +
+    (report && summary ? `\n\n${formatCardsSummary(report, dir)}` : "")
+  );
 }
 
 /** Builds a run's change cards, reads their sources, and writes the report directory. */
@@ -626,7 +716,7 @@ export async function changeCards(o: {
       base: o.css.base,
       head: o.css.head,
       inputs: { command: o.command, ...o.inputs },
-      label: relative(o.cwd, resolve(o.cwd, o.dir)),
+      label: shownPath(o.cwd, resolve(o.cwd, o.dir)),
     });
   return report;
 }
@@ -642,7 +732,7 @@ export async function tokensCommand(opts: {
   io: Io;
 }): Promise<number> {
   const { flags, io } = opts;
-  const { browser, pages, tokens } = settings(opts.config, flags);
+  const { browser, pages, tokens, throttle } = settings(opts.config, flags, io);
   if (!tokens)
     throw new UsageError(
       "tokens needs a prefix: --tokens cds- (for --cds-*) or `browser.tokens` in crassus.config.ts",
@@ -685,7 +775,7 @@ export async function tokensCommand(opts: {
       .join(", ");
   io.out(
     [
-      `crassus: ${r.traced} ${tokens}* token(s) traced over ${plural(r.pages, "page")} in ${seconds(r.ms)}: ${used.length} followed, ${r.unused.length} unused (evidence, bounded by the fixtures)`,
+      `crassus: ${r.traced} ${tokens}* token(s) traced over ${plural(r.pages, "page")} in ${seconds(r.ms)}${throttled(throttle)}: ${used.length} followed, ${r.unused.length} unused (evidence, bounded by the fixtures)`,
       "",
       "Most followed:",
       ...used
@@ -700,24 +790,51 @@ export async function tokensCommand(opts: {
             `Unused on the fixtures: ${r.unused.slice(0, 30).join(", ")}${r.unused.length > 30 ? `, and ${r.unused.length - 30} more (--format json lists them)` : ""}`,
           ]
         : []),
-      ...(r.hardCoded.length
-        ? [
-            "",
-            "Colors that follow no token (hard-coded), most common first:",
-            ...r.hardCoded
-              .slice(0, 15)
-              .map(
-                (h) =>
-                  `  ${h.count}×  ${h.property}: ${h.value}  e.g. ${h.examples[0].page}  ${h.examples[0].path}`,
-              ),
-          ]
-        : []),
+      ...colorList(
+        "Hard-coded: colors an author rule sets as a literal, following no token, most common first:",
+        r.hardCoded,
+        r.omitted.hardCoded,
+      ),
+      ...colorList(
+        "User agent defaults: colors no author rule sets (on a themed element, a missed token), most common first:",
+        r.uaDefaults,
+        r.omitted.uaDefaults,
+      ),
     ].join("\n"),
   );
-  if (r.notReady.length)
-    io.err(notReadyLine(r.notReady, pages.readySelector, "traced"));
+  reportNotReady(io, r.notReady, pages, "traced");
   return 0;
 }
+
+type Omitted = TokenReport["omitted"]["hardCoded"];
+
+const leftOut = (o: Omitted | undefined) =>
+  [
+    o?.invisible && `+${o.invisible} on elements no one can see`,
+    o?.inherited &&
+      `+${o.inherited} inherited with the same value, counted where it's set`,
+  ]
+    .filter(Boolean)
+    .join("; ");
+
+const colorList = (
+  heading: string,
+  list: TokenReport["hardCoded"],
+  omitted: Omitted,
+) => {
+  const total = leftOut(omitted);
+  return list.length || total
+    ? [
+        "",
+        heading,
+        ...list.slice(0, 15).map((h) => {
+          const out = leftOut(h.omitted);
+          return `  ${h.count}×  ${h.property}: ${h.value}${out ? ` (${out})` : ""}  e.g. ${h.examples[0].page}  ${h.examples[0].path}`;
+        }),
+        ...(total ? [`  (left out of this list: ${total})`] : []),
+      ]
+    : [];
+};
 
 /** `crassus usage`: writes usage.json and report.md. Always exit 0: evidence, not proof. */
 export async function usageCommand(opts: {
@@ -728,7 +845,7 @@ export async function usageCommand(opts: {
 }): Promise<number> {
   const { flags, io } = opts;
   const { cwd } = io;
-  const { browser, states, pages } = settings(opts.config, flags);
+  const { browser, states, pages, throttle } = settings(opts.config, flags, io);
   const { sheetMarker } = browser;
   if (!sheetMarker)
     throw new UsageError(
@@ -766,16 +883,15 @@ export async function usageCommand(opts: {
     }),
   );
   const { summary } = r;
-  const where = relative(cwd, outDir) || ".";
+  const where = shownPath(cwd, outDir);
   io.out(
     [
-      `crassus: usage over ${pagesLine(summary.fixtures * summary.themes * summary.viewports, summary.fixtures, summary.themes, summary.viewports)} in ${seconds(r.ms)} (evidence, bounded by the fixtures)`,
+      `crassus: usage over ${pagesLine(summary.fixtures * summary.themes * summary.viewports, summary.fixtures, summary.themes, summary.viewports)} in ${seconds(r.ms)}${throttled(throttle)} (evidence, bounded by the fixtures)`,
       `  ${summary.declarationsNeverWon} of ${summary.declarationsTotal} matched declarations never won (${usage.fold} fold candidates); ${usage.unmatched.length} rules never matched`,
       `  ${join(where, "usage.json")}, ${join(where, "report.md")}`,
     ].join("\n"),
   );
-  if (r.notReady.length)
-    io.err(notReadyLine(r.notReady, pages.readySelector, "read"));
+  reportNotReady(io, r.notReady, pages, "read");
   return 0;
 }
 
@@ -792,8 +908,9 @@ export async function confirmDiff(opts: {
   config: Config;
   flags: BrowserFlags;
   cwd: string;
+  io?: Io;
 }): Promise<void> {
-  const { browser, pages } = settings(opts.config, opts.flags);
+  const { browser, pages } = settings(opts.config, opts.flags, opts.io);
   const marker = needMarker(browser, "--confirm");
   const { path, fixtures } = await fixturePages(opts.cwd, browser, opts.flags);
   const { pageIndex } = await import("../browser/page-index");

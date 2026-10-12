@@ -3,7 +3,6 @@
 // end stylesheets are compared, and a segment with visible changes is halved
 // until the commits that made them are found.
 
-import { relative, resolve } from "node:path";
 import { $ } from "bun";
 import type { Crops } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
@@ -13,16 +12,15 @@ import { baseStylesheets } from "./baseline";
 import {
   type BrowserFlags,
   type CompareFormat,
-  cardsWanted,
+  cardComparer,
+  cardsOrText,
   changeCards,
-  comparer,
   differs,
   fails,
-  formatCards,
-  notReadyLine,
   pick,
+  reportNotReady,
+  throttled,
 } from "./browser";
-import { formatCardsSummary, readApprovals } from "./cards";
 import type { Io } from "./main";
 import { UsageError } from "./project";
 import { formatSnapshotDiff, type Summary, seconds } from "./report";
@@ -151,21 +149,12 @@ export async function bisectCommand(opts: {
 }): Promise<number> {
   const { io } = opts;
   const { cwd } = io;
-  const approvals = await readApprovals(cwd);
-  // Approvals are by card: they need the winners.
-  const cards = cardsWanted(opts) || Boolean(approvals);
   const m = opts.range.length === 1 ? RANGE_RE.exec(opts.range[0]) : null;
   if (!m) throw new UsageError("bisect takes one range: <from>..<to>");
   const groupBy = opts.groupBy as GroupBy;
   if (!GROUP_BY.includes(groupBy))
     throw new UsageError(`--group-by takes ${GROUP_BY.join(" or ")}`);
-  const cmp = comparer({
-    ...opts,
-    cwd,
-    explain: opts.explain || cards,
-    visual: opts.visual || Boolean(opts.report),
-    report: Boolean(opts.report),
-  });
+  const { approvals, cards, cmp } = await cardComparer({ ...opts, cwd });
   const crops = new Map<string, Crops | undefined>();
   const to = m[2] || "HEAD";
   const { from, commits } = await commitsIn(cwd, m[1], to);
@@ -210,9 +199,11 @@ export async function bisectCommand(opts: {
     if (base.css === head.css) return result;
     let reach = "";
     const run = await cmp.run({ base, head }, (impact) => {
-      reach = impact.everything
-        ? ""
-        : ` reaches ${impact.pages} of ${impact.total} page(s),`;
+      reach = impact.unchanged
+        ? " no rule differs,"
+        : impact.everything
+          ? ""
+          : ` reaches ${impact.pages} of ${impact.total} page(s),`;
     });
     compared++;
     crops.set(seg.to, run.crops);
@@ -271,7 +262,7 @@ export async function bisectCommand(opts: {
     results.push(await examine(seg, label));
   }
   progress(
-    `${compared} comparison(s) in ${seconds(performance.now() - started)}`,
+    `${compared} comparison(s) in ${seconds(performance.now() - started)}${throttled(cmp.throttle)}`,
   );
 
   const report = (format: "human" | "json") =>
@@ -313,16 +304,15 @@ export async function bisectCommand(opts: {
       })
     : undefined;
   io.out(
-    cardReport && opts.format !== "human" && opts.format !== "json"
-      ? formatCards(cardReport, opts.format)
-      : report(opts.format === "json" ? "json" : "human") +
-          (cardReport?.cards.length
-            ? `\n\n${formatCardsSummary(cardReport, opts.report && (relative(cwd, resolve(cwd, opts.report)) || "."))}`
-            : ""),
+    cardsOrText(
+      cardReport,
+      { ...opts, cwd },
+      report,
+      Boolean(cardReport?.cards.length),
+    ),
   );
-  if (notReady.size)
-    io.err(notReadyLine([...notReady], cmp.pages.readySelector, "compared"));
-  return found(results).length > 0 || notReady.size > 0 ? 1 : 0;
+  const late = reportNotReady(io, [...notReady], cmp.pages, "compared");
+  return hits.length > 0 || late ? 1 : 0;
 }
 
 const failing = (r: BisectResult) =>

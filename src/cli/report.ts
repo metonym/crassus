@@ -1,7 +1,9 @@
 import { version } from "../../package.json";
 import type { Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
+import { where as winnerAt } from "../core/cards";
 import type { Histogram } from "../core/cascade";
+import { foldNames } from "../core/fold";
 import type { Specificity } from "../core/selector";
 import {
   type ChangeGroup,
@@ -81,6 +83,9 @@ function deadFindings(results: DeadResult[]): Finding[] {
 
 const flipMessage = (f: FlipFinding, review: boolean) =>
   `${f.rule.selector} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' against ${f.other.selector} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}; before it ${f.before === "wins" ? "won" : "lost"}.${review ? " Equal-specificity tie after a move." : ""} Confirm with a computed-style snapshot.`;
+
+const confirmedOrUnchecked = (f: FlipFinding) =>
+  !f.confirmed || f.confirmed.verdict === "confirmed";
 
 function diffFindings(results: DiffResult[]): Finding[] {
   // Confirmed in Chrome, the dropped ones aren't findings.
@@ -301,9 +306,7 @@ function diffHuman(
       ),
     );
     const checked = r.flips.some((f) => f.confirmed);
-    const kept = r.flips.filter(
-      (f) => !f.confirmed || f.confirmed.verdict === "confirmed",
-    );
+    const kept = r.flips.filter(confirmedOrUnchecked);
     section(
       red(
         checked
@@ -353,10 +356,7 @@ function diffHuman(
     );
   }
   const flips = results.reduce(
-    (n, r) =>
-      n +
-      r.flips.filter((f) => !f.confirmed || f.confirmed.verdict === "confirmed")
-        .length,
+    (n, r) => n + r.flips.filter(confirmedOrUnchecked).length,
     0,
   );
   if (flips > 0)
@@ -429,13 +429,12 @@ export function formatFix(
 }
 
 const MAX_PAGES = 6;
+const STATE_KEY_RE = /@(?:hover|focus|active)\^?(?:::|\s|$)/m;
 const MAX_PROPS = 8;
 const MAX_INVISIBLE = 10;
 
 const winner = (w: Winner | null) =>
-  w
-    ? `${w.selector} (${w.sheet}${w.line ? `:${w.line}` : ""}${w.inherited ? ", inherited" : ""})`
-    : "no declaration (initial value)";
+  w ? winnerAt(w) : "no declaration (initial value)";
 const explained = ({ base, head }: Explained) =>
   winner(base) === winner(head)
     ? `${dim("won by")} ${winner(base)} ${dim("on both sides")}`
@@ -540,17 +539,56 @@ export function formatSnapshotDiff(
         `${quiet.length} element(s) whose properties stopped following a design token with no change in value (fail: they won't follow the theme)`,
       ),
     );
-    for (const q of quiet.slice(0, MAX_INVISIBLE)) {
-      const [, t] = q.left[0];
-      lines.push(
-        `  ${q.page}  ${q.path}`,
-        `     ${q.left.map(([prop]) => prop).join(", ")}: ${t.base.join(", ")} -> ${t.head.length ? t.head.join(", ") : "none"}${t.value ? dim(` (${t.value})`) : ""}`,
-      );
+    // One line per detachment (property, tokens before -> after), folded
+    // and grouped as style changes are.
+    const groups = new Map<
+      string,
+      {
+        line: string;
+        count: number;
+        pages: Set<string>;
+        also: Set<string>;
+        example: string;
+      }
+    >();
+    for (const q of quiet) {
+      const byChange = new Map<string, string[]>();
+      for (const [prop, t] of q.left) {
+        const k = JSON.stringify([t.base, t.head, t.value ?? ""]);
+        byChange.set(k, [...(byChange.get(k) ?? []), prop]);
+      }
+      for (const [k, props] of byChange) {
+        const [base, head, value]: [string[], string[], string] = JSON.parse(k);
+        for (const f of foldNames(props)) {
+          const line = `${f.property}: ${base.join(", ")} -> ${head.length ? head.join(", ") : "none"}${value ? dim(` (${value})`) : ""}`;
+          const g = groups.get(line) ?? {
+            line,
+            count: 0,
+            pages: new Set<string>(),
+            also: new Set<string>(),
+            example: `${q.page}  ${q.path}`,
+          };
+          g.count++;
+          g.pages.add(q.page);
+          for (const a of f.also) g.also.add(a);
+          groups.set(line, g);
+        }
+      }
     }
-    if (quiet.length > MAX_INVISIBLE)
+    const sorted = [...groups.values()].sort((a, b) => b.count - a.count);
+    for (const g of sorted.slice(0, MAX_INVISIBLE))
+      lines.push(
+        `${g.count}×  ${g.line}`,
+        ...(g.also.size
+          ? [`     ${dim("also:")} ${props([...g.also].sort())}`]
+          : []),
+        `     ${dim("pages:")} ${[...g.pages].slice(0, MAX_PAGES).join(", ")}${g.pages.size > MAX_PAGES ? ` (+${g.pages.size - MAX_PAGES})` : ""}`,
+        `     ${dim("e.g.")} ${g.example}`,
+      );
+    if (sorted.length > MAX_INVISIBLE)
       lines.push(
         dim(
-          `  (+${quiet.length - MAX_INVISIBLE} more; --format json lists them)`,
+          `  (+${sorted.length - MAX_INVISIBLE} more; --format json lists them)`,
         ),
       );
   }
@@ -597,6 +635,13 @@ export function formatSnapshotDiff(
         ),
       );
   }
+  if (lines.some((l) => STATE_KEY_RE.test(l)))
+    lines.push(
+      "",
+      dim(
+        "Paths: @hover, @focus, @active read with that state forced on the element; ^ on its parent instead.",
+      ),
+    );
   return lines.join("\n");
 }
 
