@@ -276,6 +276,12 @@ In GitHub Actions, `--format github` puts each finding on the PR diff at its sou
 
 Types: `Rule`, `DeadDeclaration`, `CascadeDiff`, `Flip`, `Config`, `BrowserConfig`, `Stylesheets`, `PathElement`.
 
+### `crassus/git` (Bun)
+
+| Export | Description |
+|:---|:---|
+| `compileAt(ref, { cwd?, config?, entries?, cache? })` | The project's stylesheets (`{ name: { css, map? } }`, plus `cached`) at a git `ref`, or at the working tree when `ref` is `undefined`: what `diff --base` builds, with the same cache. For a script that needs the compiled CSS of a base, a size check or a test selector, without its own checkout and cache. With the config's `inputs`, a ref is read as just those paths and cached by their contents, and so is the working tree while they match `HEAD`. |
+
 ### `crassus/browser` (Bun)
 
 Real-browser rungs on [`Bun.WebView`](https://bun.sh/docs/runtime/webview): Chrome or Chromium over CDP (Playwright's cached `chrome-headless-shell` when installed, else auto-detected), or the system WebKit on macOS. No Playwright and no browser download.

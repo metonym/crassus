@@ -7,6 +7,7 @@ import { type BisectResult, found, segments } from "../src/cli/bisect";
 import { settings, throttled } from "../src/cli/browser";
 import { main } from "../src/cli/main";
 import { appendSummary } from "../src/cli/report";
+import { compileAt } from "../src/git";
 
 let dir = "";
 
@@ -430,6 +431,26 @@ describe("crassus diff", () => {
       await Bun.write(join(root, "bun.lock"), "2");
       await cli(root, "diff", "--base", "HEAD~1");
       expect(await builds()).toHaveLength(5);
+    }, 30_000);
+
+    it("compileAt gives the stylesheets at a ref or now, from the same cache", async () => {
+      const { root, git, builds } = await inputsProject();
+      await Bun.write(join(root, "notes.txt"), "two");
+      await git("commit", "-qam", "notes only");
+
+      const base = await compileAt("HEAD~1", { cwd: root });
+      expect(base.cached).toBe(false);
+      expect(base.sheets.app.css).toBe(BASE);
+      // The commit after shares src/, and so does the working tree.
+      expect((await compileAt("HEAD", { cwd: root })).cached).toBe(true);
+      expect((await compileAt(undefined, { cwd: root })).cached).toBe(false);
+      expect((await compileAt(undefined, { cwd: root })).cached).toBe(true);
+      expect(await builds()).toHaveLength(2);
+
+      await Bun.write(join(root, "src/app.css"), HEAD);
+      const dirty = await compileAt(undefined, { cwd: root, entries: ["app"] });
+      expect(dirty.sheets.app.css).toBe(HEAD);
+      expect(dirty.cached).toBe(false);
     }, 30_000);
 
     it("names a path outside the project", async () => {

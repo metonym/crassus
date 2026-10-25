@@ -23,6 +23,9 @@
 
   Writing `css/` at a ref took 0.17 s instead of 1.2 s for a `git
   worktree` add and remove. Without `inputs` nothing changes.
+- `crassus/git` exports `compileAt(ref, { cwd?, config?, entries?, cache? })`:
+  the project's stylesheets at a ref (or the working tree), built and
+  cached as `diff --base` does, for scripts that need the compiled CSS.
 
 ## 0.3.0 — 2026-10-12
 
