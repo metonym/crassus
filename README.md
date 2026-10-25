@@ -6,12 +6,12 @@ The library runs anywhere JavaScript does: Bun, Node, Deno, browsers and workers
 
 CSS refactors are risky because the cascade is global and order-dependent: a regression throws nothing, a button is just the wrong color in one theme on hover. crassus treats **the resolved cascade as the thing under test**, at increasing cost and certainty:
 
-| Rung | Check | Cost | Claim |
-|:---|:---|:---|:---|
-| 0 | `deadDeclarations` | ms, no browser | **proof**: a later rule with the same selectors always wins |
-| 1 | `cascadeDiff` | ~100 ms, no browser | **heuristic**: winner relationships that flipped between two builds (over-reports by design) |
-| 2 | `runUsage` | seconds, real browser | **evidence**: declarations that match but never win, bounded by your fixture pages |
-| 3 | `capture` | seconds, real browser | **ground truth**: computed styles per element, theme and forced state |
+| Rung | Check              | Cost                  | Claim                                                                                        |
+| :--- | :----------------- | :-------------------- | :------------------------------------------------------------------------------------------- |
+| 0    | `deadDeclarations` | ms, no browser        | **proof**: a later rule with the same selectors always wins                                  |
+| 1    | `cascadeDiff`      | ~100 ms, no browser   | **heuristic**: winner relationships that flipped between two builds (over-reports by design) |
+| 2    | `runUsage`         | seconds, real browser | **evidence**: declarations that match but never win, bounded by your fixture pages           |
+| 3    | `capture`          | seconds, real browser | **ground truth**: computed styles per element, theme and forced state                        |
 
 Every rung says how far its findings can be trusted, and cheaper rungs point at the ones that can confirm them.
 
@@ -28,13 +28,17 @@ import { cascadeDiff, deadDeclarations, parseRules } from "crassus";
 
 // Rung 0: declarations that can never win.
 for (const d of deadDeclarations(css, true)) {
-  console.log(`${d.selector} { ${d.property}: ${d.value} } <- ${d.by.property}`);
+  console.log(
+    `${d.selector} { ${d.property}: ${d.value} } <- ${d.by.property}`,
+  );
 }
 
 // Rung 1: cascade flips between a base and a head build.
 const diff = cascadeDiff(parseRules(baseCss, true), parseRules(headCss, true));
 for (const f of diff.flips) {
-  console.log(`${f.rule.selector} now ${f.after} '${f.prop}' vs ${f.other.selector}`);
+  console.log(
+    `${f.rule.selector} now ${f.after} '${f.prop}' vs ${f.other.selector}`,
+  );
 }
 ```
 
@@ -70,42 +74,42 @@ crassus coverage                  # which declarations decide a value the fixtur
 
 Browser runs open one tab (a renderer process) per `--concurrency`, by default half the cores and at most 4, in Playwright's `chrome-headless-shell` when it's installed (`bunx playwright install chromium-headless-shell`) and otherwise the Chrome Bun finds, which may be your own. Raise it on a dedicated machine, lower it beside other work. While the 1-minute load average is above the core count, every tab but one waits for it to settle, so a run beside other work slows down instead of piling on; it says so once on stderr when it starts waiting, and the summary line ends with the time spent on one tab. `loadAverage` on the visit options replaces the reader (`os.loadavg()[0]`). `crassus doctor` checks the Chrome it would use (and starts it), the tabs against the cores, the load, free disk for the project and the temp directory, the fixture pages, what `sheetMarker` finds and the tokens `browser.tokens` names, and says how to fix each problem; it exits 1 on an error.
 
-| Option | Description |
-|:---|:---|
-| `--base <ref>` | Git ref to diff against (default `HEAD`). The base is built with your own build in a temporary `git worktree`, and cached by commit under `node_modules/.cache/crassus`. With the config's [`inputs`](#configuration), it's built from just those paths and cached by their contents, so a commit that left them alone reuses the build. |
-| `--entry <name>` | Only this stylesheet (repeatable). |
-| `--format <format>` | `human` (default), `json` (stable schema), `github` (workflow annotations at the source line) or `sarif` (code scanning). `compare` and `bisect` take `human`, `json`, `markdown` (change cards for a PR) or `sarif` (one result per change card, at the changed rule's source line). `--json` is short for `--format json`. |
-| `--config <file>` | Config file (default `crassus.config.{ts,js,mjs}`). |
-| `--fix` | `dead`: delete the dead declarations. See [Fixing](#fixing). |
-| `--confirm` | `diff`: render each cascade flip in Chrome and fail only on those whose value changes (needs the config's `browser` block). |
-| `--dry-run` | With `--fix`: print the edits as a unified diff and write nothing. |
-| `--no-cache` | Rebuild the base (and the head, which `inputs` caches). |
-| `--verbose` | List every rule in review sections. |
-| `--summary <file>` | `dead`, `diff`, `snapshot-diff`, `compare`, `bisect`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB. |
+| Option              | Description                                                                                                                                                                                                                                                                                                                              |
+| :------------------ | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--base <ref>`      | Git ref to diff against (default `HEAD`). The base is built with your own build in a temporary `git worktree`, and cached by commit under `node_modules/.cache/crassus`. With the config's [`inputs`](#configuration), it's built from just those paths and cached by their contents, so a commit that left them alone reuses the build. |
+| `--entry <name>`    | Only this stylesheet (repeatable).                                                                                                                                                                                                                                                                                                       |
+| `--format <format>` | `human` (default), `json` (stable schema), `github` (workflow annotations at the source line) or `sarif` (code scanning). `compare` and `bisect` take `human`, `json`, `markdown` (change cards for a PR) or `sarif` (one result per change card, at the changed rule's source line). `--json` is short for `--format json`.             |
+| `--config <file>`   | Config file (default `crassus.config.{ts,js,mjs}`).                                                                                                                                                                                                                                                                                      |
+| `--fix`             | `dead`: delete the dead declarations. See [Fixing](#fixing).                                                                                                                                                                                                                                                                             |
+| `--confirm`         | `diff`: render each cascade flip in Chrome and fail only on those whose value changes (needs the config's `browser` block).                                                                                                                                                                                                              |
+| `--dry-run`         | With `--fix`: print the edits as a unified diff and write nothing.                                                                                                                                                                                                                                                                       |
+| `--no-cache`        | Rebuild the base (and the head, which `inputs` caches).                                                                                                                                                                                                                                                                                  |
+| `--verbose`         | List every rule in review sections.                                                                                                                                                                                                                                                                                                      |
+| `--summary <file>`  | `dead`, `diff`, `snapshot-diff`, `compare`, `bisect`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB.                                                                                        |
 
 `capture`, `compare`, `bisect` and `usage` load the fixture pages from the config's [`browser`](#fixture-pages) block, and take:
 
-| Option | Description |
-|:---|:---|
-| `--base <ref>` | `capture`: build and capture the fixtures of a git ref, in a temporary worktree. `compare`: build the stylesheet at that ref (default `HEAD`). |
-| `--css <file>` | `capture`: serve this CSS in place of the library stylesheet (the largest fixture `.css` file containing `sheetMarker`). |
-| `--entry <name>` | `compare`: the configured stylesheet the fixtures load, when there are several. |
-| `--group-by <how>` | `bisect`: segments of consecutive commits of one conventional-commit type (`type`, default) or one per commit (`commit`). |
-| `--no-split` | `bisect`: report a segment with visible changes as it is, instead of halving it down to the commits that made them. |
-| `--no-scope` | `compare`, `bisect`: load every page and read every element, instead of only what the changed rules can reach. |
-| `--tokens <prefix>` | `compare`, `bisect`: trace design tokens (custom properties with this prefix; `cds-` for `--cds-*`, or `browser.tokens` in the config). `tokens`: the prefix to report on. |
-| `--report <dir>` | `compare`, `bisect`: write change cards to this directory (with `--explain` and `--visual`). `explain`, `repro`, `verify`, `approve`: the report to read (default `.crassus/report`). |
-| `--explain` | `compare`, `bisect` (Chrome): for each changed property, the declaration that won on each side, at its source through the stylesheet's source map. |
-| `--visual` | `compare`, `bisect` (Chrome): screenshot every changed element someone could see on both sides, in its forced state, and count those whose pixels differ. Elements already proven invisible (clipped to nothing, `display: none`, off the page) aren't screenshotted. |
-| `--only <text>` | Only fixtures whose name contains this. |
-| `--themes <a,b>` | Themes to load each page in. |
-| `--viewport <WxH>` | Viewport (repeatable), as `320x640`. |
-| `--no-states` | Skip forced `:hover`/`:focus`/`:active` states. |
-| `--engine <name>` | `chrome` (default) or `webkit`. |
-| `--matcher <name>` | `usage`: `dom` (default, any engine) or `cdp` (Chrome, exact per element). |
-| `--concurrency <n>` | Tabs in parallel (default half the cores, at most 4). |
-| `--url <base>` | Use a running server instead of building and serving the fixtures. |
-| `--out <dir>` | `usage`: output directory (default `.crassus/usage`). |
+| Option              | Description                                                                                                                                                                                                                                                           |
+| :------------------ | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--base <ref>`      | `capture`: build and capture the fixtures of a git ref, in a temporary worktree. `compare`: build the stylesheet at that ref (default `HEAD`).                                                                                                                        |
+| `--css <file>`      | `capture`: serve this CSS in place of the library stylesheet (the largest fixture `.css` file containing `sheetMarker`).                                                                                                                                              |
+| `--entry <name>`    | `compare`: the configured stylesheet the fixtures load, when there are several.                                                                                                                                                                                       |
+| `--group-by <how>`  | `bisect`: segments of consecutive commits of one conventional-commit type (`type`, default) or one per commit (`commit`).                                                                                                                                             |
+| `--no-split`        | `bisect`: report a segment with visible changes as it is, instead of halving it down to the commits that made them.                                                                                                                                                   |
+| `--no-scope`        | `compare`, `bisect`: load every page and read every element, instead of only what the changed rules can reach.                                                                                                                                                        |
+| `--tokens <prefix>` | `compare`, `bisect`: trace design tokens (custom properties with this prefix; `cds-` for `--cds-*`, or `browser.tokens` in the config). `tokens`: the prefix to report on.                                                                                            |
+| `--report <dir>`    | `compare`, `bisect`: write change cards to this directory (with `--explain` and `--visual`). `explain`, `repro`, `verify`, `approve`: the report to read (default `.crassus/report`).                                                                                 |
+| `--explain`         | `compare`, `bisect` (Chrome): for each changed property, the declaration that won on each side, at its source through the stylesheet's source map.                                                                                                                    |
+| `--visual`          | `compare`, `bisect` (Chrome): screenshot every changed element someone could see on both sides, in its forced state, and count those whose pixels differ. Elements already proven invisible (clipped to nothing, `display: none`, off the page) aren't screenshotted. |
+| `--only <text>`     | Only fixtures whose name contains this.                                                                                                                                                                                                                               |
+| `--themes <a,b>`    | Themes to load each page in.                                                                                                                                                                                                                                          |
+| `--viewport <WxH>`  | Viewport (repeatable), as `320x640`.                                                                                                                                                                                                                                  |
+| `--no-states`       | Skip forced `:hover`/`:focus`/`:active` states.                                                                                                                                                                                                                       |
+| `--engine <name>`   | `chrome` (default) or `webkit`.                                                                                                                                                                                                                                       |
+| `--matcher <name>`  | `usage`: `dom` (default, any engine) or `cdp` (Chrome, exact per element).                                                                                                                                                                                            |
+| `--concurrency <n>` | Tabs in parallel (default half the cores, at most 4).                                                                                                                                                                                                                 |
+| `--url <base>`      | Use a running server instead of building and serving the fixtures.                                                                                                                                                                                                    |
+| `--out <dir>`       | `usage`: output directory (default `.crassus/usage`).                                                                                                                                                                                                                 |
 
 Exit codes: `0` clean, `1` findings (dead declarations, cascade flips; for `snapshot-diff`, any difference; for `compare` and `bisect`, a visible change, or with `crassus.approved.json` one it doesn't approve; for `capture`, `compare` and `bisect`, a page that never matched `readySelector`, unless `browser.allowNotReady` lists its fixture), `2` usage or build error. Review sections, like order-tie flips from moved rules, never fail a run, and `usage` always exits `0`: its findings are evidence, bounded by the fixtures.
 
@@ -209,14 +213,14 @@ export default defineConfig({
 });
 ```
 
-| Option | Description |
-|:---|:---|
-| `css` | Built CSS files, relative to the project root: a path, an array, or `{ name: path }`. |
-| `build` | Shell command that writes `css`. Runs before reading, in the project and in the base checkout. |
-| `compile(root, { entries? })` | Instead of `css` and `build`: returns `{ name: { css, map? } }`. With `entries`, compiles those. |
-| `inputs` | The paths the stylesheets are built from, and everything else the build reads from the repository (`"css"`, or an array): tracked files. `diff --base`, `compare` and `bisect` then extract just these paths at the ref (`git ls-files` into a temporary directory, not a whole `git worktree`) and cache the build by the git objects at those paths, the config file and the lockfile (`bun.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), so every commit that left them alone shares one build. `diff` and `compare` cache the head too while the paths match `HEAD`. A path the ref lacks builds in a full worktree, cached by commit, as without `inputs`. Anything the build reads that isn't listed (a helper `compile` imports) is missing from the base and isn't in its key: list it. |
-| `fixEntries` | `dead --fix`: more entries to prove fixes against (a theme that imports the same partials), compiled with `compile(root, { entries })`. |
-| `componentOf(class)` | The component a class belongs to, to scope order-tie flips. |
+| Option                        | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| :---------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `css`                         | Built CSS files, relative to the project root: a path, an array, or `{ name: path }`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `build`                       | Shell command that writes `css`. Runs before reading, in the project and in the base checkout.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `compile(root, { entries? })` | Instead of `css` and `build`: returns `{ name: { css, map? } }`. With `entries`, compiles those.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `inputs`                      | The paths the stylesheets are built from, and everything else the build reads from the repository (`"css"`, or an array): tracked files. `diff --base`, `compare` and `bisect` then extract just these paths at the ref (`git ls-files` into a temporary directory, not a whole `git worktree`) and cache the build by the git objects at those paths, the config file and the lockfile (`bun.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), so every commit that left them alone shares one build. `diff` and `compare` cache the head too while the paths match `HEAD`. A path the ref lacks builds in a full worktree, cached by commit, as without `inputs`. Anything the build reads that isn't listed (a helper `compile` imports) is missing from the base and isn't in its key: list it. |
+| `fixEntries`                  | `dead --fix`: more entries to prove fixes against (a theme that imports the same partials), compiled with `compile(root, { entries })`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `componentOf(class)`          | The component a class belongs to, to scope order-tie flips.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 
 #### Fixture pages
 
@@ -239,18 +243,18 @@ export default defineConfig({
 });
 ```
 
-| Option | Description |
-|:---|:---|
-| `fixtures` | The fixture directory, or `{ dir, build? }`. For `capture --base`, `build` runs in a fresh worktree with only tracked files, so it must also build anything the fixtures load that's gitignored (compiled CSS). |
-| `themes` | Themes to load each page in (default: one run, no attribute). |
-| `themeAttribute` | The `<html>` attribute a theme is set as (default `theme`). |
-| `sheetMarker` | Text only the library stylesheet contains; `usage` needs it to tell that sheet from the page's others. |
-| `viewports` | `{ width, height }[]` (default 1280 × 900). Cover your breakpoints: at one width, rules for the others read as never matched. |
-| `tokens` | The design tokens' custom-property prefix (`--cds-`): `compare` and `bisect` trace them, and `tokens` reports on them. |
-| `readySelector`, `readyTimeoutMs` | Wait after load until the selector matches (up to 5 s by default). Pages that never match are still read and named on stderr by every command that loads pages, and by `snapshot-diff` for the captures it compares (`notReady` in JSON). |
-| `allowNotReady` | Fixtures known never to match `readySelector` (one that renders into an iframe): still read, with no warning and no failed run. |
-| `settleMs` | `capture`: wait after load (default 500). |
-| `engine`, `concurrency`, `chromePath` | Defaults for `--engine` and `--concurrency`, and the Chrome binary. |
+| Option                                | Description                                                                                                                                                                                                                               |
+| :------------------------------------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fixtures`                            | The fixture directory, or `{ dir, build? }`. For `capture --base`, `build` runs in a fresh worktree with only tracked files, so it must also build anything the fixtures load that's gitignored (compiled CSS).                           |
+| `themes`                              | Themes to load each page in (default: one run, no attribute).                                                                                                                                                                             |
+| `themeAttribute`                      | The `<html>` attribute a theme is set as (default `theme`).                                                                                                                                                                               |
+| `sheetMarker`                         | Text only the library stylesheet contains; `usage` needs it to tell that sheet from the page's others.                                                                                                                                    |
+| `viewports`                           | `{ width, height }[]` (default 1280 × 900). Cover your breakpoints: at one width, rules for the others read as never matched.                                                                                                             |
+| `tokens`                              | The design tokens' custom-property prefix (`--cds-`): `compare` and `bisect` trace them, and `tokens` reports on them.                                                                                                                    |
+| `readySelector`, `readyTimeoutMs`     | Wait after load until the selector matches (up to 5 s by default). Pages that never match are still read and named on stderr by every command that loads pages, and by `snapshot-diff` for the captures it compares (`notReady` in JSON). |
+| `allowNotReady`                       | Fixtures known never to match `readySelector` (one that renders into an iframe): still read, with no warning and no failed run.                                                                                                           |
+| `settleMs`                            | `capture`: wait after load (default 500).                                                                                                                                                                                                 |
+| `engine`, `concurrency`, `chromePath` | Defaults for `--engine` and `--concurrency`, and the Chrome binary.                                                                                                                                                                       |
 
 In GitHub Actions, `--format github` puts each finding on the PR diff at its source line:
 
@@ -264,36 +268,36 @@ In GitHub Actions, `--format github` puts each finding on the PR diff at its sou
 
 ### `crassus`
 
-| Export | Description |
-|:---|:---|
-| `parseRules(css, positions?)` | One `Rule` per selector: condition context (`@media` / `@supports` / `@container`), cascade layer and its rank, `@scope`, canonical selector, specificity, subject, declarations, source order, and with `positions` the line and column. |
-| `resolvePath(path, root)` | The element a snapshot path (`body>div.a.b[2]>p@hover`) names, under `root` (`document.documentElement`), in any DOM. Self-contained, so a Playwright script can evaluate it in the page: `` page.evaluate(`(${resolvePath})(${JSON.stringify(path)}, document.documentElement)?.outerHTML`) ``. |
-| `canonicalSelector(text)`, `canonicalContext(name, prelude)` | A selector, or one `@name prelude`, spelled as `Rule.selector` and `Rule.context` spell it, whatever the source's spacing. Keys a browser's matched rules (CDP's selector, media, supports and container text) to `parseRules`. |
-| `SHORTHANDS` | Shorthand (or legacy alias) → the longhands it sets, generated from Chrome's CSSOM: 119 shorthands, including logical, grid and experimental ones. Longhands are spelled as CDP lists them beside a matched shorthand (`margin-block` sets `margin-block-start` and `margin-block-end`), so a usage driver of its own can expand a shorthand CDP sends without `longhandProperties`. |
-| `deadDeclarations(css, positions?)` | Declarations that can never win: every selector of the rule is repeated, in the same context and scope, by a rule later in the cascade (importance, then layer, then source order) setting the same property or a covering shorthand (logical/physical twins included). Fallbacks, vendor prefixes and legacy aliases (`grid-gap` before `gap`) aren't reported. |
-| `cascadeDiff(base, head, { componentOf? })` | Between two builds' rules: removed, added, rewritten (same declarations, new selector), dropped and new rules, context and layer moves, moved rules, and **cascade flips**, where the winner between two rules that may match one element changed. `moveFlips` are the order ties of rules that only moved. |
-| `defineConfig(config)` | Types a `crassus.config.ts`. |
+| Export                                                       | Description                                                                                                                                                                                                                                                                                                                                                                          |
+| :----------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parseRules(css, positions?)`                                | One `Rule` per selector: condition context (`@media` / `@supports` / `@container`), cascade layer and its rank, `@scope`, canonical selector, specificity, subject, declarations, source order, and with `positions` the line and column.                                                                                                                                            |
+| `resolvePath(path, root)`                                    | The element a snapshot path (`body>div.a.b[2]>p@hover`) names, under `root` (`document.documentElement`), in any DOM. Self-contained, so a Playwright script can evaluate it in the page: ``page.evaluate(`(${resolvePath})(${JSON.stringify(path)}, document.documentElement)?.outerHTML`)``.                                                                                       |
+| `canonicalSelector(text)`, `canonicalContext(name, prelude)` | A selector, or one `@name prelude`, spelled as `Rule.selector` and `Rule.context` spell it, whatever the source's spacing. Keys a browser's matched rules (CDP's selector, media, supports and container text) to `parseRules`.                                                                                                                                                      |
+| `SHORTHANDS`                                                 | Shorthand (or legacy alias) → the longhands it sets, generated from Chrome's CSSOM: 119 shorthands, including logical, grid and experimental ones. Longhands are spelled as CDP lists them beside a matched shorthand (`margin-block` sets `margin-block-start` and `margin-block-end`), so a usage driver of its own can expand a shorthand CDP sends without `longhandProperties`. |
+| `deadDeclarations(css, positions?)`                          | Declarations that can never win: every selector of the rule is repeated, in the same context and scope, by a rule later in the cascade (importance, then layer, then source order) setting the same property or a covering shorthand (logical/physical twins included). Fallbacks, vendor prefixes and legacy aliases (`grid-gap` before `gap`) aren't reported.                     |
+| `cascadeDiff(base, head, { componentOf? })`                  | Between two builds' rules: removed, added, rewritten (same declarations, new selector), dropped and new rules, context and layer moves, moved rules, and **cascade flips**, where the winner between two rules that may match one element changed. `moveFlips` are the order ties of rules that only moved.                                                                          |
+| `defineConfig(config)`                                       | Types a `crassus.config.ts`.                                                                                                                                                                                                                                                                                                                                                         |
 
 Types: `Rule`, `DeadDeclaration`, `CascadeDiff`, `Flip`, `Config`, `BrowserConfig`, `Stylesheets`, `PathElement`.
 
 ### `crassus/git` (Bun)
 
-| Export | Description |
-|:---|:---|
+| Export                                                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| :---------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `compileAt(ref, { cwd?, config?, entries?, cache? })` | The project's stylesheets (`{ name: { css, map? } }`, plus `cached`) at a git `ref`, or at the working tree when `ref` is `undefined`: what `diff --base` builds, with the same cache. For a script that needs the compiled CSS of a base, a size check or a test selector, without its own checkout and cache. With the config's `inputs`, a ref is read as just those paths and cached by their contents, and so is the working tree while they match `HEAD`. |
 
 ### `crassus/browser` (Bun)
 
 Real-browser rungs on [`Bun.WebView`](https://bun.sh/docs/runtime/webview): Chrome or Chromium over CDP (Playwright's cached `chrome-headless-shell` when installed, else auto-detected), or the system WebKit on macOS. No Playwright and no browser download.
 
-| Export | Description |
-|:---|:---|
-| `capture(options)` | Computed-style snapshot of every element, `::before`/`::after` and forced `:hover`/`:focus`/`:active`, per theme and viewport, one gzipped file per page. States come from CDP (exact) or from rewriting state selectors in place (any engine), on the elements that can reach them. |
-| `readSnapshot(file)` | One `capture` file as a `Snapshot`: element path → property → computed value. Elements with the same style share one record object. |
-| `diffSnapshots(baseDir, headDir, { examples? })` | Compares two `capture` directories: changed element paths per page, and every change grouped by `(property, before -> after)` with counts and example paths. Pages and paths on one side only are listed, not diffed, and so are properties only one side recorded (`uncompared`). Changes carry the properties folded into them (`aliases`) and, when no one can see them, why (`invisible`). Throws `IncompleteCaptureError` for a directory without a manifest. |
-| `runUsage(options)` | Which declarations of the library stylesheet (the one containing `sheetMarker`) match and win on every element, over all themes and viewports. `matcher: "cdp"` asks Chrome per element; `matcher: "dom"` matches in the page with `Element.matches()` in one round trip per page, on Chrome or WebKit. |
-| `compareCss(options)` | `capture`'s options with `dir` (the fixture directory), `sheetMarker`, `base` and `head` CSS, and optionally `explain` and `visual` (Chrome): every page captured with each swapped in for the library stylesheet, diffed page by page into a `SnapshotDiff` (plus `ms`, `notReady` and `impact`), keeping no snapshots. By default only what the changed rules can reach is read (`scope: false` reads everything); `indexDir` keeps the page index between runs, and `onImpact(impact)` hears the reach before any page is captured. |
-| `serveFixtures(dir, { swap? })` | Static fixture server that sets a theme attribute before first paint. `swap: { marker, css }` serves `css` in place of the largest `.css` file containing `marker`. |
+| Export                                           | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| :----------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capture(options)`                               | Computed-style snapshot of every element, `::before`/`::after` and forced `:hover`/`:focus`/`:active`, per theme and viewport, one gzipped file per page. States come from CDP (exact) or from rewriting state selectors in place (any engine), on the elements that can reach them.                                                                                                                                                                                                                                                   |
+| `readSnapshot(file)`                             | One `capture` file as a `Snapshot`: element path → property → computed value. Elements with the same style share one record object.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `diffSnapshots(baseDir, headDir, { examples? })` | Compares two `capture` directories: changed element paths per page, and every change grouped by `(property, before -> after)` with counts and example paths. Pages and paths on one side only are listed, not diffed, and so are properties only one side recorded (`uncompared`). Changes carry the properties folded into them (`aliases`) and, when no one can see them, why (`invisible`). Throws `IncompleteCaptureError` for a directory without a manifest.                                                                     |
+| `runUsage(options)`                              | Which declarations of the library stylesheet (the one containing `sheetMarker`) match and win on every element, over all themes and viewports. `matcher: "cdp"` asks Chrome per element; `matcher: "dom"` matches in the page with `Element.matches()` in one round trip per page, on Chrome or WebKit.                                                                                                                                                                                                                                |
+| `compareCss(options)`                            | `capture`'s options with `dir` (the fixture directory), `sheetMarker`, `base` and `head` CSS, and optionally `explain` and `visual` (Chrome): every page captured with each swapped in for the library stylesheet, diffed page by page into a `SnapshotDiff` (plus `ms`, `notReady` and `impact`), keeping no snapshots. By default only what the changed rules can reach is read (`scope: false` reads everything); `indexDir` keeps the page index between runs, and `onImpact(impact)` hears the reach before any page is captured. |
+| `serveFixtures(dir, { swap? })`                  | Static fixture server that sets a theme attribute before first paint. `swap: { marker, css }` serves `css` in place of the largest `.css` file containing `marker`.                                                                                                                                                                                                                                                                                                                                                                    |
 
 Both browser runs take:
 
@@ -319,14 +323,14 @@ Both browser runs take:
 
 Measured against carbon-components-svelte's original tooling (css-tree, source-map-js, Playwright) on Apple Silicon, same Chromium build for browser comparisons. Reproduce with `bun run bench` and the evals in `eval/carbon/`.
 
-| Job | Before | crassus |
-|:---|:---|:---|
-| `parseRules`, Carbon `all.css` 638 kB | 34.5 ms | **12.7 ms** (2.7×) |
-| `parseRules` + positions, Tailwind 2, 3.5 MB | 242.0 ms | **97.9 ms** (2.5×) |
-| `deadDeclarations`, Primer 1 MB | 1,773 ms | **25.2 ms** (70×) |
-| Source-map lookups, 6,594 rules | 16.1 ms | **2.7 ms** (6×) |
-| Computed-style snapshot, 218 pages | 471.7 s | **43.9 s** (CDP, 8 tabs, identical output\*) |
-| Cascade usage, 218 pages | 1,171.7 s | **22.3 s** (`dom` engine, 8 tabs) |
+| Job                                          | Before    | crassus                                      |
+| :------------------------------------------- | :-------- | :------------------------------------------- |
+| `parseRules`, Carbon `all.css` 638 kB        | 34.5 ms   | **12.7 ms** (2.7×)                           |
+| `parseRules` + positions, Tailwind 2, 3.5 MB | 242.0 ms  | **97.9 ms** (2.5×)                           |
+| `deadDeclarations`, Primer 1 MB              | 1,773 ms  | **25.2 ms** (70×)                            |
+| Source-map lookups, 6,594 rules              | 16.1 ms   | **2.7 ms** (6×)                              |
+| Computed-style snapshot, 218 pages           | 471.7 s   | **43.9 s** (CDP, 8 tabs, identical output\*) |
+| Cascade usage, 218 pages                     | 1,171.7 s | **22.3 s** (`dom` engine, 8 tabs)            |
 
 \* Identical to the Playwright tool when every state is forced. By default `capture` skips states no user can reach (on 228 pages: 6,144 of the old tool's 55,222 entries, mostly inside a closed, `inert` modal), so those entries are missing, and an element under several forced ones keeps the state of the last one that can reach it (770 values differ). Run `eval/carbon/snapshot.ts` to see it.
 

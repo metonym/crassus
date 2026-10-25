@@ -41,19 +41,19 @@ Non-goals:
 
 ## What already exists
 
-| Need | Already in crassus |
-|:--|:--|
-| Pages per theme and viewport, attribute set before first paint | `pageJobs`, `serveFixtures` (`?cr-attr=&cr-value=`) |
-| Tab pool, backoff under load, disk projection | `runPool`, `checkDisk` |
-| Forced `:hover`/`:focus`/`:active`, only where reachable and only where a rule uses them | `capturePage`, `stateTriggers`, `statePaths` |
-| Whether a change can be seen: hidden, clipped, off the page, under `opacity: 0`, text in its background's color | `fold.ts` reasons, `--cr-hidden` |
-| Pixels: one screenshot per state, PNG decode, CIEDE2000 | `png.ts`, `color.ts`, `combine` |
-| Which token a property follows | `traceTokens`, `diffTokens` |
-| Which pages a rule can reach | `pageIndex`, `changedRules`, `relaxSelector` |
-| Minimizing a failing input | `ddmin` (`crassus reduce`) |
-| Cards, report, approvals, repro | `buildCards`, `crassus/report@1`, `crassus.approved.json`, `reproHtml` |
-| An element built for a selector | `synthesize` (`diff --confirm`) |
-| Which declarations the fixtures exercise | `mutationCoverage` (`crassus coverage`) |
+| Need                                                                                                            | Already in crassus                                                     |
+| :-------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------- |
+| Pages per theme and viewport, attribute set before first paint                                                  | `pageJobs`, `serveFixtures` (`?cr-attr=&cr-value=`)                    |
+| Tab pool, backoff under load, disk projection                                                                   | `runPool`, `checkDisk`                                                 |
+| Forced `:hover`/`:focus`/`:active`, only where reachable and only where a rule uses them                        | `capturePage`, `stateTriggers`, `statePaths`                           |
+| Whether a change can be seen: hidden, clipped, off the page, under `opacity: 0`, text in its background's color | `fold.ts` reasons, `--cr-hidden`                                       |
+| Pixels: one screenshot per state, PNG decode, CIEDE2000                                                         | `png.ts`, `color.ts`, `combine`                                        |
+| Which token a property follows                                                                                  | `traceTokens`, `diffTokens`                                            |
+| Which pages a rule can reach                                                                                    | `pageIndex`, `changedRules`, `relaxSelector`                           |
+| Minimizing a failing input                                                                                      | `ddmin` (`crassus reduce`)                                             |
+| Cards, report, approvals, repro                                                                                 | `buildCards`, `crassus/report@1`, `crassus.approved.json`, `reproHtml` |
+| An element built for a selector                                                                                 | `synthesize` (`diff --confirm`)                                        |
+| Which declarations the fixtures exercise                                                                        | `mutationCoverage` (`crassus coverage`)                                |
 
 What's new: factors and a fixture protocol, a covering-array generator, data
 generators with shrinking, a real-event crawl, the invariants, and one
@@ -65,13 +65,13 @@ A factor is one dimension with a finite list of values, each with a name. The
 first value is the default, and shrinking moves toward it. Factors differ in
 what changing them costs, and that decides where they go:
 
-| Kind | Examples | Changed by | Cost |
-|:--|:--|:--|:--|
-| Environment | theme, viewport, zoom, `dir`, `forced-colors`, `prefers-contrast`, `prefers-reduced-motion`, `hover`/`pointer`, font fallback | a page load | a load: about 2.4 tab-seconds per page measured (below) |
-| Component | `kind`, `size`, `disabled`, `invalid`, `skeleton`, `icon`, `open` | a mount | a re-render, no load |
-| Data | text, numbers, list length, missing optional props | a mount | a re-render |
-| CSS state | hover, focus, focus-visible, active, focus-within | forced in the page | already in every capture: not a factor |
-| Interaction | event sequences | the crawl | per event |
+| Kind        | Examples                                                                                                                      | Changed by         | Cost                                                    |
+| :---------- | :---------------------------------------------------------------------------------------------------------------------------- | :----------------- | :------------------------------------------------------ |
+| Environment | theme, viewport, zoom, `dir`, `forced-colors`, `prefers-contrast`, `prefers-reduced-motion`, `hover`/`pointer`, font fallback | a page load        | a load: about 2.4 tab-seconds per page measured (below) |
+| Component   | `kind`, `size`, `disabled`, `invalid`, `skeleton`, `icon`, `open`                                                             | a mount            | a re-render, no load                                    |
+| Data        | text, numbers, list length, missing optional props                                                                            | a mount            | a re-render                                             |
+| CSS state   | hover, focus, focus-visible, active, focus-within                                                                             | forced in the page | already in every capture: not a factor                  |
+| Interaction | event sequences                                                                                                               | the crawl          | per event                                               |
 
 CSS states stay out of the covering array. Forcing them costs nothing extra
 per row, because one capture already reads every reachable state of every
@@ -148,15 +148,15 @@ and marks the row "perturbed").
 
 ### Environment factors
 
-| Factor | How | Engines |
-|:--|:--|:--|
-| theme | `?cr-attr=theme` (exists) | both |
-| viewport | `View.resize` (exists) | both |
-| zoom 200%, 400% | `Emulation.setDeviceMetricsOverride` with width ÷ zoom and `deviceScaleFactor` × zoom (WCAG reflow: 1280 at 400% is 320 CSS px) | Chrome |
-| `dir` | a second attribute through the same query (`cr-attr=dir`) | both |
-| `forced-colors`, `prefers-contrast`, `prefers-color-scheme`, `prefers-reduced-motion` | `Emulation.setEmulatedMedia` features | Chrome |
-| `hover: none` / `pointer: coarse` | `Emulation.setEmitTouchEventsForMouse` plus media features | Chrome |
-| font fallback | `serveFixtures` answers font requests with 404 | both |
+| Factor                                                                                | How                                                                                                                             | Engines |
+| :------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------ | :------ |
+| theme                                                                                 | `?cr-attr=theme` (exists)                                                                                                       | both    |
+| viewport                                                                              | `View.resize` (exists)                                                                                                          | both    |
+| zoom 200%, 400%                                                                       | `Emulation.setDeviceMetricsOverride` with width ÷ zoom and `deviceScaleFactor` × zoom (WCAG reflow: 1280 at 400% is 320 CSS px) | Chrome  |
+| `dir`                                                                                 | a second attribute through the same query (`cr-attr=dir`)                                                                       | both    |
+| `forced-colors`, `prefers-contrast`, `prefers-color-scheme`, `prefers-reduced-motion` | `Emulation.setEmulatedMedia` features                                                                                           | Chrome  |
+| `hover: none` / `pointer: coarse`                                                     | `Emulation.setEmitTouchEventsForMouse` plus media features                                                                      | Chrome  |
+| font fallback                                                                         | `serveFixtures` answers font requests with 404                                                                                  | both    |
 
 Every Chrome load emulates `prefers-reduced-motion: reduce` today
 (`view.ts`), so crassus never captures what most users see while animations
@@ -173,12 +173,12 @@ Each generator lists named levels, so the covering array treats them as
 values. Each draws its concrete value from a seeded choice sequence, so
 shrinking can make it simpler (see Shrinking).
 
-| Generator | Levels |
-|:--|:--|
-| `text()` | empty, one character, typical, 200+ characters with spaces, one unbroken 80-character word, RTL (Hebrew/Arabic), bidi mix, CJK, emoji with ZWJ sequences, combining marks |
-| `number()` | 0, negative, 10^12, a decimal, localized (`1.234,5`) |
-| `count()` | 0, 1, typical (5), many (50), huge (10,000, rendered only where the component virtualizes; otherwise left to the crawl budget) |
-| optional props | present, missing |
+| Generator      | Levels                                                                                                                                                                    |
+| :------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `text()`       | empty, one character, typical, 200+ characters with spaces, one unbroken 80-character word, RTL (Hebrew/Arabic), bidi mix, CJK, emoji with ZWJ sequences, combining marks |
+| `number()`     | 0, negative, 10^12, a decimal, localized (`1.234,5`)                                                                                                                      |
+| `count()`      | 0, 1, typical (5), many (50), huge (10,000, rendered only where the component virtualizes; otherwise left to the crawl budget)                                            |
+| optional props | present, missing                                                                                                                                                          |
 
 The 10,000-item level comes with a cost check. A row whose mount takes more
 than `matrix.mountBudgetMs` (default 2,000) is reported as slow and not
@@ -218,12 +218,12 @@ On top of that:
 Measured with a scratch IPOG on the Button model (12 factors, including
 `state`):
 
-| Strength | Rows | Generation |
-|:--|--:|--:|
-| Pairwise | 61 | 4 ms |
-| Pairwise, plus 3-way on state × theme × forced-colors | 60 | 3 ms |
-| 3-way | 324 | 32 ms |
-| Full product | 1,290,240 (423,360 valid) | — |
+| Strength                                              |                      Rows | Generation |
+| :---------------------------------------------------- | ------------------------: | ---------: |
+| Pairwise                                              |                        61 |       4 ms |
+| Pairwise, plus 3-way on state × theme × forced-colors |                        60 |       3 ms |
+| 3-way                                                 |                       324 |      32 ms |
+| Full product                                          | 1,290,240 (423,360 valid) |          — |
 
 Every array above was checked: each feasible tuple is covered and no row
 breaks a constraint. 61 rows is close to the floor. `kind` × `text` alone
@@ -341,16 +341,16 @@ Applied to every invariant:
    and `crassus approve` records it with its measured value. The same
    failure at a worse value isn't approved.
 
-| Invariant | Rule | Computed from | Golden case in carbon |
-|:--|:--|:--|:--|
-| Focus visible | Under keyboard focus, every reachable focusable element changes pixels around itself, and the change has ≥ 3:1 contrast against the unfocused pixels (WCAG 2.4.11, 2.4.13) | The rest vs `@focus` crops (one screenshot per state, as `compare --visual` takes), differing pixels, WCAG contrast per pixel pair | `83ca23bda`: the Toggle's focus ring was a `box-shadow`, which forced colors drop, so focus was invisible in High Contrast |
-| Text contrast | ≥ 4.5:1, or 3:1 for text ≥ 24px or ≥ 18.66px bold | Text color, ancestor opacity and alpha composed over the resolved backdrop (`fold.ts` `backdrop`); pixels when uncertain | Probe: 32 hits before the rules above, 1 left to check by pixels (`bx--header__action-text`, 1.39:1 by DOM ancestors) |
-| No unintended clipping | Overflowing text either wraps, or ends in an ellipsis with the full text available (`title`, a tooltip, `aria-label`). No focus ring or popover cut by an `overflow` ancestor | `scrollWidth > clientWidth` under `overflow: hidden`/`clip`; outline and shadow extents against each overflow ancestor's clip rect | `7be4df838`: a long file name ended in an ellipsis with no way to read it (needs the data factor). `5410180e5`, `6c37e458f`: menus clipped custom labels |
-| Target size | Interactive targets are at least 24 × 24 CSS px, or a 24px circle on their center clears every other target (WCAG 2.5.8), or the target sits inline in text | The click target's box. For a visually hidden input that's its `<label>`. The probe's 12 1×1 hits were all native inputs whose label is the target | Probe: 32 `bx--tooltip__trigger` buttons at 16 × 16 with another target within 12px |
-| Layout stability | Entering a state changes neither the element's own size nor its siblings' positions by ≥ 0.5px | `width`/`height` of `path` vs `path@state` in the snapshot (already recorded), plus sibling offsets (new: `--cr-box`) | `909847958`: a text `HeaderAction`'s border grew from 1px to 2px on focus, widening the button |
-| Theme contract | A property that follows a token in the reference theme follows it in every theme. Under `forced-colors: active`, state pairs (selected/unselected, checked, pressed, focus/rest) still differ by ΔE ≥ 1 over at least a perimeter's worth of pixels | Token tracing (`--tokens`) per theme row (`token-detached` in any theme fails). `--visual` crops and CIEDE2000 for the state pairs | `919f54e96` content-switcher selected, `b55cd46c2` toggle-button-group pressed, `a7f578b0a` tree-view selected and disabled, `94de480c4` header nav, `6ac646451` progress bar fill: each looked identical in forced colors |
-| Motion | Under `prefers-reduced-motion: reduce`, after settling, no running animations or transitions except opacity fades (configurable) | `document.getAnimations()` with each animation's animated properties; non-zero `transition-duration` on properties other than `opacity` | — |
-| RTL mirror | Under `dir=rtl`, each box sits at its LTR position mirrored inside its containing block (`x' = W − x − w`, ±1px), and directional icons flip unless marked as not directional | LTR and RTL rows of the same mount. Icons from a configured selector (`matrix.directionalIcons`) and their computed `transform` | `5993a2ed4`: badge-indicator kept `right: 0` beside `margin-inline-end`, so in RTL the badge stayed right while its margin flipped |
+| Invariant              | Rule                                                                                                                                                                                                                                                | Computed from                                                                                                                                      | Golden case in carbon                                                                                                                                                                                                      |
+| :--------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Focus visible          | Under keyboard focus, every reachable focusable element changes pixels around itself, and the change has ≥ 3:1 contrast against the unfocused pixels (WCAG 2.4.11, 2.4.13)                                                                          | The rest vs `@focus` crops (one screenshot per state, as `compare --visual` takes), differing pixels, WCAG contrast per pixel pair                 | `83ca23bda`: the Toggle's focus ring was a `box-shadow`, which forced colors drop, so focus was invisible in High Contrast                                                                                                 |
+| Text contrast          | ≥ 4.5:1, or 3:1 for text ≥ 24px or ≥ 18.66px bold                                                                                                                                                                                                   | Text color, ancestor opacity and alpha composed over the resolved backdrop (`fold.ts` `backdrop`); pixels when uncertain                           | Probe: 32 hits before the rules above, 1 left to check by pixels (`bx--header__action-text`, 1.39:1 by DOM ancestors)                                                                                                      |
+| No unintended clipping | Overflowing text either wraps, or ends in an ellipsis with the full text available (`title`, a tooltip, `aria-label`). No focus ring or popover cut by an `overflow` ancestor                                                                       | `scrollWidth > clientWidth` under `overflow: hidden`/`clip`; outline and shadow extents against each overflow ancestor's clip rect                 | `7be4df838`: a long file name ended in an ellipsis with no way to read it (needs the data factor). `5410180e5`, `6c37e458f`: menus clipped custom labels                                                                   |
+| Target size            | Interactive targets are at least 24 × 24 CSS px, or a 24px circle on their center clears every other target (WCAG 2.5.8), or the target sits inline in text                                                                                         | The click target's box. For a visually hidden input that's its `<label>`. The probe's 12 1×1 hits were all native inputs whose label is the target | Probe: 32 `bx--tooltip__trigger` buttons at 16 × 16 with another target within 12px                                                                                                                                        |
+| Layout stability       | Entering a state changes neither the element's own size nor its siblings' positions by ≥ 0.5px                                                                                                                                                      | `width`/`height` of `path` vs `path@state` in the snapshot (already recorded), plus sibling offsets (new: `--cr-box`)                              | `909847958`: a text `HeaderAction`'s border grew from 1px to 2px on focus, widening the button                                                                                                                             |
+| Theme contract         | A property that follows a token in the reference theme follows it in every theme. Under `forced-colors: active`, state pairs (selected/unselected, checked, pressed, focus/rest) still differ by ΔE ≥ 1 over at least a perimeter's worth of pixels | Token tracing (`--tokens`) per theme row (`token-detached` in any theme fails). `--visual` crops and CIEDE2000 for the state pairs                 | `919f54e96` content-switcher selected, `b55cd46c2` toggle-button-group pressed, `a7f578b0a` tree-view selected and disabled, `94de480c4` header nav, `6ac646451` progress bar fill: each looked identical in forced colors |
+| Motion                 | Under `prefers-reduced-motion: reduce`, after settling, no running animations or transitions except opacity fades (configurable)                                                                                                                    | `document.getAnimations()` with each animation's animated properties; non-zero `transition-duration` on properties other than `opacity`            | —                                                                                                                                                                                                                          |
+| RTL mirror             | Under `dir=rtl`, each box sits at its LTR position mirrored inside its containing block (`x' = W − x − w`, ±1px), and directional icons flip unless marked as not directional                                                                       | LTR and RTL rows of the same mount. Icons from a configured selector (`matrix.directionalIcons`) and their computed `transform`                    | `5993a2ed4`: badge-indicator kept `right: 0` beside `margin-inline-end`, so in RTL the badge stayed right while its margin flipped                                                                                         |
 
 Layout stability over the capture taken for this design (white, 1280 × 900,
 forced states): 22 size changes in 11,903 element-state pairs. All were
@@ -447,13 +447,13 @@ The matrix multiplies everything, so its limits come first:
 Each phase ships on its own, with tests, an eval check against the golden
 cases, README and changelog.
 
-| Phase | Ships | Eval (on carbon-components-svelte) |
-|:--|:--|:--|
-| 1 | Environment factors (`dir`, zoom, media features, font fallback) on `capture`/`compare`. Layout stability and focus visible on existing captures | `909847958^` fails layout stability, `909847958` passes. `83ca23bda^` fails focus visible in forced colors. Per-load cost measured |
-| 2 | `crassus/matrix@1`, IPOG with constraints and relations, the fixture protocol, data generators, row shrinking and data shrinking | Rows and coverage verified for each fixture model. `7be4df838^` fails clipping on a long file name and shrinks to one unbroken word |
-| 3 | The crawl, and the forced-vs-real cross-check | JS-driven states found per fixture. The "last reachable state wins" cases listed. Event cost measured, defaults set |
-| 4 | Contrast, target size, theme contract (forced colors) | The five forced-colors fixes each fail at `^` and pass at the fix. Contrast and target noise reported against the probe's |
-| 5 | Motion, RTL, heatmap, `compare --matrix` (`crassus/report@2`) | `5993a2ed4^` fails RTL mirror. Motion noise measured before it can fail a run |
+| Phase | Ships                                                                                                                                            | Eval (on carbon-components-svelte)                                                                                                  |
+| :---- | :----------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Environment factors (`dir`, zoom, media features, font fallback) on `capture`/`compare`. Layout stability and focus visible on existing captures | `909847958^` fails layout stability, `909847958` passes. `83ca23bda^` fails focus visible in forced colors. Per-load cost measured  |
+| 2     | `crassus/matrix@1`, IPOG with constraints and relations, the fixture protocol, data generators, row shrinking and data shrinking                 | Rows and coverage verified for each fixture model. `7be4df838^` fails clipping on a long file name and shrinks to one unbroken word |
+| 3     | The crawl, and the forced-vs-real cross-check                                                                                                    | JS-driven states found per fixture. The "last reachable state wins" cases listed. Event cost measured, defaults set                 |
+| 4     | Contrast, target size, theme contract (forced colors)                                                                                            | The five forced-colors fixes each fail at `^` and pass at the fix. Contrast and target noise reported against the probe's           |
+| 5     | Motion, RTL, heatmap, `compare --matrix` (`crassus/report@2`)                                                                                    | `5993a2ed4^` fails RTL mirror. Motion noise measured before it can fail a run                                                       |
 
 Golden cases that are JS fixes (`7be4df838`) need the fixtures built at
 each commit. That's what `browser.fixtures.build` already runs in a base
