@@ -3,6 +3,7 @@
   "entry": [
     "src/index.ts",
     "src/browser/index.ts",
+    "src/git.ts",
     "src/page/usage-dom.ts",
     "scripts/*.ts",
     "bench/*.ts",
@@ -16,7 +17,7 @@
     "eval/**/*.ts",
     "tests/**/*.ts"
   ],
-  "ignoreBinaries": ["check", "browser.ts"],
+  "ignoreBinaries": ["check", "browser.ts", "git.ts"],
   "ignoreDependencies": [
     "@carbon/styles",
     "@primer/css",

@@ -111,6 +111,17 @@ for (const f of [capture, runUsage, serveFixtures])
   );
   await $`bun browser.ts`.cwd(dir);
 
+  await writeFile(
+    join(dir, "git.ts"),
+    `import type { Stylesheets } from "crassus";
+import { compileAt } from "crassus/git";
+if (typeof compileAt !== "function") throw new Error("missing exports");
+export const types = (): Promise<{ sheets: Stylesheets }> =>
+  compileAt(undefined, { cwd: ".", entries: ["a"] });
+`,
+  );
+  await $`bun git.ts`.cwd(dir);
+
   // The bin: installed, executable, and failing on findings.
   await writeFile(join(dir, "a.css"), ".a{color:red}.a{color:blue}");
   const bin = join(dir, "node_modules/.bin/crassus");
@@ -162,7 +173,7 @@ for (const f of [capture, runUsage, serveFixtures])
     throw new Error(`crassus usage: ${JSON.stringify(usage.deadInFixtures)}`);
 
   console.log(
-    "✓ Core works in Node and type-checks; crassus/browser loads in Bun; the crassus bin runs, browser commands included",
+    "✓ Core works in Node and type-checks; crassus/browser and crassus/git load in Bun; the crassus bin runs, browser commands included",
   );
 } finally {
   await rm(dir, { recursive: true, force: true });

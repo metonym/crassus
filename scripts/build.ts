@@ -11,6 +11,8 @@ const entries = {
   index: { entry: resolve(root, "src/index.ts"), target: "browser" },
   // Bun.WebView drivers. The page script is inlined by a Bun macro.
   browser: { entry: resolve(root, "src/browser/index.ts"), target: "bun" },
+  // Stylesheets at a git ref: the CLI's cached base build as an API.
+  git: { entry: resolve(root, "src/git.ts"), target: "bun" },
   cli: { entry: resolve(root, "src/cli/index.ts"), target: "bun" },
 } as const;
 
@@ -35,19 +37,22 @@ for (const [name, { entry, target }] of Object.entries(entries)) {
 }
 
 // Declarations for the library entries, mirroring src/ under dist/types/.
-const program = ts.createProgram([entries.index.entry, entries.browser.entry], {
-  target: ts.ScriptTarget.ESNext,
-  module: ts.ModuleKind.ESNext,
-  moduleResolution: ts.ModuleResolutionKind.Bundler,
-  strict: true,
-  skipLibCheck: true,
-  declaration: true,
-  emitDeclarationOnly: true,
-  rootDir: resolve(root, "src"),
-  outDir: resolve(outDir, "types"),
-  types: ["bun"],
-  lib: ["lib.esnext.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
-});
+const program = ts.createProgram(
+  [entries.index.entry, entries.browser.entry, entries.git.entry],
+  {
+    target: ts.ScriptTarget.ESNext,
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Bundler,
+    strict: true,
+    skipLibCheck: true,
+    declaration: true,
+    emitDeclarationOnly: true,
+    rootDir: resolve(root, "src"),
+    outDir: resolve(outDir, "types"),
+    types: ["bun"],
+    lib: ["lib.esnext.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
+  },
+);
 // Node's ESM resolution (and TypeScript's `nodenext`) needs file
 // extensions on relative specifiers, including inside .d.ts files.
 const RELATIVE_SPECIFIER_RE =
@@ -102,6 +107,11 @@ await writeFile(
           types: "./types/browser/index.d.ts",
           bun: "./browser.js",
           default: "./browser.js",
+        },
+        "./git": {
+          types: "./types/git.d.ts",
+          bun: "./git.js",
+          default: "./git.js",
         },
       },
     },
