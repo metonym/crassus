@@ -1,7 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { version } from "../../package.json";
-import { baseStylesheets } from "./baseline";
+import { baseStylesheets, headStylesheets } from "./baseline";
 import { bisectCommand } from "./bisect";
 import {
   type BrowserFlags,
@@ -91,7 +91,9 @@ from its \`browser\` block.
 
 Options:
   --base <ref>       git ref to diff against (default: HEAD); built in a
-                     temporary worktree and cached by commit
+                     temporary worktree and cached by commit, or, with the
+                     config's \`inputs\`, from just those paths and cached
+                     by their contents
   --entry <name>     only this stylesheet (repeatable)
   --format <format>  human (default), json, github, sarif; compare and
                      bisect: human, json, markdown or sarif (change cards)
@@ -364,16 +366,16 @@ async function run(argv: string[], io: Io): Promise<number> {
     } else {
       const ref = values.base ?? "HEAD";
       const started = performance.now();
+      const side = {
+        cwd,
+        config,
+        configText: file ? await Bun.file(file).text() : "",
+        only,
+        cache: !values["no-cache"],
+      };
       const [b, head] = await Promise.all([
-        baseStylesheets({
-          cwd,
-          ref,
-          config,
-          configText: file ? await Bun.file(file).text() : "",
-          only,
-          cache: !values["no-cache"],
-        }),
-        stylesheets(cwd, config, only),
+        baseStylesheets({ ...side, ref }),
+        headStylesheets(side),
       ]);
       if (format === "human")
         io.err(
@@ -381,7 +383,7 @@ async function run(argv: string[], io: Io): Promise<number> {
         );
       base = { ref, sha: b.sha };
       baseSheets = b.sheets;
-      headSheets = head;
+      headSheets = head.sheets;
     }
     const { results, onlyBase, onlyHead } = await runDiff(
       baseSheets,

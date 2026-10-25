@@ -17,7 +17,7 @@ import {
 } from "../core/cards";
 import type { BrowserConfig, Config } from "../core/config";
 import { changedRules, nothingChanged } from "../core/impact";
-import { atRef, baseStylesheets, cacheDir } from "./baseline";
+import { atRef, baseStylesheets, cacheDir, headStylesheets } from "./baseline";
 import {
   attachSources,
   formatCardsBrief,
@@ -34,7 +34,6 @@ import {
   filesAsSheets,
   isOneOf,
   shownPath,
-  stylesheets,
   UsageError,
 } from "./project";
 import { formatSnapshotDiff, refLabel, type Summary, seconds } from "./report";
@@ -552,19 +551,21 @@ export async function compareCommand(opts: {
     label = files[0];
   } else {
     const ref = opts.base ?? "HEAD";
+    const configText = opts.configFile
+      ? await Bun.file(opts.configFile).text()
+      : "";
+    const side = {
+      cwd,
+      config: opts.config,
+      configText,
+      cache: opts.cache,
+    };
     const sheet = pick(
-      await stylesheets(cwd, opts.config, opts.entry),
+      (await headStylesheets({ ...side, only: opts.entry })).sheets,
       opts.entry,
     );
     const started = performance.now();
-    const b = await baseStylesheets({
-      cwd,
-      ref,
-      config: opts.config,
-      configText: opts.configFile ? await Bun.file(opts.configFile).text() : "",
-      only: [sheet.name],
-      cache: opts.cache,
-    });
+    const b = await baseStylesheets({ ...side, ref, only: [sheet.name] });
     sides = { base: pick(b.sheets, [sheet.name]), head: sheet };
     label = `${sheet.name} at ${refLabel(ref, b.sha)}`;
     baseSha = b.sha;

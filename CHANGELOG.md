@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- The config's `inputs` (the paths the stylesheets are built from) make
+  `diff --base`, `compare` and `bisect` build a base from just those
+  paths, written out with `git read-tree` and `checkout-index` instead of
+  a whole `git worktree`, and cache it by the git objects at those paths,
+  the config file and the lockfile instead of by commit: every commit
+  that left them alone reuses the build. `diff` and `compare` cache the
+  head the same way while the paths match `HEAD`. On
+  carbon-components-svelte (`diff --entry all`, 4 to 7 runs interleaved
+  with the previous build, a loaded machine, medians):
+
+  | Run | Before | After |
+  |:--|--:|--:|
+  | Base never built | 10.0 s | 8.9 s |
+  | Same command again | 8.3 s | 0.43 s |
+  | Base on another commit, same `css/` | 11.6 s | 0.35 s |
+  | Base on a commit that changed `css/`, head built before | 11.4 s | 7.2 s |
+
+  Writing `css/` at a ref took 0.17 s instead of 1.2 s for a `git
+  worktree` add and remove. Without `inputs` nothing changes.
+
 ## 0.3.0 — 2026-10-12
 
 **Breaking**
