@@ -17,7 +17,7 @@
     "eval/**/*.ts",
     "tests/**/*.ts"
   ],
-  "ignoreBinaries": ["check", "browser.ts", "git.ts"],
+  "ignoreBinaries": ["browser.ts", "git.ts"],
   "ignoreDependencies": [
     "@carbon/styles",
     "@primer/css",
