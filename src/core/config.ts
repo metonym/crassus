@@ -28,6 +28,18 @@ export interface Config {
   /** Shell command that writes `css`, run in the project (and in a temporary base checkout for `diff`). */
   build?: string;
   /**
+   * The paths (relative to the project root) the stylesheets are built from,
+   * and everything else the build reads from the repository: Sass sources,
+   * helpers `compile` imports. Tracked files, since git names them. With
+   * it, `diff --base` extracts just these paths at the ref instead of
+   * checking out the whole repository, and caches the build by their
+   * contents, so any commit that left them alone reuses it. Stylesheets
+   * built from the working tree are cached too while these paths match HEAD.
+   * The installed dependencies are named by the lockfile. Without it, the
+   * base is built in a full worktree and cached by commit.
+   */
+  inputs?: string | string[];
+  /**
    * Compile in-process instead of `css` and `build`. `root` is the project
    * or, for `diff`, a temporary base checkout. With `entries`, compile those
    * (`dead --fix` asks for `fixEntries`).

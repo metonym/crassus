@@ -72,14 +72,14 @@ Browser runs open one tab (a renderer process) per `--concurrency`, by default h
 
 | Option | Description |
 |:---|:---|
-| `--base <ref>` | Git ref to diff against (default `HEAD`). The base is built in a temporary `git worktree` with your own build, and cached by commit under `node_modules/.cache/crassus`. |
+| `--base <ref>` | Git ref to diff against (default `HEAD`). The base is built with your own build in a temporary `git worktree`, and cached by commit under `node_modules/.cache/crassus`. With the config's [`inputs`](#configuration), it's built from just those paths and cached by their contents, so a commit that left them alone reuses the build. |
 | `--entry <name>` | Only this stylesheet (repeatable). |
 | `--format <format>` | `human` (default), `json` (stable schema), `github` (workflow annotations at the source line) or `sarif` (code scanning). `compare` and `bisect` take `human`, `json`, `markdown` (change cards for a PR) or `sarif` (one result per change card, at the changed rule's source line). `--json` is short for `--format json`. |
 | `--config <file>` | Config file (default `crassus.config.{ts,js,mjs}`). |
 | `--fix` | `dead`: delete the dead declarations. See [Fixing](#fixing). |
 | `--confirm` | `diff`: render each cascade flip in Chrome and fail only on those whose value changes (needs the config's `browser` block). |
 | `--dry-run` | With `--fix`: print the edits as a unified diff and write nothing. |
-| `--no-cache` | Rebuild the base. |
+| `--no-cache` | Rebuild the base (and the head, which `inputs` caches). |
 | `--verbose` | List every rule in review sections. |
 | `--summary <file>` | `dead`, `diff`, `snapshot-diff`, `compare`, `bisect`: also append the human report to this file, as a fenced block, whatever `--format` prints. Meant for `$GITHUB_STEP_SUMMARY`: it's cut at a line, with a note, to stay within GitHub's 1 MiB. |
 
@@ -214,6 +214,7 @@ export default defineConfig({
 | `css` | Built CSS files, relative to the project root: a path, an array, or `{ name: path }`. |
 | `build` | Shell command that writes `css`. Runs before reading, in the project and in the base checkout. |
 | `compile(root, { entries? })` | Instead of `css` and `build`: returns `{ name: { css, map? } }`. With `entries`, compiles those. |
+| `inputs` | The paths the stylesheets are built from, and everything else the build reads from the repository (`"css"`, or an array): tracked files. `diff --base`, `compare` and `bisect` then extract just these paths at the ref (`git ls-files` into a temporary directory, not a whole `git worktree`) and cache the build by the git objects at those paths, the config file and the lockfile (`bun.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`), so every commit that left them alone shares one build. `diff` and `compare` cache the head too while the paths match `HEAD`. A path the ref lacks builds in a full worktree, cached by commit, as without `inputs`. Anything the build reads that isn't listed (a helper `compile` imports) is missing from the base and isn't in its key: list it. |
 | `fixEntries` | `dead --fix`: more entries to prove fixes against (a theme that imports the same partials), compiled with `compile(root, { entries })`. |
 | `componentOf(class)` | The component a class belongs to, to scope order-tie flips. |
 

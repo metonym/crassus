@@ -356,6 +356,95 @@ describe("crassus diff", () => {
     expect(unknown.code).toBe(2);
     expect(unknown.err).toContain("unknown git ref: nope");
   }, 30_000);
+
+  describe("with `inputs`", () => {
+    // `compile` logs the files in the root it's given, one line per call.
+    async function inputsProject(extra: Record<string, string> = {}) {
+      const root = await project({
+        "crassus.config.ts": "",
+        "src/app.css": BASE,
+        "notes.txt": "one",
+        ...extra,
+      });
+      const log = join(root, "..", `${root.split("/").pop()}.log`);
+      await Bun.write(
+        join(root, "crassus.config.ts"),
+        `import { appendFileSync, readdirSync, readFileSync } from "node:fs";
+        export default {
+          inputs: ["src/"],
+          compile(root) {
+            appendFileSync(${JSON.stringify(log)}, readdirSync(root).sort().join(",") + "\\n");
+            return { app: { css: readFileSync(root + "/src/app.css", "utf8") } };
+          },
+        };`,
+      );
+      await $`git init -q && git add . && git -c user.email=t@t -c user.name=t commit -q -m one`
+        .cwd(root)
+        .quiet();
+      const git = (...args: string[]) =>
+        $`git -c user.email=t@t -c user.name=t ${args}`.cwd(root).quiet();
+      const builds = async () =>
+        (await Bun.file(log).exists())
+          ? (await Bun.file(log).text()).trim().split("\n")
+          : [];
+      return { root, git, builds };
+    }
+
+    it("builds the base from the inputs alone and reuses it across commits that leave them alone", async () => {
+      const { root, git, builds } = await inputsProject();
+      await Bun.write(join(root, "notes.txt"), "two");
+      await git("commit", "-qam", "notes only");
+      await Bun.write(join(root, "src/app.css"), HEAD);
+
+      const first = await cli(root, "diff", "--base", "HEAD~1", "--no-cache");
+      expect(first.code).toBe(1);
+      expect(first.out).toContain("1 cascade flip(s)");
+      expect(first.err).toContain("built in");
+      // The base had src/ and nothing else (the head: the whole project).
+      expect((await builds()).filter((l) => l === "src").length).toBe(1);
+
+      // The commit before and the one after the notes edit share src/.
+      const second = await cli(root, "diff", "--base", "HEAD");
+      expect(second.err).toContain("from cache");
+      expect(second.out).toContain("1 cascade flip(s)");
+      expect(await worktrees(root)).toBe(1);
+    }, 30_000);
+
+    it("caches the working tree's build while the inputs match HEAD", async () => {
+      const { root, git, builds } = await inputsProject({ "bun.lock": "1" });
+      await Bun.write(join(root, "src/app.css"), HEAD);
+      await git("commit", "-qam", "head");
+
+      await cli(root, "diff", "--base", "HEAD~1");
+      expect(await builds()).toHaveLength(2);
+      // Both sides cached.
+      await cli(root, "diff", "--base", "HEAD~1");
+      expect(await builds()).toHaveLength(2);
+      // A dirty input builds the head, not the base.
+      await Bun.write(join(root, "src/app.css"), `${HEAD}.y { top: 0 }\n`);
+      const dirty = await cli(root, "diff", "--base", "HEAD~1");
+      expect(dirty.err).toContain("from cache");
+      expect(await builds()).toHaveLength(3);
+      await Bun.write(join(root, "src/app.css"), HEAD);
+      // A new lockfile could mean a new compiler: build again.
+      await Bun.write(join(root, "bun.lock"), "2");
+      await cli(root, "diff", "--base", "HEAD~1");
+      expect(await builds()).toHaveLength(5);
+    }, 30_000);
+
+    it("names a path outside the project", async () => {
+      const { root } = await inputsProject();
+      await Bun.write(
+        join(root, "crassus.config.ts"),
+        `export default { inputs: "../x", compile: () => ({}) };`,
+      );
+      const r = await cli(root, "diff", "--base", "HEAD");
+      expect(r.code).toBe(2);
+      expect(r.err).toContain(
+        'inputs: "../x" isn\'t a path inside the project',
+      );
+    });
+  });
 });
 
 describe("crassus dead --fix", () => {
