@@ -14,12 +14,12 @@
   carbon-components-svelte (`diff --entry all`, 4 to 7 runs interleaved
   with the previous build, a loaded machine, medians):
 
-  | Run | Before | After |
-  |:--|--:|--:|
-  | Base never built | 10.0 s | 8.9 s |
-  | Same command again | 8.3 s | 0.43 s |
-  | Base on another commit, same `css/` | 11.6 s | 0.35 s |
-  | Base on a commit that changed `css/`, head built before | 11.4 s | 7.2 s |
+  | Run                                                     | Before |  After |
+  | :------------------------------------------------------ | -----: | -----: |
+  | Base never built                                        | 10.0 s |  8.9 s |
+  | Same command again                                      |  8.3 s | 0.43 s |
+  | Base on another commit, same `css/`                     | 11.6 s | 0.35 s |
+  | Base on a commit that changed `css/`, head built before | 11.4 s |  7.2 s |
 
   Writing `css/` at a ref took 0.17 s instead of 1.2 s for a `git
   worktree` add and remove. Without `inputs` nothing changes.
@@ -77,12 +77,12 @@
   124 fixture pages (white, 1280 × 900, forced states, 4 tabs), before and
   after:
 
-  | Change | Changed elements | Before | After |
-  |:--|--:|--:|--:|
-  | `28e700f30..7e301af6f` | 172 | +9.2 s | +2.3 s |
-  | `2d710c03e^..7e301af6f` | 172 | +7.8 s | +5.9 s |
-  | `660b2936a` (#3839) | 12 | +1.7 s | −0.1 s (noise) |
-  | Recoloring `#0f62fe` | 1,388 | +50.1 s | +23.1 s |
+  | Change                  | Changed elements |  Before |          After |
+  | :---------------------- | ---------------: | ------: | -------------: |
+  | `28e700f30..7e301af6f`  |              172 |  +9.2 s |         +2.3 s |
+  | `2d710c03e^..7e301af6f` |              172 |  +7.8 s |         +5.9 s |
+  | `660b2936a` (#3839)     |               12 |  +1.7 s | −0.1 s (noise) |
+  | Recoloring `#0f62fe`    |            1,388 | +50.1 s |        +23.1 s |
 
 - `compare --explain` and `--visual` read the base side on the page the
   head side was just read on, by switching its library `<link>` to the
@@ -116,13 +116,13 @@
   states, 4 tabs), against reading everything, with identical results on
   every case:
 
-  | Change | Pages reached | Everything | Scoped |
-  |:--|--:|--:|--:|
-  | One color declaration (`.bx--tag--red`) | 1 | 48.2 s | 2.1 s |
-  | One padding declaration (`.bx--btn`) | 35 | 47.2 s | 12.6 s |
-  | `28e700f30..7e301af6f` (the TooltipDefinition regression, 411 changed selectors) | 29 | 50.7 s | 12.4 s |
-  | `660b2936a` (#3839) | 8 | 87.1 s | 4.9 s |
-  | 25 runs of CSS refactor commits (82 commits, `2d710c03e..97164eeec`) | 0–124 | 1,217.6 s | 287.8 s |
+  | Change                                                                           | Pages reached | Everything |  Scoped |
+  | :------------------------------------------------------------------------------- | ------------: | ---------: | ------: |
+  | One color declaration (`.bx--tag--red`)                                          |             1 |     48.2 s |   2.1 s |
+  | One padding declaration (`.bx--btn`)                                             |            35 |     47.2 s |  12.6 s |
+  | `28e700f30..7e301af6f` (the TooltipDefinition regression, 411 changed selectors) |            29 |     50.7 s |  12.4 s |
+  | `660b2936a` (#3839)                                                              |             8 |     87.1 s |   4.9 s |
+  | 25 runs of CSS refactor commits (82 commits, `2d710c03e..97164eeec`)             |         0–124 |  1,217.6 s | 287.8 s |
 
   Building the page index took 19.8 s. Of the 25 runs, 6 reach no
   page (0.3–0.5 s each), 2 change `@font-face` rules and read everything,

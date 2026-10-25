@@ -4,13 +4,13 @@ For projects that check their CSS with scripts of their own built on [css-tree](
 
 ## Map each script to a rung
 
-| Your script does | crassus | Claim |
-|:---|:---|:---|
-| Declarations a later identical selector always overrides | `crassus dead` (`--fix` to delete them in the sources) | proof |
-| Specificity and winner changes between two builds | `crassus diff --base <ref>` | heuristic |
-| Declarations that match on fixture pages but never win | `crassus usage` | evidence |
-| Computed styles per element, theme and forced state, before and after | `crassus capture` and `crassus snapshot-diff` | ground truth |
-| Selector matching cost | Nothing: keep your harness | (not a cascade claim) |
+| Your script does                                                      | crassus                                                | Claim                 |
+| :-------------------------------------------------------------------- | :----------------------------------------------------- | :-------------------- |
+| Declarations a later identical selector always overrides              | `crassus dead` (`--fix` to delete them in the sources) | proof                 |
+| Specificity and winner changes between two builds                     | `crassus diff --base <ref>`                            | heuristic             |
+| Declarations that match on fixture pages but never win                | `crassus usage`                                        | evidence              |
+| Computed styles per element, theme and forced state, before and after | `crassus capture` and `crassus snapshot-diff`          | ground truth          |
+| Selector matching cost                                                | Nothing: keep your harness                             | (not a cascade claim) |
 
 Put the stylesheets in `crassus.config.ts`. Use `css` and `build` for files your build writes, or a `compile(root)` hook that returns CSS and source maps, so findings land on the `.scss` line. Add a `browser` block for the fixture pages (see the README's "Fixture pages"). Then delete the scripts and their tests: crassus's test suite covers the behaviour.
 
@@ -26,7 +26,7 @@ Put the stylesheets in `crassus.config.ts`. Use `css` and `build` for files your
 `crassus usage` and `crassus capture` replace a Playwright driver. If you keep one anyway (for a harness crassus doesn't cover), use these to key its output to `parseRules` without a second CSS parser:
 
 - **`canonicalSelector(text)`** spells CDP's `selectorList.selectors[i].text` as `Rule.selector` does.
-- **`canonicalContext(name, prelude)`** spells CDP's `media[].text`, `supports[].text` and `containerQueries[].conditionText` (as `canonicalContext("media", text)`) as one segment of `Rule.context`. Segments join with ` / `, outermost first.
+- **`canonicalContext(name, prelude)`** spells CDP's `media[].text`, `supports[].text` and `containerQueries[].conditionText` (as `canonicalContext("media", text)`) as one segment of `Rule.context`. Segments join with `" / "`, outermost first.
 - **`SHORTHANDS[name]`** lists the longhands a shorthand sets, spelled as CDP lists them. When CDP matches a shorthand without `longhandProperties` (`padding: var(--a) 2px`), expand it with `SHORTHANDS[name]?.includes(longhand)`. This covers logical shorthands too: `margin-block` sets `margin-block-start` and `margin-block-end`, not `margin-top`.
 
 ## CI
