@@ -90,7 +90,6 @@ async function compare(a: string, b: string): Promise<Compare> {
     const fb = inB.get(page);
     if (!fb) continue;
     r.files++;
-    // biome-ignore lint/performance/noAwaitInLoops: ordered output
     const [sa, sb] = await Promise.all([load(fa), load(fb)]);
     for (const key of Object.keys(sa)) {
       r.entries++;
@@ -204,7 +203,6 @@ const runs: { name: string; opts: RunOptions; vs: string[] }[] = [
 
 for (const run of runs) {
   if (RUNS && !RUNS.some((r) => run.name.startsWith(r))) continue;
-  // biome-ignore lint/performance/noAwaitInLoops: one run at a time, so timings don't contend
   const res = await capture({
     ...run.opts,
     baseUrl: server.url,
@@ -217,7 +215,6 @@ for (const run of runs) {
     `\n${run.name}: ${(res.ms / 1000).toFixed(1)}s (${res.pages} pages)`,
   );
   for (const v of run.vs) {
-    // biome-ignore lint/performance/noAwaitInLoops: ordered output
     if ((await snapshots(out(v))).has(`${fixtures[0]}.white`))
       report(v, await compare(out(v), out(run.name)));
   }

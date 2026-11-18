@@ -164,7 +164,7 @@ export async function runDiff(
       }))
       .sort((x, y) => y.head - x.head || y.base - x.base)
       .slice(0, 10);
-    // biome-ignore lint/performance/noAwaitInLoops: one entry at a time keeps memory flat
+    // eslint-disable-next-line no-await-in-loop -- one entry at a time keeps memory flat
     const [sizeBase, sizeHead] = await Promise.all([
       sizeOf(b.css),
       sizeOf(h.css),

@@ -8,9 +8,9 @@
 import path from "node:path";
 import { CORPORA } from "../../bench/corpora";
 import type { Rule } from "../../src/core/cascade";
-// biome-ignore lint/performance/noNamespaceImport: comparing two libraries with identical export names
+// eslint-disable-next-line no-restricted-syntax -- comparing two libraries with identical export names
 import * as newCascade from "../../src/core/cascade";
-// biome-ignore lint/performance/noNamespaceImport: comparing two libraries with identical export names
+// eslint-disable-next-line no-restricted-syntax -- comparing two libraries with identical export names
 import * as newOverrides from "../../src/core/overrides";
 import {
   CCS_ROOT,
@@ -32,7 +32,6 @@ async function inputs(): Promise<{ name: string; css: string }[]> {
   const out = await withSass(async (compile) => {
     const compiled: { name: string; css: string }[] = [];
     for (const entry of ["all", "white"]) {
-      // biome-ignore lint/performance/noAwaitInLoops: one compiler, in order
       const { css } = await compile(cssDir, entry, { style: "expanded" });
       compiled.push({ name: `${entry}.scss (expanded)`, css });
     }

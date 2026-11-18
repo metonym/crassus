@@ -258,7 +258,6 @@ export async function matchPages(
         return false;
       });
       if (batch.length === 0) continue;
-      // biome-ignore lint/performance/noAwaitInLoops: one view
       const r = await view.evaluate<PageMatch[]>(
         `${MATCH}(${JSON.stringify(batch.map((j) => index.pages[j.label].skeleton))}, ${JSON.stringify(selectors)})`,
       );

@@ -184,7 +184,6 @@ async function waitReady(
   const expr = `!!document.querySelector(${JSON.stringify(selector)})`;
   const deadline = performance.now() + timeoutMs;
   for (;;) {
-    // biome-ignore lint/performance/noAwaitInLoops: polling
     if (await view.evaluate<boolean>(expr)) return true;
     if (performance.now() >= deadline) return false;
     await Bun.sleep(25);
@@ -217,7 +216,6 @@ async function runPool<J, R>(
           const cores = availableParallelism();
           if (now > cores) {
             if (slot === 1) onBusy?.({ load: now, cores, ms: BACKOFF_MS });
-            // biome-ignore lint/performance/noAwaitInLoops: polling the load
             await Bun.sleep(BACKOFF_MS);
             continue;
           }

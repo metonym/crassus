@@ -72,7 +72,6 @@ const rows: {
   problem: string | null;
 }[] = [];
 for (const c of cases) {
-  // biome-ignore lint/performance/noAwaitInLoops: one run at a time
   const built = await Promise.all([cssAt(c.base), cssAt(c.head)]).catch(
     (e: Error) => e,
   );

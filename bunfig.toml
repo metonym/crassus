@@ -1,0 +1,81 @@
+# `bun lint` and `bun fmt` (Bun canary).
+
+[lint]
+maxWarnings = 0
+
+# ESLint and typescript-eslint recommended are on by default; these add the
+# stricter checks the project enforces on top.
+[lint.rules]
+"@typescript-eslint/ban-ts-comment" = ["error", { "ts-expect-error" = false }]
+"@typescript-eslint/consistent-type-exports" = "error"
+"@typescript-eslint/consistent-type-imports" = [
+  "error",
+  { disallowTypeAnnotations = false },
+]
+"@typescript-eslint/no-explicit-any" = "error"
+"@typescript-eslint/no-unnecessary-type-constraint" = "error"
+"@typescript-eslint/no-useless-empty-export" = "error"
+"dot-notation" = "error"
+"import/no-cycle" = "error"
+"jest/no-disabled-tests" = "error"
+"jest/no-focused-tests" = "error"
+"no-await-in-loop" = "error"
+"no-empty" = ["error", { allowEmptyCatch = true }]
+"no-extra-label" = "error"
+"no-lone-blocks" = "error"
+"no-restricted-imports" = [
+  "error",
+  { paths = [
+    { name = "bun:test", message = "bun:test imports are unnecessary." },
+  ] },
+]
+"no-restricted-syntax" = [
+  "error",
+  { selector = "UnaryExpression[operator='delete'] > MemberExpression[computed=false]", message = "Avoid the delete operator; assign undefined or rebuild the object." },
+  { selector = "ExportAllDeclaration", message = "Export names explicitly instead of re-exporting everything." },
+  { selector = "ImportDeclaration[importKind!='type'] > ImportNamespaceSpecifier", message = "Import names explicitly instead of a namespace." },
+  { selector = ":function Literal[regex]:not([regex.flags=/[gy]/])", message = "Hoist the regular expression to the top level so it compiles once." },
+  { selector = "TSEnumDeclaration", message = "Use a union of literals or a const object instead of an enum." },
+  # Biome's noForEach: a callback that takes the index may stay a forEach.
+  { selector = "CallExpression[callee.property.name='forEach'][arguments.0.params.length<2]", message = "Use for...of instead of forEach." },
+]
+"no-useless-constructor" = "error"
+"no-useless-rename" = "error"
+"oxc/no-accumulating-spread" = "error"
+"prefer-arrow-callback" = "error"
+"prefer-const" = "error"
+"unicorn/no-useless-switch-case" = "error"
+"unicorn/prefer-node-protocol" = "error"
+
+# src/core and src/page run in Node, Bun and the page, so they import no
+# runtime APIs and nothing from the Bun-only browser layer.
+[[lint.overrides]]
+files = ["src/core/**", "src/page/**"]
+
+[lint.overrides.rules]
+"no-restricted-imports" = ["error", {
+  paths = [
+    { name = "bun", message = "src/core and src/page are runtime-neutral: no Bun APIs." },
+    { name = "bun:test", message = "bun:test imports are unnecessary." },
+  ],
+  patterns = [
+    { group = ["node:*"], message = "src/core and src/page are runtime-neutral: no Node APIs." },
+    { group = ["../browser/*", "../browser"], message = "src/core and src/page must not import the Bun-only browser layer." },
+  ],
+}]
+
+# Scripts and evals run their steps one at a time, so each run's output
+# stays in order and its timings don't contend.
+[[lint.overrides]]
+files = ["scripts/**", "eval/**"]
+rules = { "no-await-in-loop" = "off" }
+
+# The browser layer drives one view, which takes one CDP call at a time.
+[[lint.overrides]]
+files = ["src/browser/**", "tests/browser.test.ts"]
+rules = { "no-await-in-loop" = "off" }
+
+[fmt]
+# Markdown and YAML stay hand-formatted. Fixtures are inputs the tests
+# compare byte for byte.
+ignorePatterns = ["**/*.md", "**/*.yml", "**/*.yaml", "tests/fixtures/**"]

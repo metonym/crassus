@@ -75,7 +75,6 @@ const CASES: (Case & { check: (cards: Card[]) => string | null })[] = [
 const shared = await fixtureOpts();
 let failed = 0;
 for (const c of CASES) {
-  // biome-ignore lint/performance/noAwaitInLoops: one run at a time
   const [base, head] = await Promise.all([cssAt(c.base), cssAt(c.head)]);
   await quiet();
   const r = await compareCss({

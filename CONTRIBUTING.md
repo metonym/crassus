@@ -11,7 +11,7 @@ bun ci
 bun run test          # unit tests, corpus parity, fuzzers, hostile inputs
 bun run test:package  # build, pack, install, and use it as a consumer would
 bun run typecheck
-bun run lint          # biome; `bun run lint:fix` formats and applies fixes
+bun fmt --check && bun lint  # format and lint; `bun run lint:all` formats and applies fixes
 bun run knip          # unused files, exports and dependencies
 bun run build         # dist/: minified ESM, declarations, slimmed package.json
 bun run gen:shorthands  # regenerate src/core/shorthands.ts from Chrome's CSSOM
@@ -47,9 +47,9 @@ There are two entry points with different runtime rules.
 
 - **The precision ladder is the product.** Every finding states its claim strength: proof (rung 0), heuristic (rung 1), evidence (rung 2) or ground truth (rung 3). A cheaper rung must never fail on something only a more expensive rung can know; it reports it for review and names the rung that confirms it.
 - **Zero runtime dependencies.** Dev-only code (`tests/`, `bench/`, `eval/`, `scripts/`) may use anything.
-- **`src/core/` and `src/page/` are runtime-neutral.** No `bun`, no `node:*`, no imports from `src/browser/`. Biome enforces this (see the override in `biome.json`), and `test:package` scans `dist/index.js` and runs it under Node.
+- **`src/core/` and `src/page/` are runtime-neutral.** No `bun`, no `node:*`, no imports from `src/browser/`. `bun lint` enforces this (see the `src/core/**` override in `bunfig.toml`), and `test:package` scans `dist/index.js` and runs it under Node.
 - **Original code only.** Learn other tools' behavior by running them (css-tree, Chrome's CDP, the original carbon-components-svelte scripts) and encode it as tests. Don't copy or translate their source.
-- **Keep the public API small and explicit.** `src/index.ts` and `src/browser/index.ts` list every export by name (`noReExportAll`), and export only what a user needs: the rungs, the config, and the types they return. Tests import internals from `src/` directly. New options default to current behavior.
+- **Keep the public API small and explicit.** `src/index.ts` and `src/browser/index.ts` list every export by name (no `export *`), and export only what a user needs: the rungs, the config, and the types they return. Tests import internals from `src/` directly. New options default to current behavior.
 
 ## Tests
 
@@ -136,13 +136,15 @@ Commit first, then run `bun run bench:ab` against the commit before your change 
 
 ## Style
 
-- Match the surrounding code: TypeScript, biome formatting, plain-sentence comments at a similar density.
+- Match the surrounding code: TypeScript, `bun fmt` formatting, plain-sentence comments at a similar density.
+- `bun fmt` and `bun lint` read their config from the `[fmt]` and `[lint]` sections of [`bunfig.toml`](bunfig.toml). Both are in Bun canary builds only until 1.4.5 ships, so CI installs canary. The recommended rules are on by default, the extra rules there are errors, and warnings fail too. `bun run lint:changed` formats and fixes staged files only.
+- Lint suppressions say why: `// eslint-disable-next-line no-await-in-loop -- <why>`. `scripts/`, `eval/`, `src/browser/` and `tests/browser.test.ts` turn `no-await-in-loop` off, since they run one step, or one CDP call, at a time.
 - Conventional commits: `feat`, `fix`, `perf`, `refactor`, `bench`, `test`, `docs`, `chore`, with `!` for breaking changes. Put measured numbers in the body of `perf:` commits.
 - Update the README when behavior, options or benchmark numbers change.
 
 ## Before you finish
 
-- [ ] `bun run lint`, `bun run typecheck`, `bun run knip`, `bun run test` and `bun run test:package` pass.
+- [ ] `bun fmt --check`, `bun lint`, `bun run typecheck`, `bun run knip`, `bun run test` and `bun run test:package` pass.
 - [ ] `src/core/` changes: `bun run bench:ab` shows no confirmed regression.
 - [ ] Changes that affect results: the relevant `eval/carbon/` eval still matches, or the difference is explained.
 - [ ] The README and this guide still describe what the code does.

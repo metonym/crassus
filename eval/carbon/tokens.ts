@@ -16,7 +16,6 @@ const TRIGGER = ".bx--tooltip--definition .bx--tooltip__trigger";
 const shared = await fixtureOpts();
 let failed = 0;
 for (const c of GOLDEN.slice(0, 3)) {
-  // biome-ignore lint/performance/noAwaitInLoops: one run at a time
   const [base, head] = await Promise.all([cssAt(c.base), cssAt(c.head)]);
   const opts = {
     ...shared,

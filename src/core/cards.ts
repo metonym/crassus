@@ -22,10 +22,7 @@ const REPORT_SCHEMA = "crassus/report@1";
  * longer does, whatever its pixels (with `compare`'s `tokens`).
  */
 export type Verdict =
-  | "token-detached"
-  | "visible"
-  | "imperceptible"
-  | "invisible";
+  "token-detached" | "visible" | "imperceptible" | "invisible";
 
 export interface Cause {
   /**

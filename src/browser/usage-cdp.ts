@@ -208,7 +208,6 @@ async function observePage(
   collect(body);
 
   let observed = 0;
-  // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
   for (const nodeId of elements) observed += await observe(nodeId);
 
   if (states) {
@@ -224,12 +223,10 @@ async function observePage(
         ...descendantsOf(nodeId, childrenOf, MAX_STATE_DESCENDANTS),
       ];
       for (const forced of Object.values(STATE_SETS)) {
-        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
         await view.cdp("CSS.forcePseudoState", {
           nodeId,
           forcedPseudoClasses: forced,
         });
-        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
         for (const t of targets) observed += await observe(t);
         await view.cdp("CSS.forcePseudoState", {
           nodeId,

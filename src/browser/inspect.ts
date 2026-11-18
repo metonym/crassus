@@ -315,7 +315,6 @@ export async function inspectPage(
       });
     const force = async (ids: number[], state: string | null) => {
       for (const id of ids) {
-        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
         const { nodeId } = await query(`[data-ccs-idx="${id}"]`);
         if (nodeId)
           await view.cdp("CSS.forcePseudoState", {
@@ -328,7 +327,6 @@ export async function inspectPage(
     if (out.explain)
       for (const [key, changes] of Object.entries(changed)) {
         // Each element alone in its state: winners can hang on others' states.
-        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
         const t = await view.evaluate<{
           state: string | null;
           forced: number | null;
@@ -362,7 +360,6 @@ export async function inspectPage(
       );
       out.batches = batches ?? (await planBatches(view, seen));
       for (const batch of out.batches) {
-        // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
         await force(batch.forced, batch.state);
         try {
           const rects = await view.evaluate<(Rect | null)[]>(

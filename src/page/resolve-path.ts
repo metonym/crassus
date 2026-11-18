@@ -16,9 +16,9 @@ export function resolvePath<T extends PathElement>(
   path: string,
   root: T,
 ): T | null {
-  // biome-ignore lint/performance/useTopLevelRegex: self-contained for page.evaluate
+  // eslint-disable-next-line no-restricted-syntax -- self-contained for page.evaluate
   const suffix = /(@(hover|focus|active)\^?)?(::before|::after)?$/;
-  // biome-ignore lint/performance/useTopLevelRegex: self-contained for page.evaluate
+  // eslint-disable-next-line no-restricted-syntax -- self-contained for page.evaluate
   const space = /\s+/;
   const target = path.replace(suffix, "");
   const sig = (el: PathElement) => {
