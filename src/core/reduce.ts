@@ -187,7 +187,7 @@ export async function ddmin<T>(
     for (let i = 0; i < c.length; i += size) parts.push(c.slice(i, i + size));
     let reduced = false;
     for (const part of parts) {
-      // biome-ignore lint/performance/noAwaitInLoops: one test at a time
+      // eslint-disable-next-line no-await-in-loop -- one test at a time
       if (await fails(part)) {
         c = part;
         n = 2;
@@ -198,7 +198,7 @@ export async function ddmin<T>(
     if (!reduced && parts.length > 2)
       for (const part of parts) {
         const rest = c.filter((x) => !part.includes(x));
-        // biome-ignore lint/performance/noAwaitInLoops: one test at a time
+        // eslint-disable-next-line no-await-in-loop -- one test at a time
         if (await fails(rest)) {
           c = rest;
           n = Math.max(n - 1, 2);

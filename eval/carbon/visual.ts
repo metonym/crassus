@@ -74,7 +74,6 @@ console.log(
 );
 const rows: object[] = [];
 for (const c of CASES.filter((c) => !ONLY || c.name.includes(ONLY))) {
-  // biome-ignore lint/performance/noAwaitInLoops: one run at a time
   const [base, ref] = await Promise.all([cssAt(c.base), cssAt(c.head)]);
   const head = c.edit ? ref.replaceAll(c.edit[0], c.edit[1]) : ref;
   const opts = { ...shared, base, head, states: "cdp" as const };

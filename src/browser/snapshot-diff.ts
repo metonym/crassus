@@ -131,7 +131,6 @@ export async function diffSnapshots(
   for (const file of base) {
     if (!inHead.has(file)) continue;
     // One pair in memory at a time: a page's snapshot can be megabytes.
-    // biome-ignore lint/performance/noAwaitInLoops: bounded memory
     const [a, b] = await Promise.all([
       readCapture(path.join(baseDir, file)),
       readCapture(path.join(headDir, file)),

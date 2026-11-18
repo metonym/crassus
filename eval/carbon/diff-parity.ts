@@ -7,7 +7,7 @@
  */
 import path from "node:path";
 import { $ } from "bun";
-// biome-ignore lint/performance/noNamespaceImport: comparing two libraries with identical export names
+// eslint-disable-next-line no-restricted-syntax -- comparing two libraries with identical export names
 import * as newLib from "../../src/core/cascade";
 import { diffWith, type Flip } from "../../src/core/diff";
 import {
@@ -41,7 +41,6 @@ const flipKey = (f: Flip) =>
 
 const summary: unknown[] = [];
 for (const { label, ref } of refs) {
-  // biome-ignore lint/performance/noAwaitInLoops: one ref at a time, in order
   const base = await atRef(ref, compile);
   const t0 = Bun.nanoseconds();
   const oldBase = oldLib.parseRules(base, true);

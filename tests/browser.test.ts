@@ -164,7 +164,6 @@ const base = () => ({
 
 it("captures the same forced states via CDP and via selector rewrite", async () => {
   for (const states of ["cdp", "rewrite"] as const) {
-    // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential captures
     await capture({
       ...base(),
       outDir: join(dir, states),
@@ -189,7 +188,6 @@ it("forces only the states a user can reach, in both modes", async () => {
   const reached: Record<string, string[]>[] = [];
   for (const states of ["cdp", "rewrite"] as const) {
     const outDir = join(dir, `snap-states-${states}`);
-    // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential captures
     await capture({
       ...base(),
       fixtures: ["states"],
@@ -257,7 +255,6 @@ it("diffSnapshots folds one cause into one change, and marks what no one sees", 
   for (const [side] of sides) {
     const site = serveFixtures(join(dir, side));
     try {
-      // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential captures
       await capture({
         ...base(),
         baseUrl: site.url,
@@ -405,7 +402,6 @@ it("compareCss reads only what the change reaches, with the same results", async
   for (const [i, [from, to, pages]] of edits.entries()) {
     const head = SCOPE_CSS.replace(from, to);
     let impact: Impact | undefined;
-    // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential runs
     const full = await compareCss({ ...opts, head, scope: false });
     const scoped = await compareCss({
       ...opts,
@@ -960,6 +956,8 @@ it("finds Playwright's newest chrome-headless-shell", async () => {
     process.env.PLAYWRIGHT_BROWSERS_PATH = join(dir, "nowhere");
     expect(headlessShell()).toBeUndefined();
   } finally {
+    // Assigning undefined would store the string "undefined".
+    // eslint-disable-next-line no-restricted-syntax
     if (saved === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
     else process.env.PLAYWRIGHT_BROWSERS_PATH = saved;
   }
@@ -981,7 +979,6 @@ it("diffSnapshots groups a seeded color change once and lists one-sided pages", 
   for (const [side, , fixtures] of sides) {
     const site = serveFixtures(join(dir, side));
     try {
-      // biome-ignore lint/performance/noAwaitInLoops: one browser, sequential captures
       await capture({
         ...base(),
         baseUrl: site.url,

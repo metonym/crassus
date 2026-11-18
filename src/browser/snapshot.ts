@@ -520,7 +520,6 @@ export async function capturePage(
     const force = states.filter((s) => !matters || matters[i].includes(s));
     for (const s of states) if (!force.includes(s)) pending.push([i, s]);
     if (force.length === 0) continue;
-    // biome-ignore lint/performance/noAwaitInLoops: in order, one view
     await flush();
     const { nodeId } = await cdp<{ nodeId: number }>("DOM.querySelector", {
       nodeId: root.nodeId,
@@ -528,7 +527,6 @@ export async function capturePage(
     });
     if (!nodeId) continue;
     for (const state of force) {
-      // biome-ignore lint/performance/noAwaitInLoops: one CDP call at a time per view
       await cdp("CSS.forcePseudoState", {
         nodeId,
         forcedPseudoClasses: STATE_SETS[state],

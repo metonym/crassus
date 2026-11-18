@@ -35,8 +35,10 @@ import {
   visitPages,
 } from "./view";
 
-export interface CompareOptions
-  extends Omit<CaptureOptions, "baseUrl" | "outDir"> {
+export interface CompareOptions extends Omit<
+  CaptureOptions,
+  "baseUrl" | "outDir"
+> {
   /** The fixture directory, served once per side. */
   dir: string;
   /** Text only the library stylesheet contains: the file `base` and `head` replace. */

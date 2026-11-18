@@ -32,10 +32,7 @@ import { locateIn } from "./sources";
  * (another breakpoint, print, forced colors).
  */
 type CoverageStatus =
-  | "covered"
-  | "decides nothing"
-  | "unmatched"
-  | "condition never holds";
+  "covered" | "decides nothing" | "unmatched" | "condition never holds";
 
 interface DeclarationCoverage {
   status: CoverageStatus;

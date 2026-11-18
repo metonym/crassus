@@ -28,7 +28,6 @@ const vite = Bun.spawn(
 );
 for (let i = 0; i < 100; i++) {
   try {
-    // biome-ignore lint/performance/noAwaitInLoops: polling until the server answers
     if ((await fetch(URL)).status) break;
   } catch {}
   await Bun.sleep(200);

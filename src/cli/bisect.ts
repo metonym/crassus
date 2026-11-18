@@ -244,7 +244,7 @@ export async function bisectCommand(opts: {
         },
       ];
       result.parts = [];
-      // biome-ignore lint/performance/noAwaitInLoops: one browser run at a time
+      // eslint-disable-next-line no-await-in-loop -- one browser run at a time
       for (const h of halves) result.parts.push(await examine(h, `${label} >`));
     }
     return result;
@@ -258,7 +258,7 @@ export async function bisectCommand(opts: {
   const results: BisectResult[] = [];
   for (const [i, seg] of segs.entries()) {
     const label = `segment ${i + 1}/${segs.length}`;
-    // biome-ignore lint/performance/noAwaitInLoops: one browser run at a time
+    // eslint-disable-next-line no-await-in-loop -- one browser run at a time
     results.push(await examine(seg, label));
   }
   progress(

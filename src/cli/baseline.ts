@@ -125,13 +125,14 @@ async function pristine(cwd: string, paths: string[]): Promise<boolean> {
  */
 async function toolchain(cwd: string, top: string): Promise<string[]> {
   const hashes: string[] = [];
+  /* eslint-disable no-await-in-loop -- a few small files */
   for (const dir of new Set([cwd, top]))
     for (const name of LOCKFILES) {
       const file = Bun.file(join(dir, name));
-      // biome-ignore lint/performance/noAwaitInLoops: a few small files
       if (await file.exists())
         hashes.push(`${name}:${Bun.hash(await file.bytes())}`);
     }
+  /* eslint-enable no-await-in-loop */
   return hashes;
 }
 
@@ -255,9 +256,10 @@ export async function baseStylesheets(opts: {
   const hit = opts.cache ? await readCached(file) : undefined;
   if (hit) return { sha, sheets: hit, cached: true };
   const build = (root: string) => stylesheets(root, config, only);
-  const sheets = await (paths && trees
-    ? inInputs(cwd, top, sha, paths, build)
-    : inCheckout(cwd, top, sha, build)
+  const sheets = await (
+    paths && trees
+      ? inInputs(cwd, top, sha, paths, build)
+      : inCheckout(cwd, top, sha, build)
   ).catch(built(ref, sha));
   await writeCached(dir, file, sheets);
   return { sha, sheets, cached: false };

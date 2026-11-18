@@ -19,7 +19,6 @@ const entries = {
 await rm(outDir, { recursive: true, force: true });
 
 for (const [name, { entry, target }] of Object.entries(entries)) {
-  // biome-ignore lint/performance/noAwaitInLoops: a few builds, kept in order for readable logs
   const result = await build({
     entrypoints: [entry],
     outdir: outDir,

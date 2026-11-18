@@ -64,9 +64,9 @@ export async function attachSources(
     if (!rule || !line || !rule.sheet || rule.sheet === "user agent") continue;
     const side = card.cause.kind === "lost" ? "base" : "head";
     const sha = opts.shas?.(card)[side];
+    /* eslint-disable no-await-in-loop -- a few cards, one read each */
     const text = sha
-      ? // biome-ignore lint/performance/noAwaitInLoops: a few cards, one git call each
-        await $`git show ${`${sha}:${rule.sheet}`}`
+      ? await $`git show ${`${sha}:${rule.sheet}`}`
           .cwd(opts.cwd)
           .quiet()
           .nothrow()
@@ -74,6 +74,7 @@ export async function attachSources(
       : existsSync(resolve(opts.cwd, rule.sheet))
         ? await Bun.file(resolve(opts.cwd, rule.sheet)).text()
         : null;
+    /* eslint-enable no-await-in-loop */
     const lines = text?.split("\n");
     const excerpt = lines
       ?.slice(Math.max(0, line - 1 - CONTEXT_LINES), line + CONTEXT_LINES)
@@ -153,7 +154,7 @@ export async function writeReport(
         head: `img/${name}-head.png`,
         diff: `img/${name}-diff.png`,
       };
-      // biome-ignore lint/performance/noAwaitInLoops: a few small files
+      // eslint-disable-next-line no-await-in-loop -- a few small files
       await Promise.all([
         Bun.write(join(dir, el.images.base), encodePng(crop.base)),
         Bun.write(join(dir, el.images.head), encodePng(crop.head)),

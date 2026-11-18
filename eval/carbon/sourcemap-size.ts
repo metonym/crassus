@@ -100,7 +100,6 @@ for (const [name, fn] of [
   ["Bun.build", bunMinify],
 ] as const) {
   const t0 = Bun.nanoseconds();
-  // biome-ignore lint/performance/noAwaitInLoops: timed one at a time
   const b = await fn(baseCss);
   const h = await fn(head.compressed);
   const ms = (Bun.nanoseconds() - t0) / 2e6;

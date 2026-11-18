@@ -334,9 +334,8 @@ export async function snapshotDiffCommand(opts: {
     if (!existsSync(path)) throw new UsageError(`no such directory: ${d}`);
     return path;
   });
-  const { diffSnapshots, IncompleteCaptureError } = await import(
-    "../browser/snapshot-diff"
-  );
+  const { diffSnapshots, IncompleteCaptureError } =
+    await import("../browser/snapshot-diff");
   const diff = await diffSnapshots(base, head).catch((e) => {
     if (!(e instanceof IncompleteCaptureError)) throw e;
     throw new UsageError(
@@ -930,7 +929,7 @@ export async function confirmDiff(opts: {
     const base = opts.base.find((s) => s.name === r.entry);
     const head = opts.head.find((s) => s.name === r.entry);
     if (!flips.length || !base || !head) continue;
-    // biome-ignore lint/performance/noAwaitInLoops: one browser at a time
+    // eslint-disable-next-line no-await-in-loop -- one browser at a time
     const verdicts = await confirmFlips({
       flips: flips.map((f) => ({
         selectors: [f.rule.selector, f.other.selector],

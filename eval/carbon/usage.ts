@@ -169,7 +169,6 @@ const runs: { name: string; opts: RunOptions; vs: string[] }[] = [
 
 for (const run of runs) {
   if (RUNS && !RUNS.some((r) => run.name.startsWith(r))) continue;
-  // biome-ignore lint/performance/noAwaitInLoops: one run at a time, so timings don't contend
   const res = await runUsage({
     ...run.opts,
     baseUrl: server.url,
@@ -192,7 +191,6 @@ for (const run of runs) {
     );
   }
   for (const v of run.vs) {
-    // biome-ignore lint/performance/noAwaitInLoops: ordered output
     if (await Bun.file(path.join(out(v), "usage.json")).exists())
       await compare(out(v), out(run.name));
   }

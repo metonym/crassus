@@ -179,7 +179,6 @@ export async function quiet(): Promise<void> {
   for (let waited = 0; loadavg()[0] >= cores; waited += 10) {
     if (waited % 60 === 0)
       console.error(`  waiting for load ${loadAvg()} < ${cores}`);
-    // biome-ignore lint/performance/noAwaitInLoops: polling
     await Bun.sleep(10_000);
   }
 }

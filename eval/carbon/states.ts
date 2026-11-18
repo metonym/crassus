@@ -31,7 +31,6 @@ const runs: { snaps: Map<string, Snapshot>; stats: StateStats; ms: number }[] =
   [];
 try {
   for (const mode of MODES) {
-    // biome-ignore lint/performance/noAwaitInLoops: one run at a time
     await quiet();
     const snaps = new Map<string, Snapshot>();
     const stats: StateStats = { ms: 0, cdpCalls: 0, forced: 0, copied: 0 };

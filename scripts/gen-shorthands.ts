@@ -55,7 +55,7 @@ try {
 export const SHORTHANDS: Readonly<Record<string, readonly string[]>> = ${JSON.stringify(table)};
 `,
   );
-  await $`${resolve(import.meta.dir, "../node_modules/.bin/biome")} format --write ${out}`.quiet();
+  await $`bun fmt ${out}`.quiet();
   console.log(
     `✓ ${Object.keys(table).length} shorthands from Chrome ${version}`,
   );

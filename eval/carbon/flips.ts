@@ -26,7 +26,6 @@ let total = 0;
 const tally: Record<string, number> = {};
 for (const c of await segments()) {
   if (ONLY && c.name !== ONLY) continue;
-  // biome-ignore lint/performance/noAwaitInLoops: one segment at a time
   const [base, head] = await Promise.all([cssAt(c.base), cssAt(c.head)]);
   const d = cascadeDiff(parseRules(base), parseRules(head));
   const flips = [...d.flips, ...d.moveFlips];

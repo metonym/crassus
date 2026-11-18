@@ -84,7 +84,6 @@ export async function confirmFlips(opts: {
       const open = relaxed
         .map((pair, i) => (found[i] ? null : [i, pair]))
         .filter(Boolean) as [number, [string, string]][];
-      // biome-ignore lint/performance/noAwaitInLoops: one page at a time
       const r = await view.evaluate<{
         vocab: string[];
         hits: [number, number][];
@@ -180,7 +179,6 @@ export async function confirmFlips(opts: {
     for (const [i, f] of opts.flips.entries()) {
       const hit = found[i];
       if (hit) {
-        // biome-ignore lint/performance/noAwaitInLoops: one page at a time
         const r = await render(opts.index.pages[hit.page].skeleton, hit.at, i);
         if (r?.matched) {
           out.push(judged(r, hit.page));
@@ -211,7 +209,6 @@ export async function confirmFlips(opts: {
       }
       let verdict: FlipVerdict = { verdict: "unsynthesized" };
       for (const tree of plausible) {
-        // biome-ignore lint/performance/noAwaitInLoops: the first candidate that matches
         const r = await render(tree, null, i);
         if (r?.matched) {
           verdict = judged(r, "synthesized");

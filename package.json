@@ -20,12 +20,11 @@
     "eval:carbon": "bun eval/carbon/parity.ts",
     "gen:shorthands": "bun scripts/gen-shorthands.ts",
     "typecheck": "bun check",
-    "lint": "biome ci --error-on-warnings",
-    "knip": "knip-bun",
-    "lint:fix": "biome check --write --unsafe ."
+    "lint:all": "bun fmt && bun lint --fix",
+    "lint:changed": "bun fmt --staged && bun lint --staged --fix",
+    "knip": "knip-bun"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.6.3",
     "@carbon/styles": "^1.118.0",
     "@primer/css": "^22.3.2",
     "@types/bun": "^1.4.4",

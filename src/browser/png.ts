@@ -19,7 +19,7 @@ export function decodePng(png: Uint8Array): Image {
   let height = 0;
   let channels = 0;
   const idat: Uint8Array[] = [];
-  for (let at = 8; at < png.length; ) {
+  for (let at = 8; at < png.length;) {
     const length = view.getUint32(at);
     const type = String.fromCharCode(...png.subarray(at + 4, at + 8));
     const body = png.subarray(at + 8, at + 8 + length);
