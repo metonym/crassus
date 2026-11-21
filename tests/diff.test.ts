@@ -26,6 +26,24 @@ describe("cascadeDiff", () => {
     ]);
   });
 
+  it("sees a moved rule's tie with a rule inside @media", () => {
+    const base = `.x { background: none }
+      .x.s { background-color: blue }
+      @media (any-hover: hover) { .x:hover { background: gray } }`;
+    const head = `.x { background: none }
+      @media (any-hover: hover) { .x:hover { background: gray } }
+      .x.s { background-color: blue }`;
+    const { moveFlips } = cascadeDiff(parseRules(base), parseRules(head));
+    expect(
+      moveFlips.map(
+        (f) =>
+          `${f.rule.selector} ${f.after} ${f.prop} vs ${f.other.selector} (${f.other.context})`,
+      ),
+    ).toEqual([
+      ".x.s wins background-color~background vs .x:hover (@media (any-hover:hover))",
+    ]);
+  });
+
   it("doesn't pair mutually exclusive states", () => {
     expect(
       flips(
