@@ -617,6 +617,60 @@ it("keeps the state of the last forced element that can reach it", async () => {
   );
 }, 60_000);
 
+// A long run of alike cells (a calendar's days) used to fill the 80
+// elements whose states are forced, so later ones were never hovered.
+const ALIKE_CELLS = `${'<button class="bx--cell">c</button>'.repeat(100)}<button class="bx--cell bx--sel">s</button>`;
+
+it("forces states on one element of each kind before filling with alike ones", async () => {
+  await withStates(
+    "alike-cells",
+    `<!doctype html><html><head><style>
+.bx--cell:hover { color: red; }
+.bx--cell.bx--sel:hover { color: blue; }
+</style></head><body>${ALIKE_CELLS}</body></html>`,
+    async (read) => {
+      const { snapshot } = await read();
+      const sel = Object.keys(snapshot).find((key) =>
+        key.endsWith("button.bx--cell.bx--sel@hover"),
+      );
+      expect(sel).toBeDefined();
+      expect(snapshot[sel as string].color).toBe("rgb(0, 0, 255)");
+    },
+  );
+}, 60_000);
+
+it("compareCss forces states on reached elements past the first 80", async () => {
+  const root = join(dir, "alike");
+  const css =
+    ".bx--cell:hover { color: red; } .bx--cell.bx--sel:hover { color: blue; }";
+  await Promise.all([
+    Bun.write(join(root, "lib.css"), css),
+    Bun.write(
+      join(root, "cells.html"),
+      `<!doctype html><html><head><link rel="stylesheet" href="lib.css"></head><body>${ALIKE_CELLS}</body></html>`,
+    ),
+  ]);
+  const { groups } = await compareCss({
+    ...base(),
+    dir: root,
+    fixtures: ["cells"],
+    states: "cdp" as const,
+    emulate: "cdp" as const,
+    settleMs: 0,
+    indexDir: join(dir, "alike-index"),
+    base: css,
+    head: css.replace("color: blue", "color: lime"),
+  });
+  expect(groups).toEqual([
+    expect.objectContaining({
+      property: "color",
+      before: "rgb(0, 0, 255)",
+      after: "rgb(0, 255, 0)",
+      count: 1,
+    }),
+  ]);
+}, 60_000);
+
 it("swaps the largest stylesheet that contains the marker", async () => {
   const root = join(dir, "swap");
   await Promise.all([
