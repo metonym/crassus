@@ -12,6 +12,14 @@
   condition (`(in @media (any-hover:hover))`). On carbon-components-svelte
   this added one order-tie flip over 95 moved rules, a real one: a
   selected month cell's fill against its hover rule.
+- `capture`, `compare` and `bisect` forced states only on the first 80
+  interactive elements of a page, so on a page with a long run of alike
+  ones (a calendar's day cells) the later elements were never hovered or
+  focused. They now take one element of each kind (tag, classes, role)
+  first, then fill the 80 in document order, and `compare` picks among
+  the elements the change reaches, not the page's first 80. On
+  carbon-components-svelte's DatePicker calendar states fixture, a hover
+  change to the selected month cell is now reported.
 
 ## 0.3.1 — 2026-10-25
 

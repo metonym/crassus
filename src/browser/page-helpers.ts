@@ -46,6 +46,33 @@ export const PAGE_HELPERS = `
     // Set by scope(): the elements a snapshot reads, when not all.
     let only = null;
     let matched = new Set();
+    // Set by scope(): the elements tagInteractive tags.
+    let picked = null;
+    // At most \`max\` elements whose states are forced, in document order.
+    // One of each kind (tag, classes, role) comes first, so a run of alike
+    // cells (a calendar's days, a table's rows) doesn't crowd out the rest
+    // of the page; the others fill what is left. \`within\` limits the pool.
+    const pickInteractive = (selector, max, within) => {
+      const all = Array.from(document.querySelectorAll(selector));
+      const pool = within ? all.filter((el) => within.has(el)) : all;
+      if (pool.length <= max) return pool;
+      const kinds = new Set();
+      const chosen = new Set();
+      const rest = [];
+      for (const el of pool) {
+        const kind = el.tagName + "|" + Array.from(el.classList).sort().join(" ") + "|" + (el.getAttribute("role") || "");
+        if (kinds.has(kind) || chosen.size >= max) rest.push(el);
+        else {
+          kinds.add(kind);
+          chosen.add(el);
+        }
+      }
+      for (const el of rest) {
+        if (chosen.size >= max) break;
+        chosen.add(el);
+      }
+      return pool.filter((el) => chosen.has(el));
+    };
     const eachRule = (fn) => {
       const visit = (list) => {
         for (const rule of list) {
@@ -216,14 +243,13 @@ export const PAGE_HELPERS = `
         only = new Set();
         for (const el of reached)
           for (let a = el; a && !only.has(a); a = a.parentElement) only.add(a);
-        const out = [];
-        Array.from(document.querySelectorAll(selector)).slice(0, max).forEach((el, i) => {
-          if (only.has(el)) out.push(i);
-        });
-        return out;
+        // Pick among what the change reaches, so elements past the first
+        // \`max\` of the page still get their states forced.
+        picked = pickInteractive(selector, max, only);
+        return picked.map((_, i) => i);
       },
       tagInteractive(selector, max) {
-        const els = Array.from(document.querySelectorAll(selector)).slice(0, max);
+        const els = picked ?? pickInteractive(selector, max);
         els.forEach((el, i) => el.setAttribute("data-ccs-idx", String(i)));
         return els.length;
       },
