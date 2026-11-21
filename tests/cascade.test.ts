@@ -166,12 +166,20 @@ describe("coMatchable", () => {
     expect(coMatchable(r(".x:not(.d) ~ .y"), r(".x ~ .y"))).toBe(true);
   });
 
-  it("pseudo-elements and media contexts must agree", () => {
+  it("pseudo-elements must agree", () => {
     expect(coMatchable(r(".x::before"), r(".x"))).toBe(false);
-    const [a, b] = parseRules(
-      ".x { color: red } @media print { .x { color: blue } }",
+  });
+
+  it("pairs a rule with one nested in its context, not a sibling context", () => {
+    const [plain, print, screen, nested] = parseRules(
+      ".x { color: red } @media print { .x { color: blue } } @media screen { .x { color: green } } @media print { @supports (display: grid) { .x { color: gray } } }",
     );
-    expect(coMatchable(a, b)).toBe(false);
+    // In print, both the plain and the print rule apply.
+    expect(coMatchable(plain, print)).toBe(true);
+    expect(coMatchable(print, nested)).toBe(true);
+    expect(coMatchable(plain, nested)).toBe(true);
+    expect(coMatchable(print, screen)).toBe(false);
+    expect(coMatchable(screen, nested)).toBe(false);
   });
 
   it("rules in different layers or scopes can co-match", () => {

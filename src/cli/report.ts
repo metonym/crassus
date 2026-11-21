@@ -81,8 +81,13 @@ function deadFindings(results: DeadResult[]): Finding[] {
   );
 }
 
+/** ` (in @media …)` when one side's condition differs from the other's. */
+const contextOf = (ref: RuleRef, vs: RuleRef) =>
+  ref.context && ref.context !== vs.context ? ` (in ${ref.context})` : "";
+const inContext = (f: FlipFinding) => contextOf(f.other, f.rule);
+
 const flipMessage = (f: FlipFinding, review: boolean) =>
-  `${f.rule.selector} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' against ${f.other.selector} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}; before it ${f.before === "wins" ? "won" : "lost"}.${review ? " Equal-specificity tie after a move." : ""} Confirm with a computed-style snapshot.`;
+  `${f.rule.selector}${contextOf(f.rule, f.other)} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' against ${f.other.selector}${inContext(f)} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}; before it ${f.before === "wins" ? "won" : "lost"}.${review ? " Equal-specificity tie after a move." : ""} Confirm with a computed-style snapshot.`;
 
 const confirmedOrUnchecked = (f: FlipFinding) =>
   !f.confirmed || f.confirmed.verdict === "confirmed";
@@ -260,8 +265,8 @@ function diffHuman(
     lines.push("", bold(`### ${title} (${items.length})`), ...items);
   };
   const flipLines = (f: FlipFinding) =>
-    `  ${located(f.rule.source, "  ")}${f.rule.selector} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' vs\n` +
-    `    ${located(f.other.source, "  ")}${f.other.selector} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}\n` +
+    `  ${located(f.rule.source, "  ")}${f.rule.selector}${contextOf(f.rule, f.other)} ${spec(f.rule.specificity)} now ${f.after} '${f.property}' vs\n` +
+    `    ${located(f.other.source, "  ")}${f.other.selector}${inContext(f)} ${spec(f.other.specificity)}${f.otherWas ? ` (was ${f.otherWas})` : ""}\n` +
     `    (before: ${f.before})` +
     (f.confirmed?.verdict === "confirmed"
       ? `\n    ${dim(`in Chrome, on ${f.confirmed.on === "synthesized" ? "an element built for it (no fixture renders one)" : f.confirmed.on}:`)} ${f.confirmed.before} -> ${f.confirmed.after}`
@@ -342,11 +347,14 @@ function diffHuman(
       ),
       [...byRule.values()].map((list) => {
         const { rule, after } = list[0];
-        const others = [...new Set(list.map((f) => f.other.selector))];
+        const ruleContext = rule.context ? ` (in ${rule.context})` : "";
+        const others = [
+          ...new Set(list.map((f) => `${f.other.selector}${inContext(f)}`)),
+        ];
         const props = [...new Set(list.map((f) => f.property))];
         const shown = verbose ? others : others.slice(0, 4);
         return (
-          `  ${located(rule.source, "  ")}${rule.selector} ${spec(rule.specificity)} now ${after} [${props.join(", ")}] vs\n` +
+          `  ${located(rule.source, "  ")}${rule.selector}${ruleContext} ${spec(rule.specificity)} now ${after} [${props.join(", ")}] vs\n` +
           shown.map((o) => `    ${o}`).join("\n") +
           (others.length > shown.length
             ? `\n    (+${others.length - shown.length} more)`

@@ -261,10 +261,24 @@ function attrsExclude(x: Subject, y: Subject): boolean {
   return false;
 }
 
+/**
+ * Whether two rules' condition contexts hold together whenever the narrower
+ * one does: the same, or one nested in the other (an unconditioned rule
+ * beside an `@media` one). Sibling conditions (`@media print` and
+ * `@media screen`) may never both hold, so they don't pair.
+ */
+function contextsNest(a: string, b: string): boolean {
+  if (a === b || a === "" || b === "") return true;
+  return a.startsWith(`${b} / `) || b.startsWith(`${a} / `);
+}
+
 export function coMatchable(a: Rule, b: Rule): boolean {
   const x = a.subject;
   const y = b.subject;
-  if (a.context !== b.context || x.pseudoElement !== y.pseudoElement)
+  if (
+    !contextsNest(a.context, b.context) ||
+    x.pseudoElement !== y.pseudoElement
+  )
     return false;
   if (intersects(x.classes, y.negated) || intersects(y.classes, x.negated))
     return false;

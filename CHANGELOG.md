@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+**Fixes**
+
+- `diff` pairs a rule with one in a condition nested in its own, such as
+  an unconditioned rule and one inside `@media (any-hover: hover)`, so a
+  moved rule's order tie against a hover rule is reported. Rules in
+  sibling conditions (`@media print` and `@media screen`) still don't
+  pair. A flip whose rules sit in different conditions names the
+  condition (`(in @media (any-hover:hover))`). On carbon-components-svelte
+  this added one order-tie flip over 95 moved rules, a real one: a
+  selected month cell's fill against its hover rule.
+
 ## 0.3.1 — 2026-10-25
 
 **Features**
