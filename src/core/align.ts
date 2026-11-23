@@ -67,7 +67,7 @@ export function alignRules(
     const key = looseSelector(sel);
     let k = j;
     const limit = Math.min(parsed.length, j + ALIGN_WINDOW);
-    while (k < limit && parsed[k].loose !== key) k++;
+    while (k < limit && parsed[k]?.loose !== key) k++;
     if (k < limit) {
       out.push(parsed[k]);
       j = k + 1;
@@ -148,6 +148,7 @@ export function cascadeOrder(
     order: number;
   }[] = [];
   for (const [ri, ...sels] of matches) {
+    if (ri === undefined) continue;
     const p = aligned[ri];
     if (!p) continue;
     const decls = declarations(p);
@@ -159,7 +160,7 @@ export function cascadeOrder(
     }
     const rule: MatchedRule = {
       context: p.context,
-      selector: p.selectors[sels[0]]?.canon ?? "",
+      selector: p.selectors[sels[0] ?? -1]?.canon ?? "",
       declarations: decls,
     };
     if (p.layerRank !== undefined) rule.layerRank = p.layerRank;

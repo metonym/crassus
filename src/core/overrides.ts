@@ -235,16 +235,20 @@ export function deadDeclarations(
     if (!group.index) {
       group.index = new Map();
       for (const i of group.blocks) {
-        const { decls, layer } = blocks[i];
+        const block = blocks[i];
+        if (!block) continue;
+        const { decls, layer } = block;
         for (let d = 0; d < decls.length; d++) {
-          const prop = physical(decls[d].property);
+          const decl = decls[d];
+          if (!decl) continue;
+          const prop = physical(decl.property);
           let entries = group.index.get(prop);
           if (!entries) {
             entries = { list: [], important: false, layer };
             group.index.set(prop, entries);
           }
           entries.list.push({ block: i, decl: d });
-          if (decls[d].important) entries.important = true;
+          if (decl.important) entries.important = true;
           if (entries.layer !== layer) entries.layer = null;
         }
       }

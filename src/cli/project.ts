@@ -34,8 +34,12 @@ export async function loadConfig(
     : CONFIG_FILES.map((f) => resolve(cwd, f)).find(existsSync);
   if (!file) return { config: {} };
   if (!existsSync(file)) throw new UsageError(`config not found: ${explicit}`);
-  const mod = await import(pathToFileURL(file).href);
-  const config = (mod.default ?? mod.config) as Config | undefined;
+  const mod: unknown = await import(pathToFileURL(file).href);
+  const exported: unknown =
+    typeof mod === "object" && mod !== null
+      ? (Reflect.get(mod, "default") ?? Reflect.get(mod, "config"))
+      : undefined;
+  const config = exported as Config | undefined;
   if (!config || typeof config !== "object")
     throw new UsageError(`${relative(cwd, file)} has no default export`);
   return { config, file };

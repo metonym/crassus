@@ -44,13 +44,13 @@ function resolvedSelectors(): string[] {
   for (let i = 0; i < rules.length; i++) {
     const r = rules[i];
     const own = r instanceof CSSStyleRule ? r.selectorText : "&";
-    const p = parents[i];
+    const p = parents[i] ?? -1;
     if (p < 0) {
       texts.push(own);
       lists.push(undefined);
       continue;
     }
-    lists[p] ??= parseSelectorList(texts[p]);
+    lists[p] ??= parseSelectorList(texts[p] ?? "");
     const parent = lists[p];
     const list = splitList(own).map(({ text }) =>
       resolveNested(parseComplex(text), parent),
@@ -320,7 +320,11 @@ const api: UsageDomApi = {
       for (const c of Array.from(el.classList)) add(`.${c}`);
       add(el.localName);
       add("*");
-      const byKind: Map<number, number[]>[] = [new Map(), new Map(), new Map()];
+      const byKind: Map<number, number[]>[] = [
+        new Map<number, number[]>(),
+        new Map<number, number[]>(),
+        new Map<number, number[]>(),
+      ];
       for (const list of lists) {
         for (const p of list) {
           if (!active[p.rule] || bad.has(p.host)) continue;

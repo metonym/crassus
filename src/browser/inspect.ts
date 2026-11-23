@@ -242,7 +242,9 @@ async function planBatches(view: View, keys: string[]): Promise<Batch[]> {
       plain.keys.push(key);
       return;
     }
-    const states = by.get(t.state) ?? new Map();
+    const states =
+      by.get(t.state) ??
+      new Map<number, { keys: string[]; box: Rect | null }>();
     by.set(t.state, states);
     const el = states.get(t.forced) ?? { keys: [], box: null };
     states.set(t.forced, el);

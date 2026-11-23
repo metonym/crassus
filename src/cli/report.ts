@@ -346,7 +346,9 @@ function diffHuman(
         "order-tie flips from moved rules (review; confirm with a computed-style snapshot)",
       ),
       [...byRule.values()].map((list) => {
-        const { rule, after } = list[0];
+        const first = list[0];
+        if (!first) return "";
+        const { rule, after } = first;
         const ruleContext = rule.context ? ` (in ${rule.context})` : "";
         const others = [
           ...new Set(list.map((f) => `${f.other.selector}${inContext(f)}`)),
@@ -560,13 +562,22 @@ export function formatSnapshotDiff(
       }
     >();
     for (const q of quiet) {
-      const byChange = new Map<string, string[]>();
+      const byChange = new Map<
+        string,
+        { base: string[]; head: string[]; value: string; props: string[] }
+      >();
       for (const [prop, t] of q.left) {
         const k = JSON.stringify([t.base, t.head, t.value ?? ""]);
-        byChange.set(k, [...(byChange.get(k) ?? []), prop]);
+        const change = byChange.get(k) ?? {
+          base: t.base,
+          head: t.head,
+          value: t.value ?? "",
+          props: [],
+        };
+        change.props.push(prop);
+        byChange.set(k, change);
       }
-      for (const [k, props] of byChange) {
-        const [base, head, value]: [string[], string[], string] = JSON.parse(k);
+      for (const { base, head, value, props } of byChange.values()) {
         for (const f of foldNames(props)) {
           const line = `${f.property}: ${base.join(", ")} -> ${head.length ? head.join(", ") : "none"}${value ? dim(` (${value})`) : ""}`;
           const g = groups.get(line) ?? {
