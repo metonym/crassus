@@ -361,8 +361,10 @@ async function run(argv: string[], io: Io): Promise<number> {
         filesAsSheets(cwd, [files[0]]),
         filesAsSheets(cwd, [files[1]]),
       ]);
-      // Compare the two files as one entry.
-      headSheets[0].name = baseSheets[0].name;
+      // Both files take one name, so they compare as one entry.
+      const [headSheet] = headSheets;
+      const [baseSheet] = baseSheets;
+      if (headSheet && baseSheet) headSheet.name = baseSheet.name;
       base = { ref: files[0], sha: "" };
     } else {
       const ref = values.base ?? "HEAD";

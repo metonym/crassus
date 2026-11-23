@@ -89,7 +89,8 @@ function declarationCoverage(
       if (status === "unmatched" && example === undefined) {
         const first = source.selectors[0]?.canon ?? rule.selector;
         const tree = synthesize(first, first)[0];
-        example = tree ? tree[2][1][2].map(html).join("") : "";
+        const body = tree?.[2][1];
+        example = body ? body[2].map(html).join("") : "";
       }
       out.push({
         status,

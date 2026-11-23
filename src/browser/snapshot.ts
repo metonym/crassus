@@ -528,9 +528,12 @@ export async function capturePage(
     depth: 0,
   });
   for (const i of indexes) {
-    if (i >= n || reach[i].length === 0) continue;
-    const states = Object.keys(STATE_SETS).filter((s) => reach[i].includes(s));
-    const force = states.filter((s) => !matters || matters[i].includes(s));
+    const reachable = reach[i];
+    if (i >= n || !reachable || reachable.length === 0) continue;
+    const states = Object.keys(STATE_SETS).filter((s) => reachable.includes(s));
+    const force = states.filter(
+      (s) => !matters || matters[i]?.includes(s) === true,
+    );
     for (const s of states) if (!force.includes(s)) pending.push([i, s]);
     if (force.length === 0) continue;
     await flush();

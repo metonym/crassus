@@ -21,6 +21,7 @@ function markup(card: Card): {
     card.elements.find((e) => e.html && e.pixels) ??
     card.elements.find((e) => e.html) ??
     card.elements[0];
+  if (!el) throw new Error(`card ${card.id} has no elements`);
   const tags = (el.ancestors ?? []).map((t) => TAG_RE.exec(t));
   const [html, body, ...rest] = tags;
   let out = el.html ?? "";

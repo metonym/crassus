@@ -118,15 +118,17 @@ function winnerIn(
   names: string[],
 ): { winner: Omit<Winner, "inherited">; value: string } | undefined {
   const winners = cascadeWinners(rules);
-  let best: { key: number[]; rule: Located; value: string } | undefined;
-  const later = (a: number[], b: number[]) =>
+  type Key = [important: number, rule: number, decl: number];
+  let best: { key: Key; rule: Located; value: string } | undefined;
+  const later = (a: Key, b: Key) =>
     a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2];
   for (const name of names) {
     const loc = winners.get(name);
     if (!loc) continue;
     const rule = rules[loc[0]];
-    const decl = rule.declarations[loc[1]];
-    const key = [Number(decl.important), loc[0], loc[1]];
+    const decl = rule?.declarations[loc[1]];
+    if (!rule || !decl) continue;
+    const key: Key = [Number(decl.important), loc[0], loc[1]];
     if (!best || later(key, best.key)) best = { key, rule, value: decl.value };
   }
   return best && { winner: best.rule.winner, value: best.value };
@@ -364,7 +366,7 @@ export async function inspectPage(
       // What's proven unseen (a clip, display: none, off the page) needs
       // no screenshot to say so.
       const seen = Object.keys(changed).filter((k) =>
-        changed[k].some((c) => !c.invisible),
+        changed[k]?.some((c) => !c.invisible),
       );
       out.batches = batches ?? (await planBatches(view, seen));
       for (const batch of out.batches) {

@@ -111,7 +111,7 @@ export async function doctorCommand(opts: {
       ? `each tab is a renderer process: keep to ${Math.max(1, cores >> 1)} or fewer beside other work`
       : undefined,
   );
-  const [load] = loadavg();
+  const [load = 0] = loadavg();
   add(
     load > cores ? "warn" : "ok",
     `load average ${load.toFixed(1)} on ${cores} cores`,
@@ -123,9 +123,10 @@ export async function doctorCommand(opts: {
     [cwd, "the project"],
     [tmpdir(), "the temp directory"],
   ] as const;
-  const space = await Promise.all(disks.map(([dir]) => free(dir)));
-  disks.forEach(([, label], i) => {
-    const bytes = space[i];
+  const space = await Promise.all(
+    disks.map(async ([dir, label]) => ({ label, bytes: await free(dir) })),
+  );
+  for (const { label, bytes } of space) {
     add(
       bytes < 512 * MB ? "error" : bytes < 2048 * MB ? "warn" : "ok",
       `${Math.floor(bytes / MB).toLocaleString("en")} MB free for ${label}`,
@@ -133,7 +134,7 @@ export async function doctorCommand(opts: {
         ? "free space: captures stop below 512 MB, and base builds use worktrees in the temp directory"
         : undefined,
     );
-  });
+  }
 
   if (!opts.configFile)
     add(

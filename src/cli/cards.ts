@@ -264,6 +264,8 @@ export function formatCard(card: Card): string {
       `Came in with ${card.commits.map((c) => `\`${c.sha.slice(0, 9)}\` ${c.subject}`).join("; ")}.`,
     );
   const el = shownElement(card);
+  // Cards are built from their elements, so one without any is a bug.
+  if (!el) throw new Error(`card ${card.id} has no elements`);
   if (el.images)
     lines.push(
       "",

@@ -365,10 +365,10 @@ export function locator(css: string): (offset: number) => {
     let hi = starts.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (starts[mid] <= offset) lo = mid;
+      if ((starts[mid] ?? Infinity) <= offset) lo = mid;
       else hi = mid - 1;
     }
-    return { line: lo + 1, column: offset - starts[lo] };
+    return { line: lo + 1, column: offset - (starts[lo] ?? 0) };
   };
 }
 

@@ -59,8 +59,8 @@ export function headlessShell(): string | undefined {
 
 let defaultChrome: { path?: string } | undefined;
 const defaultChromePath = () => {
-  defaultChrome ??= { path: headlessShell() };
-  return defaultChrome.path;
+  const chrome = (defaultChrome ??= { path: headlessShell() });
+  return chrome.path;
 };
 
 export interface Viewport {

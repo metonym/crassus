@@ -291,7 +291,7 @@ export async function compareCss(opts: CompareOptions): Promise<
       plan(hits) {
         if (planned) return planned;
         const written = new Set(
-          hits.flatMap((i) => plan.selectors[i].properties),
+          hits.flatMap((i) => plan.selectors[i]?.properties ?? []),
         );
         const longhands = [...written].flatMap((p) => plan.expands[p] ?? []);
         const p = impactProperties(longhands, plan.longhands);

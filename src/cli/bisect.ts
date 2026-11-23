@@ -79,7 +79,7 @@ export function segments(
   let start = from;
   for (const c of commits) {
     const last = out.at(-1);
-    if (groupBy === "type" && last && last.commits[0].type === c.type) {
+    if (groupBy === "type" && last && last.commits[0]?.type === c.type) {
       last.commits.push(c);
       last.to = c.sha;
     } else out.push({ from: start, to: c.sha, commits: [c] });
@@ -119,7 +119,7 @@ async function commitsIn(cwd: string, from: string, to: string) {
         return {
           sha: hash,
           subject,
-          type: TYPE_RE.exec(subject)?.[1].toLowerCase() ?? "other",
+          type: TYPE_RE.exec(subject)?.[1]?.toLowerCase() ?? "other",
         };
       })
     : [];
@@ -236,16 +236,22 @@ export async function bisectCommand(opts: {
         ),
         approvals,
       );
-    if (opts.split && failing(result) && seg.commits.length > 1) {
-      const mid = Math.ceil(seg.commits.length / 2);
+    const mid = Math.ceil(seg.commits.length / 2);
+    const midSha = seg.commits[mid - 1]?.sha;
+    if (
+      opts.split &&
+      failing(result) &&
+      seg.commits.length > 1 &&
+      midSha !== undefined
+    ) {
       const halves: Segment[] = [
         {
           from: seg.from,
-          to: seg.commits[mid - 1].sha,
+          to: midSha,
           commits: seg.commits.slice(0, mid),
         },
         {
-          from: seg.commits[mid - 1].sha,
+          from: midSha,
           to: seg.to,
           commits: seg.commits.slice(mid),
         },
@@ -354,7 +360,7 @@ function formatBisect(
       2,
     );
   const title = (r: BisectResult) =>
-    r.commits.length === 1
+    r.commits.length === 1 && r.commits[0]
       ? `${short(r.commits[0].sha)} ${r.commits[0].subject}`
       : `${r.commits.length} commits (${[...new Set(r.commits.map((c) => TYPE_RE.exec(c.subject)?.[1] ?? "other"))].join(", ")})`;
   const status = (r: BisectResult) =>

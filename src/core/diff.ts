@@ -75,17 +75,17 @@ export function longestIncreasing(values: number[]): Set<number> {
   const tails: number[] = [];
   const tailIdx: number[] = [];
   const prev: number[] = new Array<number>(values.length).fill(-1);
-  for (let i = 0; i < values.length; i++) {
+  for (const [i, value] of values.entries()) {
     let lo = 0;
     let hi = tails.length;
     while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      if (tails[mid] < values[i]) lo = mid + 1;
+      if ((tails[mid] ?? Infinity) < value) lo = mid + 1;
       else hi = mid;
     }
-    tails[lo] = values[i];
+    tails[lo] = value;
     tailIdx[lo] = i;
-    prev[i] = lo > 0 ? tailIdx[lo - 1] : -1;
+    prev[i] = lo > 0 ? (tailIdx[lo - 1] ?? -1) : -1;
   }
   const out = new Set<number>();
   for (

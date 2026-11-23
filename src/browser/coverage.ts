@@ -202,13 +202,15 @@ export async function mutationCoverage(opts: CoverageOptions): Promise<{
           });
         }
         found.forEach(([, holds], i) => {
-          if (holds) rules[i].held = true;
+          const rule = rules[i];
+          if (holds && rule) rule.held = true;
         });
         const done = await view.evaluate<[number, string[], string[]][]>(
           `${MUTATE}(${JSON.stringify(plans)})`,
         );
         for (const [i, covered, longhands] of done) {
           const rule = rules[i];
+          if (!rule) continue;
           rule.pages.push(job.label);
           rule.covered = [...new Set([...rule.covered, ...covered])];
           rule.longhands = longhands;

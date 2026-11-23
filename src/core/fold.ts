@@ -321,6 +321,7 @@ export function foldChanges(
 ): PropertyChange[] {
   const before = base[key];
   const after = head[key];
+  if (!before || !after) return changes;
 
   // Logical twins, under their physical names. Only in a horizontal writing
   // mode, in one direction on both sides.

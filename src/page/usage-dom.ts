@@ -107,7 +107,7 @@ function bucketKey(host: string): string {
   const cls = CLASS_RE.exec(compound);
   if (cls) return `.${unescapeIdent(cls[1])}`;
   const tag = TAG_RE.exec(compound);
-  if (tag) return tag[1].toLowerCase();
+  if (tag?.[1]) return tag[1].toLowerCase();
   return "*";
 }
 
@@ -247,7 +247,7 @@ const api: UsageDomApi = {
       }
       valid.push(
         prop.startsWith("--") ||
-          (longhands[prop].length > 0 && CSS.supports(prop, value)),
+          ((longhands[prop]?.length ?? 0) > 0 && CSS.supports(prop, value)),
       );
     }
     return { longhands, valid };
@@ -294,7 +294,7 @@ const api: UsageDomApi = {
         let kind: Prepared["kind"] = 0;
         const m = PSEUDO_END.exec(host);
         if (m) {
-          kind = m[1].toLowerCase() === "before" ? 1 : 2;
+          kind = m[1]?.toLowerCase() === "before" ? 1 : 2;
           host = host.slice(0, m.index).trim();
           if (!host || TRAILING_COMBINATOR_RE.test(host)) host += "*";
         }

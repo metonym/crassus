@@ -850,7 +850,7 @@ const colorList = (
         heading,
         ...list.slice(0, 15).map((h) => {
           const out = leftOut(h.omitted);
-          return `  ${h.count}×  ${h.property}: ${h.value}${out ? ` (${out})` : ""}  e.g. ${h.examples[0].page}  ${h.examples[0].path}`;
+          return `  ${h.count}×  ${h.property}: ${h.value}${out ? ` (${out})` : ""}  e.g. ${h.examples[0]?.page}  ${h.examples[0]?.path}`;
         }),
         ...(total ? [`  (left out of this list: ${total})`] : []),
       ]

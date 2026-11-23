@@ -174,13 +174,14 @@ export function placeRules(nodes: Node[]): Placed[] {
     let d = from;
     const run = (end: number) => {
       const first = d;
-      while (d < decls.length && decls[d].start < end) d++;
-      if (d > first && w.parent)
+      while (d < decls.length && (decls[d]?.start ?? Infinity) < end) d++;
+      const at = decls[first];
+      if (d > first && w.parent && at)
         place(
           [
             {
               complex: resolveNested(AMPERSAND, w.parent),
-              offset: decls[first].start,
+              offset: at.start,
             },
           ],
           decls.slice(first, d),
@@ -217,7 +218,7 @@ export function placeRules(nodes: Node[]): Placed[] {
       let lead = 0;
       while (
         lead < node.decls.length &&
-        node.decls[lead].start < startOf(first)
+        (node.decls[lead]?.start ?? Infinity) < startOf(first)
       )
         lead++;
       place(selectors, node.decls.slice(0, lead), text, w);

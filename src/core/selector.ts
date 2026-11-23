@@ -354,7 +354,7 @@ export function attrConstraint(raw: string): {
 } {
   const m = ATTR_RE.exec(raw);
   if (!m) return { name: raw, value: null };
-  const name = m[1].toLowerCase();
+  const name = (m[1] ?? "").toLowerCase();
   if (m[2] !== "=") return { name, value: null };
   const v = m[3] ?? "";
   return { name, value: isQuote(v.charCodeAt(0)) ? v.slice(1, -1) : v };
@@ -440,13 +440,13 @@ export function resolveNested(sel: Complex, parent: Complex[]): Complex {
     last &&
     last.parts.length > 0 &&
     count === 1 &&
-    s.compounds[0].parts[0]?.t === "nesting" &&
+    s.compounds[0]?.parts[0]?.t === "nesting" &&
     !last.parts.some((part) => part.t === "pseudo-element")
   ) {
     return {
       compounds: [
         ...p.compounds.slice(0, -1),
-        { parts: [...last.parts, ...s.compounds[0].parts.slice(1)] },
+        { parts: [...last.parts, ...(s.compounds[0]?.parts.slice(1) ?? [])] },
         ...s.compounds.slice(1),
       ],
       combinators: [...p.combinators, ...s.combinators],
@@ -461,7 +461,9 @@ export function resolveNested(sel: Complex, parent: Complex[]): Complex {
 }
 
 export function compareSpecificity(a: Specificity, b: Specificity): number {
-  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+  if (a[0] !== b[0]) return a[0] - b[0];
+  if (a[1] !== b[1]) return a[1] - b[1];
+  if (a[2] !== b[2]) return a[2] - b[2];
   return 0;
 }
 

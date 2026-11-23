@@ -46,10 +46,10 @@ export function decodePng(png: Uint8Array): Image {
     const out = rows.subarray(y * stride, (y + 1) * stride);
     const prev = y > 0 ? rows.subarray((y - 1) * stride, y * stride) : null;
     for (let i = 0; i < stride; i++) {
-      const a = i >= channels ? out[i - channels] : 0;
-      const b = prev ? prev[i] : 0;
-      const c = prev && i >= channels ? prev[i - channels] : 0;
-      let v = line[i];
+      const a = i >= channels ? (out[i - channels] ?? 0) : 0;
+      const b = prev ? (prev[i] ?? 0) : 0;
+      const c = prev && i >= channels ? (prev[i - channels] ?? 0) : 0;
+      let v = line[i] ?? 0;
       if (filter === 1) v += a;
       else if (filter === 2) v += b;
       else if (filter === 3) v += (a + b) >> 1;
@@ -115,7 +115,7 @@ export interface Difference {
 export function difference(a: Image, b: Image): Difference | null {
   const labs = new Map<number, [number, number, number]>();
   const labOf = (d: Uint8Array, i: number) => {
-    const key = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
+    const key = ((d[i] ?? 0) << 16) | ((d[i + 1] ?? 0) << 8) | (d[i + 2] ?? 0);
     let v = labs.get(key);
     if (!v) {
       v = lab(d[i], d[i + 1], d[i + 2]);
@@ -150,7 +150,7 @@ const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
 
 function crc32(bytes: Uint8Array): number {
   let c = 0xffffffff;
-  for (const b of bytes) c = CRC_TABLE[(c ^ b) & 0xff] ^ (c >>> 8);
+  for (const b of bytes) c = (CRC_TABLE[(c ^ b) & 0xff] ?? 0) ^ (c >>> 8);
   return (c ^ 0xffffffff) >>> 0;
 }
 
@@ -178,7 +178,8 @@ export function encodePng(image: Image): Uint8Array {
     raw[y * (stride + 1)] = 2;
     for (let i = 0; i < stride; i++)
       raw[y * (stride + 1) + 1 + i] =
-        data[y * stride + i] - (y > 0 ? data[(y - 1) * stride + i] : 0);
+        (data[y * stride + i] ?? 0) -
+        (y > 0 ? (data[(y - 1) * stride + i] ?? 0) : 0);
   }
   return Buffer.concat([
     new Uint8Array(SIGNATURE),
@@ -208,9 +209,9 @@ export function heatmap(base: Image, head: Image): Image {
         b < 0
           ? 255
           : Math.round(
-              (head.data[b] * 0.3 +
-                head.data[b + 1] * 0.59 +
-                head.data[b + 2] * 0.11) *
+              ((head.data[b] ?? 0) * 0.3 +
+                (head.data[b + 1] ?? 0) * 0.59 +
+                (head.data[b + 2] ?? 0) * 0.11) *
                 0.35 +
                 166,
             );

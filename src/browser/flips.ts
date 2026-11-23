@@ -118,7 +118,7 @@ export async function confirmFlips(opts: {
           if (el) hits.push([i, all.indexOf(el)]);
         }
         return { vocab: [...vocab], hits, nest: [...nest], comps: [...comps] };
-      })(${JSON.stringify(opts.index.pages[label].skeleton)}, ${JSON.stringify(open)})`);
+      })(${JSON.stringify(opts.index.pages[label]?.skeleton)}, ${JSON.stringify(open)})`);
       for (const v of r.vocab) vocab.add(v);
       for (const v of r.nest) nested.add(v);
       for (const v of r.comps) components.add(v);
@@ -135,6 +135,7 @@ export async function confirmFlips(opts: {
       i: number,
     ): Promise<{ matched: boolean; before: string; after: string } | null> => {
       const f = opts.flips[i];
+      if (!f) return Promise.resolve(null);
       const states = f.selectors.flatMap((s) => stateSets(s));
       const pseudo = PSEUDO_RE.exec(f.selectors.join(" "))?.[0] ?? null;
       const exact = f.selectors.map((s) => asAttrs(matchable(s)));
@@ -178,8 +179,9 @@ export async function confirmFlips(opts: {
     const out: FlipVerdict[] = [];
     for (const [i, f] of opts.flips.entries()) {
       const hit = found[i];
-      if (hit) {
-        const r = await render(opts.index.pages[hit.page].skeleton, hit.at, i);
+      const page = hit && opts.index.pages[hit.page];
+      if (hit && page) {
+        const r = await render(page.skeleton, hit.at, i);
         if (r?.matched) {
           out.push(judged(r, hit.page));
           continue;

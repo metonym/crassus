@@ -205,6 +205,7 @@ function firstAfter(list: Ref[], block: number, decl: number): number {
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     const e = list[mid];
+    if (!e) break;
     if (e.block < block || (e.block === block && e.decl <= decl)) lo = mid + 1;
     else hi = mid;
   }
@@ -224,8 +225,10 @@ export function deadDeclarations(
     `${block.context}\0${block.scope}\0${selector}`;
   const groups = new Map<string, Group>();
   for (let i = 0; i < blocks.length; i++) {
-    for (const selector of blocks[i].selectors) {
-      const key = keyOf(blocks[i], selector);
+    const block = blocks[i];
+    if (!block) continue;
+    for (const selector of block.selectors) {
+      const key = keyOf(block, selector);
       const group = groups.get(key);
       if (group) group.blocks.push(i);
       else groups.set(key, { blocks: [i] });
@@ -265,7 +268,8 @@ export function deadDeclarations(
     sameBlock: boolean,
     after: number,
   ): Ref | undefined => {
-    if (!sameBlock && group.blocks.length < 2) return undefined;
+    const self = blocks[i];
+    if (!self || (!sameBlock && group.blocks.length < 2)) return undefined;
     const index = indexOf(group);
     let best: Ref | undefined;
     for (const key of coverKeys(decl.property)) {
@@ -274,7 +278,7 @@ export function deadDeclarations(
       const { list } = entries;
       // An earlier declaration only wins through importance or its layer.
       const earlierMayWin =
-        !sameBlock && (entries.important || entries.layer !== blocks[i].layer);
+        !sameBlock && (entries.important || entries.layer !== self.layer);
       for (
         let k = earlierMayWin
           ? 0
@@ -283,7 +287,7 @@ export function deadDeclarations(
         k++
       ) {
         const e = list[k];
-        if (sameBlock && e.block !== i) break;
+        if (!e || (sameBlock && e.block !== i)) break;
         if (e.block === i && !sameBlock) continue;
         if (
           best &&
@@ -291,8 +295,9 @@ export function deadDeclarations(
             (e.block === best.block && e.decl > best.decl))
         )
           break;
-        const y = blocks[e.block].decls[e.decl];
-        if (beats(y, blocks[e.block], e.block, decl, blocks[i], i)) {
+        const other = blocks[e.block];
+        const y = other?.decls[e.decl];
+        if (other && y && beats(y, other, e.block, decl, self, i)) {
           best = e;
           break;
         }
@@ -328,6 +333,7 @@ export function deadDeclarations(
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
+    if (!block) continue;
     const own: Group[] = [];
     for (const selector of block.selectors) {
       const group = groups.get(keyOf(block, selector));
@@ -335,14 +341,16 @@ export function deadDeclarations(
     }
     for (let d = 0; d < block.decls.length; d++) {
       const decl = block.decls[d];
+      if (!decl) continue;
+      const firstOwn = own[0];
       const siblingAt =
-        own.length > 0 && block.decls.length > SCAN_LIMIT
-          ? (firstBeating(own[0], decl, i, true, d)?.decl ?? -1)
+        firstOwn && block.decls.length > SCAN_LIMIT
+          ? (firstBeating(firstOwn, decl, i, true, d)?.decl ?? -1)
           : block.decls.findIndex(
               (o, k) => k > d && beats(o, block, i, decl, block, i),
             );
-      if (siblingAt >= 0) {
-        const sibling = block.decls[siblingAt];
+      const sibling = siblingAt >= 0 ? block.decls[siblingAt] : undefined;
+      if (sibling) {
         const fallback =
           sibling.property === decl.property &&
           (FALLBACK_VALUE_RE.test(sibling.value) ||
@@ -351,19 +359,16 @@ export function deadDeclarations(
         continue;
       }
 
-      if (own.length === 0) continue;
-      const winner = firstBeating(own[0], decl, i, false, -1);
+      if (!firstOwn) continue;
+      const winner = firstBeating(firstOwn, decl, i, false, -1);
+      const winBlock = winner && blocks[winner.block];
+      const winDecl = winner && winBlock?.decls[winner.decl];
       if (
-        winner &&
+        winBlock &&
+        winDecl &&
         own.slice(1).every((g) => firstBeating(g, decl, i, false, -1))
       )
-        report(
-          block,
-          decl,
-          blocks[winner.block].decls[winner.decl],
-          blocks[winner.block],
-          false,
-        );
+        report(block, decl, winDecl, winBlock, false);
     }
   }
   return dead;

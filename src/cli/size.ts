@@ -16,7 +16,9 @@ export async function sizeOf(css: string): Promise<Size> {
     await Bun.write(file, css);
     const out = await Bun.build({ entrypoints: [file], minify: true });
     if (!out.success) throw new Error(out.logs.join("\n"));
-    const min = new Uint8Array(await out.outputs[0].arrayBuffer());
+    const [output] = out.outputs;
+    if (!output) throw new Error(`${file} built to nothing`);
+    const min = new Uint8Array(await output.arrayBuffer());
     return {
       min: min.byteLength,
       gzip: Bun.gzipSync(min).byteLength,

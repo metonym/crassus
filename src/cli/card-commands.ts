@@ -242,7 +242,10 @@ export async function reduceCommand(opts: {
     card.elements.find((e) => e.pixels) ??
     card.elements.find((e) => !e.path.includes("@")) ??
     card.elements[0];
-  const property = opts.property ?? card.changes[0].property;
+  if (!el) throw new UsageError(`card ${card.id} has no elements`);
+  const property = opts.property ?? card.changes[0]?.property;
+  if (property === undefined)
+    throw new UsageError(`card ${card.id} has no changes`);
   const page = PAGE_RE.exec(el.page);
   if (!page) throw new UsageError(`can't read the page name ${el.page}`);
   const { browser, pages } = settings(opts.config, report.inputs.flags, io);

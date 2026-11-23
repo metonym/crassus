@@ -258,7 +258,10 @@ export async function pageIndex(opts: IndexOptions): Promise<{
         };
       },
     );
-    for (const label of r.notReady) index.pages[label].ready = false;
+    for (const label of r.notReady) {
+      const page = index.pages[label];
+      if (page) page.ready = false;
+    }
   } finally {
     server.stop();
   }
@@ -339,7 +342,7 @@ export async function matchPages(
       });
       if (batch.length === 0) continue;
       const r = await view.evaluate<PageMatch[]>(
-        `${MATCH}(${JSON.stringify(batch.map((j) => index.pages[j.label].skeleton))}, ${JSON.stringify(selectors)})`,
+        `${MATCH}(${JSON.stringify(batch.map((j) => index.pages[j.label]?.skeleton))}, ${JSON.stringify(selectors)})`,
       );
       batch.forEach((job, k) => {
         out.set(job.label, r[k]);

@@ -107,10 +107,9 @@ export function diffUnits(a: Unit[], b: Unit[]): Step[] {
   for (let d = 0; d <= max && !found; d++) {
     trace.push(v.slice());
     for (let k = -d; k <= d; k += 2) {
-      let x =
-        k === -d || (k !== d && v[max + k - 1] < v[max + k + 1])
-          ? v[max + k + 1]
-          : v[max + k - 1] + 1;
+      const left = v[max + k - 1] ?? 0;
+      const right = v[max + k + 1] ?? 0;
+      let x = k === -d || (k !== d && left < right) ? right : left + 1;
       let y = x - k;
       while (x < n && y < m && ka[x] === kb[y]) {
         x++;
@@ -129,10 +128,13 @@ export function diffUnits(a: Unit[], b: Unit[]): Step[] {
   let y = m;
   for (let d = trace.length - 1; d >= 0; d--) {
     const t = trace[d];
+    if (!t) break;
     const k = x - y;
     const prev =
-      k === -d || (k !== d && t[max + k - 1] < t[max + k + 1]) ? k + 1 : k - 1;
-    const px = t[max + prev];
+      k === -d || (k !== d && (t[max + k - 1] ?? 0) < (t[max + k + 1] ?? 0))
+        ? k + 1
+        : k - 1;
+    const px = t[max + prev] ?? 0;
     const py = px - prev;
     while (x > px && y > py) {
       steps.push({ op: "=", unit: a[--x] });

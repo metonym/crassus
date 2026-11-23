@@ -102,9 +102,11 @@ export function cascadeWinners(rules: MatchedRule[]): Map<string, Loc> {
   const normal = new Map<string, Loc>();
   for (let ri = 0; ri < rules.length; ri++) {
     const rule = rules[ri];
+    if (!rule) continue;
     const rank = rule.layerRank ?? Number.POSITIVE_INFINITY;
     for (let di = 0; di < rule.declarations.length; di++) {
       const decl = rule.declarations[di];
+      if (!decl) continue;
       for (const lh of decl.longhands) {
         if (!decl.important) normal.set(lh, [ri, di]);
         else if (rank <= (importantRank.get(lh) ?? rank)) {
@@ -208,9 +210,11 @@ export function recordObservation(
   const winners = cascadeWinners(rules);
   for (let ri = 0; ri < rules.length; ri++) {
     const rule = rules[ri];
+    if (!rule) continue;
     agg.matchedRuleKeys.add(ruleKey(rule));
     for (let di = 0; di < rule.declarations.length; di++) {
       const decl = rule.declarations[di];
+      if (!decl) continue;
       const stats = statsFor(agg, rule, decl);
       stats.matched++;
       if (wonAny(winners, decl, ri, di)) {
@@ -219,9 +223,11 @@ export function recordObservation(
       }
       // Charged to the first longhand's winner: enough to spot a recurring
       // override.
-      const winnerLoc = winners.get(decl.longhands[0]);
-      if (!winnerLoc) continue;
-      const label = ruleLabel(rules[winnerLoc[0]]);
+      const first = decl.longhands[0];
+      const winnerLoc = first === undefined ? undefined : winners.get(first);
+      const winner = winnerLoc && rules[winnerLoc[0]];
+      if (!winner) continue;
+      const label = ruleLabel(winner);
       stats.lostTo[label] = (stats.lostTo[label] ?? 0) + 1;
     }
   }

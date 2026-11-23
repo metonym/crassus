@@ -378,7 +378,8 @@ export function buildCards(
         const covered = new Set(
           changed.flatMap((c) => [c.property, ...(c.aliases ?? [])]),
         );
-        const by = new Map<string, [string, TokenChange][]>();
+        type Group = [[string, TokenChange], ...[string, TokenChange][]];
+        const by = new Map<string, Group>();
         for (const [property, t] of Object.entries(props)) {
           if (covered.has(property)) continue;
           const k = `${t.base.join()}>${t.head.join()}`;
@@ -386,7 +387,9 @@ export function buildCards(
         }
         for (const [k, list] of by) {
           const names = list.map(([p]) => p).sort();
-          const property = names.includes("color") ? "color" : names[0];
+          const property = names.includes("color")
+            ? "color"
+            : (names[0] ?? list[0][0]);
           const t = list.find(([p]) => p === property)?.[1] ?? list[0][1];
           const value = t.value ?? "";
           const c: PropertyChange = {
@@ -525,8 +528,12 @@ function toCard(slot: Slot): Card {
       : `${props} no longer follow${s} ${from}`;
   } else if (cause.kind === "shifted")
     title = `${props}: ${cause.base ? where(cause.base) : "no declaration"} -> ${cause.head ? where(cause.head) : "no declaration"}`;
-  else
-    title = `${changes[0].property}: ${changes[0].before} -> ${changes[0].after}`;
+  else {
+    const [first] = changes;
+    title = first
+      ? `${first.property}: ${first.before} -> ${first.after}`
+      : "no changes";
+  }
   const id = shortHash(`${slot.key}|${[...properties].sort().join()}`);
   const shown = changes
     .slice(0, 3)
