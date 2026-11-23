@@ -331,8 +331,9 @@ const api: UsageDomApi = {
           } catch {
             bad.add(p.host);
           }
-          if (ok && !byKind[p.kind].get(p.rule)?.includes(p.sel))
-            pushTo(byKind[p.kind], p.rule, p.sel);
+          const kind = byKind[p.kind];
+          if (ok && kind && !kind.get(p.rule)?.includes(p.sel))
+            pushTo(kind, p.rule, p.sel);
         }
       }
       byKind.forEach((m, kind) => {
@@ -367,9 +368,13 @@ const api: UsageDomApi = {
           if (el.parentElement && el.parentElement !== body)
             observe(el.parentElement, out);
           const queue = Array.from(el.children);
-          for (let i = 0; i < queue.length && i < MAX_STATE_DESCENDANTS; i++) {
-            observe(queue[i], out);
-            queue.push(...Array.from(queue[i].children));
+          for (
+            let i = 0, node = queue[0];
+            node !== undefined && i < MAX_STATE_DESCENDANTS;
+            node = queue[++i]
+          ) {
+            observe(node, out);
+            queue.push(...Array.from(node.children));
           }
           for (const n of names) el.removeAttribute(`data-cr-${n}`);
           for (const a of within) a.removeAttribute("data-cr-focus-within");
