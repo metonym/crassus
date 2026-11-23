@@ -26,7 +26,10 @@ export interface TokenReport {
    * sets them, by property and value, most common first.
    */
   hardCoded: ColorUse[];
-  /** Colors that follow no token where no author rule sets them: the user agent's. */
+  /**
+   * Colors that follow no token where no author rule sets them: the user
+   * agent's.
+   */
   uaDefaults: ColorUse[];
   /** Per list, the elements left out of it. */
   omitted: { hardCoded: Omitted; uaDefaults: Omitted };
@@ -51,7 +54,10 @@ interface Omitted {
   inherited: number;
 }
 
-/** A list's entries with elements listed, most first, and what all left out. */
+/**
+ * A list's entries with elements listed, most first, and what all left
+ * out.
+ */
 function listed(uses: Map<string, ColorUse>) {
   const omitted: Omitted = { invisible: 0, inherited: 0 };
   for (const u of uses.values()) {
@@ -78,8 +84,8 @@ const INHERITED = new Set([
 ]);
 const PSEUDO_KEY_RE = /::(?:before|after)$/;
 
-// Per [path, property]: whether an author rule whose conditions hold, or the
-// element's style attribute, declares it on the element.
+// Per [path, property]: whether an author rule whose conditions hold, or
+// the element's style attribute, declares it on the element.
 const AUTHORED = `((cands) => {
   const resolvePath = ${resolvePath.toString()};
   const rules = [];

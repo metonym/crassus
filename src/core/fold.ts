@@ -1,6 +1,8 @@
-// Folds one element's computed-style changes so a single cause reads as one
-// change: logical twins, a shorthand's longhands and `color` followers become
-// `aliases` of the change they repeat, and changes no one can see are marked.
+// Folds one element's computed-style changes so a single cause reads as
+// one
+// change: logical twins, a shorthand's longhands and `color` followers
+// become `aliases` of the change they repeat, and changes no one can see
+// are marked.
 import { parseColor } from "./color";
 import { SHORTHANDS } from "./shorthands";
 import type { PropertyChange, Snapshot } from "./snapshot-diff";
@@ -32,7 +34,10 @@ function physical(property: string, dir: Direction): string | undefined {
   return out.startsWith("inset-") ? out.slice("inset-".length) : out;
 }
 
-/** Shorthands by physical longhand set, largest first, a physical name preferred. */
+/**
+ * Shorthands by physical longhand set, largest first, a physical name
+ * preferred.
+ */
 const shorthandTables = new Map<Direction, [string, string[]][]>();
 function shorthands(dir: Direction): [string, string[]][] {
   let table = shorthandTables.get(dir);
@@ -67,8 +72,8 @@ const FOLLOWERS = new Set([
   "-webkit-text-stroke-color",
 ]);
 
-// Painted only: hidden with the element, while layout properties still move
-// its neighbors.
+// Painted only: hidden with the element, while layout properties still
+// move its neighbors.
 const COLOR_RE = /(?:^|-)color$/;
 const PAINT = new Set([
   "background-image",
@@ -153,9 +158,10 @@ function clippedAway(r: StyleRecord): string | undefined {
 }
 
 /**
- * Why the element with `records` (its `lineage`) can't be seen, if it can't,
- * and whether that holds for every property (its box is out of flow, so even
- * its layout moves nothing anyone sees) or only for painted ones.
+ * Why the element with `records` (its `lineage`) can't be seen, if it
+ * can't, and whether that holds for every property (its box is out of
+ * flow, so even its layout moves nothing anyone sees) or only for painted
+ * ones.
  */
 function concealed(
   own: StyleRecord,
@@ -238,7 +244,10 @@ const TEXT_FOLLOWERS = new Set([
   "-webkit-text-stroke-color",
 ]);
 
-/** The opaque color text is drawn on, from the nearest painted background; undefined when unsure. */
+/**
+ * The opaque color text is drawn on, from the nearest painted background;
+ * undefined when unsure.
+ */
 function backdrop(records: StyleRecord[]): string | undefined {
   for (const r of records) {
     if (emptyBox(r)) continue;

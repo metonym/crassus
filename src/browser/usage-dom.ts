@@ -3,8 +3,8 @@
 import {
   alignRules,
   cascadeOrder,
-  type EngineDeclInfo,
   engineDeclarations,
+  type EngineDeclInfo,
   libraryRules,
 } from "../core/align";
 import { recordObservation, type UsageAggregate } from "../core/usage";

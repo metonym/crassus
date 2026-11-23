@@ -1,8 +1,10 @@
-// crassus/browser loads on first use, so `dead` and `diff` don't pay for it.
+// crassus/browser loads on first use, so `dead` and `diff` don't pay for
+// it.
 import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { join, resolve } from "node:path";
+
 import type { Crops, Impact } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import type { TokenReport } from "../browser/tokens";
@@ -36,7 +38,7 @@ import {
   shownPath,
   UsageError,
 } from "./project";
-import { formatSnapshotDiff, refLabel, type Summary, seconds } from "./report";
+import { formatSnapshotDiff, refLabel, seconds, type Summary } from "./report";
 import { mappedLocator, type Sheet } from "./sources";
 
 /** Command-line overrides of `browser` in the config. */
@@ -126,7 +128,10 @@ export function settings(config: Config, flags: BrowserFlags, io?: Io) {
   };
 }
 
-/** Builds the fixtures in `root` (unless `--url` serves them) and lists them. */
+/**
+ * Builds the fixtures in `root` (unless `--url` serves them) and lists
+ * them.
+ */
 export async function fixturePages(
   root: string,
   browser: BrowserConfig,
@@ -155,7 +160,10 @@ export async function fixturePages(
   return { path, fixtures };
 }
 
-/** Builds and serves the fixtures in `root`, unless `--url` points at a running server. */
+/**
+ * Builds and serves the fixtures in `root`, unless `--url` points at a
+ * running server.
+ */
 async function withFixtures<T>(
   root: string,
   browser: BrowserConfig,
@@ -228,7 +236,10 @@ export function needMarker(browser: BrowserConfig, what: string): string {
   return browser.sheetMarker;
 }
 
-/** `crassus capture <outDir> [--base <ref> | --css <file>]`. Exit 1 when a page never got ready. */
+/**
+ * `crassus capture <outDir> [--base <ref> | --css <file>]`. Exit 1 when a
+ * page never got ready.
+ */
 export async function captureCommand(opts: {
   config: Config;
   flags: BrowserFlags;
@@ -315,12 +326,15 @@ const detached = (diff: SnapshotDiff) =>
     ),
   );
 
-// Properties one side didn't record, and changes no one can see, are listed
-// for review, not failed on.
+// Properties one side didn't record, and changes no one can see, are
+// listed for review, not failed on.
 export const differs = (diff: SnapshotDiff) =>
   detached(diff) || diff.groups.some((g) => !g.invisible) || domDiffers(diff);
 
-/** `crassus snapshot-diff <baseDir> <headDir>`. Exit 1 when anything differs. */
+/**
+ * `crassus snapshot-diff <baseDir> <headDir>`. Exit 1 when anything
+ * differs.
+ */
 export async function snapshotDiffCommand(opts: {
   dirs: string[];
   format: "human" | "json";
@@ -357,8 +371,9 @@ export async function snapshotDiffCommand(opts: {
 }
 
 /**
- * Points winners in the swapped library stylesheet at their source (through
- * each side's source map), or at least at the stylesheet they came from.
+ * Points winners in the swapped library stylesheet at their source
+ * (through each side's source map), or at least at the stylesheet they
+ * came from.
  */
 function attribute(
   diff: SnapshotDiff,
@@ -423,7 +438,10 @@ function impactLine(impact: Impact): string {
   return `the changed rules (${plural(impact.selectors, "selector")}) reach ${impact.pages} of ${plural(impact.total, "page")} (${plural(impact.elements, "element")}, with their descendants)${index}`;
 }
 
-/** What `compare` and `bisect` share: checks first, then a run per stylesheet pair. */
+/**
+ * What `compare` and `bisect` share: checks first, then a run per
+ * stylesheet pair.
+ */
 export function comparer(opts: {
   config: Config;
   flags: BrowserFlags;
@@ -512,9 +530,9 @@ export function comparer(opts: {
 }
 
 /**
- * `crassus compare [--base <ref>] | <base.css> <head.css>`: today's fixtures
- * with each side's library stylesheet, diffed page by page. Exit 1 when
- * anything visible differs or a page never got ready.
+ * `crassus compare [--base <ref>] | <base.css> <head.css>`: today's
+ * fixtures with each side's library stylesheet, diffed page by page. Exit
+ * 1 when anything visible differs or a page never got ready.
  */
 export async function compareCommand(opts: {
   config: Config;
@@ -684,7 +702,10 @@ export function cardsOrText(
   );
 }
 
-/** Builds a run's change cards, reads their sources, and writes the report directory. */
+/**
+ * Builds a run's change cards, reads their sources, and writes the report
+ * directory.
+ */
 export async function changeCards(o: {
   runs: {
     pages: Parameters<typeof buildCards>[0][number]["pages"];
@@ -836,7 +857,10 @@ const colorList = (
     : [];
 };
 
-/** `crassus usage`: writes usage.json and report.md. Always exit 0: evidence, not proof. */
+/**
+ * `crassus usage`: writes usage.json and report.md. Always exit 0:
+ * evidence, not proof.
+ */
 export async function usageCommand(opts: {
   config: Config;
   flags: BrowserFlags;

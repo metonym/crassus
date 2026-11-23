@@ -1,4 +1,5 @@
 import path from "node:path";
+
 import {
   type ChangeGroup,
   diffSnapshot,
@@ -34,9 +35,15 @@ export interface SnapshotDiff {
   onlyHead: string[];
   /** Pages with any change, by file name. */
   pages: SnapshotPageDiff[];
-  /** Style changes grouped by `(property, before -> after)`, most frequent first. */
+  /**
+   * Style changes grouped by `(property, before -> after)`, most frequent
+   * first.
+   */
   groups: ChangeGroup[];
-  /** Over all compared pages: properties one side never recorded, so not compared. */
+  /**
+   * Over all compared pages: properties one side never recorded, so not
+   * compared.
+   */
   uncompared: Uncompared;
 }
 
@@ -105,9 +112,9 @@ export function summarizePages(
 }
 
 /**
- * Diffs two `capture` output directories; a file on one side only is listed,
- * not diffed. Throws `IncompleteCaptureError` for a directory `capture`
- * didn't finish.
+ * Diffs two `capture` output directories; a file on one side only is
+ * listed, not diffed. Throws `IncompleteCaptureError` for a directory
+ * `capture` didn't finish.
  */
 export async function diffSnapshots(
   baseDir: string,

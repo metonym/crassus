@@ -1,17 +1,18 @@
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+
 import { parseRules } from "../core/cascade";
 import {
   createAggregate,
-  type DeclarationStats,
   deadInFixtures,
+  type DeclarationStats,
   foldCandidates,
-  type InventoryRule,
   inventoryFromRules,
+  type InventoryRule,
   mergeAggregate,
   neverMatchedRules,
-  type Summary,
   summarize,
+  type Summary,
   type UsageAggregate,
 } from "../core/usage";
 import { processPageCdp } from "./usage-cdp";
@@ -29,22 +30,31 @@ export interface UsageOptions {
   themes: string[];
   outDir: string;
   engine: EngineName;
-  /** `cdp` asks Chrome per element (exact); `dom` matches in the page (any engine). */
+  /**
+   * `cdp` asks Chrome per element (exact); `dom` matches in the page (any
+   * engine).
+   */
   matcher: "cdp" | "dom";
   emulate: "cdp" | "cssom";
   states: boolean;
   concurrency: number;
   chromePath?: string;
-  /** Text only the library stylesheet contains, e.g. a class prefix (`.bx--`). */
+  /**
+   * Text only the library stylesheet contains, e.g. a class prefix
+   * (`.bx--`).
+   */
   sheetMarker: string;
-  /** `<html>` attribute set to the theme (with `serveFixtures`). Default `theme`; `null`: none. */
+  /**
+   * `<html>` attribute set to the theme (with `serveFixtures`). Default
+   * `theme`; `null`: none.
+   */
   themeAttribute?: string | null;
   settleMs?: number;
   /** Default 1280 × 900. A declaration that wins at any viewport has won. */
   viewports?: Viewport[];
   /**
-   * Polled after load (up to `readyTimeoutMs`). A page it never matches on is
-   * still read, and listed in `notReady`.
+   * Polled after load (up to `readyTimeoutMs`). A page it never matches on
+   * is still read, and listed in `notReady`.
    */
   readySelector?: string;
   /** Default 5000 ms. */
@@ -68,7 +78,8 @@ export interface UsageFile {
   notReady: string[];
   /**
    * Matched but never won, ignoring losses to `prefers-reduced-motion`,
-   * `prefers-contrast` and `forced-colors` rules (preferences, not overrides).
+   * `prefers-contrast` and `forced-colors` rules (preferences, not
+   * overrides).
    */
   deadInFixtures: DeclarationStats[];
   /** Dead in fixtures, always losing to the same single rule. */

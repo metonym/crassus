@@ -1,7 +1,7 @@
-// Delta debugging over a stylesheet change: the change as declaration-level
-// edits (one unit per declaration, in source order), any subset of them
-// applied to base as CSS, and ddmin (Zeller and Hildebrandt) to find a
-// 1-minimal subset that still reproduces an effect.
+// Delta debugging over a stylesheet change: the change as
+// declaration-level edits (one unit per declaration, in source order), any
+// subset of them applied to base as CSS, and ddmin (Zeller and
+// Hildebrandt) to find a 1-minimal subset that still reproduces an effect.
 import { parseRules, type Rule } from "./cascade";
 import { type Node, parseStylesheet } from "./parse";
 
@@ -32,7 +32,10 @@ function contextsOf(r: Rule): string[] {
   return out;
 }
 
-/** The stylesheet as units, and the at-rules that hold no declarations of style rules. */
+/**
+ * The stylesheet as units, and the at-rules that hold no declarations of
+ * style rules.
+ */
 export function cssUnits(css: string): { prelude: string; units: Unit[] } {
   const units: Unit[] = [];
   const frames = new Map<string, Unit>();
@@ -88,7 +91,10 @@ function prelude(nodes: Node[]): string {
 
 export type Step = { op: "=" | "-" | "+"; unit: Unit };
 
-/** The shortest edit script from `a` to `b` (Myers), as kept, removed and added units. */
+/**
+ * The shortest edit script from `a` to `b` (Myers), as kept, removed and
+ * added units.
+ */
 export function diffUnits(a: Unit[], b: Unit[]): Step[] {
   const ka = a.map(key);
   const kb = b.map(key);

@@ -77,7 +77,8 @@ const SELECTOR_ARG = new Set([
   "past",
   "future",
 ]);
-// Pseudo-classes that take their heaviest argument's specificity and none of their own.
+// Pseudo-classes that take their heaviest argument's specificity and none
+// of their own.
 const TAKES_ARG_SPECIFICITY = new Set([
   "is",
   "not",
@@ -185,7 +186,10 @@ export function parseComplex(text: string): Complex {
     return text.slice(start, i);
   };
 
-  /** From an opening `(` or `[` to just past its match; returns what's inside. */
+  /**
+   * From an opening `(` or `[` to just past its match; returns what's
+   * inside.
+   */
   const readGroup = (open: number, close: number): string => {
     let depth = 0;
     const start = i + 1;
@@ -304,7 +308,10 @@ export function parseComplex(text: string): Complex {
   return { compounds, combinators };
 }
 
-/** Whitespace dropped outside strings, except before a flag after an unquoted value (`[a=x i]`). */
+/**
+ * Whitespace dropped outside strings, except before a flag after an
+ * unquoted value (`[a=x i]`).
+ */
 function canonicalAttr(raw: string): string {
   if (!WS_RE.test(raw)) return raw;
   let out = "";
@@ -399,15 +406,15 @@ function weightOf(list: Complex[]): number {
   return w;
 }
 
-// Past this many parts, `&` is left unresolved: `.a, .b` nested dozens deep
-// doubles at each level.
+// Past this many parts, `&` is left unresolved: `.a, .b` nested dozens
+// deep doubles at each level.
 const MAX_RESOLVED_WEIGHT = 4096;
 
 /**
- * As CSS Nesting reads it: `&` is `:is(<parent>)`, and a selector without `&`
- * is relative (`.b` is `& .b`, `> .b` is `& > .b`). A single parent selector
- * is spliced in when `&` only starts the selector: same elements, same
- * specificity, more readable.
+ * As CSS Nesting reads it: `&` is `:is(<parent>)`, and a selector without
+ * `&` is relative (`.b` is `& .b`, `> .b` is `& > .b`). A single parent
+ * selector is spliced in when `&` only starts the selector: same elements,
+ * same specificity, more readable.
  */
 export function resolveNested(sel: Complex, parent: Complex[]): Complex {
   if (weightOf(parent) > MAX_RESOLVED_WEIGHT) return sel;
@@ -544,10 +551,10 @@ function serializeCompound(c: Compound): string {
 }
 
 /**
- * A selector or list as `Rule.selector` spells it, to key a browser's selector
- * text (CDP's `selectorList.selectors[i].text`) to `parseRules`. Quotes stay
- * as written, as CDP reports them. Nested selectors only match once resolved
- * against their parents, as `Rule.selector` is.
+ * A selector or list as `Rule.selector` spells it, to key a browser's
+ * selector text (CDP's `selectorList.selectors[i].text`) to `parseRules`.
+ * Quotes stay as written, as CDP reports them. Nested selectors only match
+ * once resolved against their parents, as `Rule.selector` is.
  */
 export function canonicalSelector(text: string): string {
   return serializeList(parseSelectorList(text));

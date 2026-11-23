@@ -1,7 +1,8 @@
 // Layers order by first declaration, sublayers before their parent's own
 // rules, unlayered last; a layer first declared under a condition is
-// uncertain. Nesting is flattened: declarations after a nested rule, or in a
-// group rule nested in a style rule, become `&` rules (CSSNestedDeclarations).
+// uncertain. Nesting is flattened: declarations after a nested rule, or in
+// a group rule nested in a style rule, become `&` rules
+// (CSSNestedDeclarations).
 
 import {
   canonicalCondition,
@@ -19,9 +20,15 @@ import {
 } from "./selector";
 
 export interface Layer {
-  /** Dotted (`base.reset`); `""` when unlayered, `<anonymous>` segments for anonymous layers. */
+  /**
+   * Dotted (`base.reset`); `""` when unlayered, `<anonymous>` segments for
+   * anonymous layers.
+   */
   name: string;
-  /** For normal declarations, higher wins; unlayered is highest. Set when the walk ends. */
+  /**
+   * For normal declarations, higher wins; unlayered is highest. Set when the
+   * walk ends.
+   */
   rank: number;
   /** False when the position depends on a condition. */
   certain: boolean;
@@ -65,11 +72,12 @@ const KEYFRAMES_RE = /keyframes$/;
 const CONDITIONS = new Set(["media", "supports", "container", "scope"]);
 
 /**
- * `@name prelude` as `Rule.context` (or `Rule.scope`) spells it, however the
- * sheet or browser wrote it: keys CDP's `media[].text`, `supports[].text` and
- * `containerQueries[].conditionText` to `parseRules`. A rule's contexts join
- * with " / ", outermost first. `@media` is lowercased, as Chrome serializes
- * it; container names and `selector()` are case-sensitive.
+ * `@name prelude` as `Rule.context` (or `Rule.scope`) spells it, however
+ * the sheet or browser wrote it: keys CDP's `media[].text`,
+ * `supports[].text` and `containerQueries[].conditionText` to
+ * `parseRules`. A rule's contexts join with " / ", outermost first.
+ * `@media` is lowercased, as Chrome serializes it; container names and
+ * `selector()` are case-sensitive.
  */
 export function canonicalContext(name: string, prelude: string): string {
   let text = canonicalText(prelude);
@@ -139,7 +147,8 @@ export function placeRules(nodes: Node[]): Placed[] {
     return l;
   };
 
-  // `@import` only counts before other rules (`@charset` and `@layer;` aside).
+  // `@import` only counts before other rules (`@charset` and `@layer;`
+  // aside).
   let importsOpen = true;
 
   const place = (
@@ -270,7 +279,10 @@ export function placeRules(nodes: Node[]): Placed[] {
   return out;
 }
 
-/** Layer name -> `Rule.layerRank`. Anonymous layers share a name: the first wins. */
+/**
+ * Layer name -> `Rule.layerRank`. Anonymous layers share a name: the first
+ * wins.
+ */
 export function layerRanks(nodes: Node[]): Map<string, number> {
   const ranks = new Map<string, number>();
   for (const { layer } of placeRules(nodes))

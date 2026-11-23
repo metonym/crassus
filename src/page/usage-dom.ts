@@ -1,5 +1,6 @@
 // The `dom` usage engine's page half: `Element.matches()` against rules
-// bucketed by the rightmost compound's id, class or tag, as Blink's RuleSet.
+// bucketed by the rightmost compound's id, class or tag, as Blink's
+// RuleSet.
 import {
   type Complex,
   parseComplex,
@@ -181,8 +182,38 @@ function collectRules(
   }));
 }
 
-const api = {
-  /** Each sheet's index and href, and its text if inline and containing `marker`. */
+// compat: Bun.build({ dts }) panics on a type taken with `typeof` from an
+// unannotated object, so the page API is spelled out.
+export interface UsageDomApi {
+  sheets(
+    marker: string,
+  ): { i: number; href: string | null; inline: string | null }[];
+  inventory(
+    sheetIndex: number,
+  ): { ctx: string[]; sel: string; active: boolean }[];
+  declInfo(pairs: [string, string][]): {
+    longhands: Record<string, string[]>;
+    valid: boolean[];
+  };
+  reducedMotion(): void;
+  run(states: boolean): {
+    observations: Observation[];
+    stats: {
+      elements: number;
+      skippedSelectors: number;
+      invalid: number;
+      matchCalls: number;
+      prepMs: number;
+      matchMs: number;
+    };
+  };
+}
+
+const api: UsageDomApi = {
+  /**
+   * Each sheet's index and href, and its text if inline and containing
+   * `marker`.
+   */
   sheets(marker: string) {
     return Array.from(document.styleSheets).map((s, i) => {
       const inline = s.href
@@ -358,7 +389,5 @@ const api = {
     };
   },
 };
-
-export type UsageDomApi = typeof api;
 
 Object.assign(window, { __crDom: api });

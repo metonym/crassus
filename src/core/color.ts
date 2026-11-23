@@ -6,7 +6,10 @@ export type Rgba = [r: number, g: number, b: number, a: number];
 const RGB_RE =
   /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/;
 
-/** `rgb()`/`rgba()` as `getComputedStyle` returns them (0–255, alpha 0–1); `transparent` too. */
+/**
+ * `rgb()`/`rgba()` as `getComputedStyle` returns them (0–255, alpha 0–1);
+ * `transparent` too.
+ */
 export function parseColor(text: string): Rgba | null {
   const t = text.trim().toLowerCase();
   if (t === "transparent") return [0, 0, 0, 0];

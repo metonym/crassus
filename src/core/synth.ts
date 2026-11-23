@@ -1,9 +1,12 @@
 // Small DOM trees on which one element matches several selectors: what
 // confirming a static cascade flip in a real engine needs when no fixture
 // renders the combination. Candidates only: the engine checks them.
-import { attrConstraint, type Part, parseComplex } from "./selector";
+import { attrConstraint, parseComplex, type Part } from "./selector";
 
-/** `[localName, attributes, children, namespace?]`, as the page index records pages. */
+/**
+ * `[localName, attributes, children, namespace?]`, as the page index
+ * records pages.
+ */
 export type Tree = [string, Record<string, string>, Tree[], string?];
 
 interface El {
@@ -58,7 +61,10 @@ function merge(a: El, b: El): El | null {
   };
 }
 
-/** The selector from its subject outward: the subject, then each step with the combinator that joins it. */
+/**
+ * The selector from its subject outward: the subject, then each step with
+ * the combinator that joins it.
+ */
 function chainOf(selector: string): { subject: El; steps: Step[] } | null {
   const sel = parseComplex(selector);
   const els = sel.compounds.map((c) => elementOf(c.parts));

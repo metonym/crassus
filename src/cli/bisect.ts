@@ -1,9 +1,10 @@
 // `crassus bisect <from>..<to>`: which commits in a range changed computed
-// styles on today's fixtures. The range is cut into segments, each segment's
-// end stylesheets are compared, and a segment with visible changes is halved
-// until the commits that made them are found.
+// styles on today's fixtures. The range is cut into segments, each
+// segment's end stylesheets are compared, and a segment with visible
+// changes is halved until the commits that made them are found.
 
 import { $ } from "bun";
+
 import type { Crops } from "../browser/compare";
 import type { SnapshotDiff } from "../browser/snapshot-diff";
 import { buildCards, buildReport } from "../core/cards";
@@ -11,10 +12,10 @@ import type { Config } from "../core/config";
 import { baseStylesheets } from "./baseline";
 import {
   type BrowserFlags,
-  type CompareFormat,
   cardComparer,
   cardsOrText,
   changeCards,
+  type CompareFormat,
   differs,
   fails,
   pick,
@@ -23,7 +24,7 @@ import {
 } from "./browser";
 import type { Io } from "./main";
 import { UsageError } from "./project";
-import { formatSnapshotDiff, type Summary, seconds } from "./report";
+import { formatSnapshotDiff, seconds, type Summary } from "./report";
 import type { Sheet } from "./sources";
 
 const GROUP_BY = ["type", "commit"] as const;
@@ -47,7 +48,10 @@ export interface BisectResult {
   from: string;
   to: string;
   commits: { sha: string; subject: string }[];
-  /** `unchanged`: the stylesheet is byte-identical at both ends: not compared. */
+  /**
+   * `unchanged`: the stylesheet is byte-identical at both ends: not
+   * compared.
+   */
   css: "changed" | "unchanged";
   /** Element changes users can see, and those no one can. */
   visible?: number;
@@ -128,7 +132,10 @@ const count = (diff: SnapshotDiff, invisible: boolean) =>
     .filter((g) => Boolean(g.invisible) === invisible)
     .reduce((n, g) => n + g.count, 0);
 
-/** `crassus bisect <from>..<to>`. Exit 1 when a commit changed what users see. */
+/**
+ * `crassus bisect <from>..<to>`. Exit 1 when a commit changed what users
+ * see.
+ */
 export async function bisectCommand(opts: {
   config: Config;
   configFile?: string;
@@ -318,7 +325,10 @@ export async function bisectCommand(opts: {
 const failing = (r: BisectResult) =>
   r.fails ?? Boolean(r.diff && differs(r.diff));
 
-/** The narrowest results with visible changes: where the halves don't show them. */
+/**
+ * The narrowest results with visible changes: where the halves don't show
+ * them.
+ */
 export function found(results: BisectResult[]): BisectResult[] {
   return results.flatMap((r) => {
     if (!failing(r)) return [];

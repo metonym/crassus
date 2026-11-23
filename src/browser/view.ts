@@ -35,8 +35,8 @@ function playwrightCache(): string | undefined {
 
 /**
  * Playwright's newest cached `chrome-headless-shell`. Bun prefers an
- * installed Chrome, which starts the user's browser helpers beside their own
- * windows; the shell is lighter and gives the exact viewport.
+ * installed Chrome, which starts the user's browser helpers beside their
+ * own windows; the shell is lighter and gives the exact viewport.
  */
 export function headlessShell(): string | undefined {
   const cache = playwrightCache();
@@ -82,11 +82,28 @@ export const viewportsOf = (opts: {
 }): Viewport[] =>
   opts.viewports?.length ? opts.viewports : [viewportOf(opts)];
 
-export class View {
+export interface View {
+  readonly engine: EngineName;
+  navigate(url: string): Promise<void>;
+  /** Takes effect for the next page. */
+  resize(size: Viewport): Promise<void>;
+  evaluate<T = unknown>(expr: string): Promise<T>;
+  cdp<T = unknown>(
+    method: string,
+    params?: Record<string, unknown>,
+  ): Promise<T>;
+  /** Subscribes to a CDP event; returns the unsubscribe. */
+  on<T = unknown>(event: string, fn: (data: T) => void): () => void;
+  close(): void;
+}
+
+// compat: Bun.build({ dts }) panics on a module that names a class
+// imported from another, so View is an interface and a constructor.
+export const View: new (opts: ViewOptions) => View = class implements View {
   readonly engine: EngineName;
   #view: Bun.WebView;
-  // Null on Chrome until `resize`: its window size includes its own UI (1280 ×
-  // 900 is a 1280 × 813 page in new headless).
+  // Null on Chrome until `resize`: its window size includes its own UI (1280
+  // × 900 is a 1280 × 813 page in new headless).
   #size: Viewport | null;
   #queue: Promise<unknown> = Promise.resolve();
   #navigated = false;
@@ -169,7 +186,7 @@ export class View {
   close(): void {
     this.#view.close();
   }
-}
+};
 
 const reduceMotion = (view: View) =>
   view.cdp("Emulation.setEmulatedMedia", {
@@ -287,13 +304,19 @@ export interface VisitOptions {
   readyTimeoutMs?: number;
   /** Visits only the pages it keeps. */
   only?: (job: PageJob) => boolean;
-  /** Told of each wait while the load average holds tabs back (`ms` of one tab). */
+  /**
+   * Told of each wait while the load average holds tabs back (`ms` of one
+   * tab).
+   */
   onBusy?: (wait: { load: number; cores: number; ms: number }) => void;
   /** Reads the 1-minute load average. Default `os.loadavg()[0]`. */
   loadAverage?: () => number;
 }
 
-/** Loads `url` in `view` and waits for `readySelector`; false if it never matched. */
+/**
+ * Loads `url` in `view` and waits for `readySelector`; false if it never
+ * matched.
+ */
 export async function loadPage(
   view: View,
   url: string,

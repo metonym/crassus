@@ -1,8 +1,9 @@
 /**
  * A declaration is dead when every selector of its rule is repeated (same
- * context and scope: same elements, equal specificity) by a rule later in the
- * cascade that sets it or a covering shorthand. Conditionally ordered layers
- * aren't compared. A repeat within one rule is dead unless it's a fallback.
+ * context and scope: same elements, equal specificity) by a rule later in
+ * the cascade that sets it or a covering shorthand. Conditionally ordered
+ * layers aren't compared. A repeat within one rule is dead unless it's a
+ * fallback.
  */
 
 import { canonicalValue, propertyName } from "./cascade";
@@ -30,8 +31,9 @@ export interface DeadDeclaration {
 const FALLBACK_VALUE_RE =
   /(^|[\s(,])-(webkit|moz|ms)-|fit-content|\d[dsl]v[hw]\b|color-mix\(|\bstretch\b|^clip$/;
 
-// In horizontal writing modes a block-axis logical property is its physical
-// twin (`inset-block-start` is `top`). The inline axis depends on `dir`.
+// In horizontal writing modes a block-axis logical property is its
+// physical twin (`inset-block-start` is `top`). The inline axis depends on
+// `dir`.
 const PHYSICAL_TWIN: [RegExp, string][] = [
   [/^inset-block-start$/, "top"],
   [/^inset-block-end$/, "bottom"],
@@ -59,8 +61,8 @@ function longhandsOf(property: string): ReadonlySet<string> {
   return set;
 }
 
-// Legacy names (`page-break-after`, `grid-gap`): one longhand under another
-// name, or another shorthand's longhands.
+// Legacy names (`page-break-after`, `grid-gap`): one longhand under
+// another name, or another shorthand's longhands.
 const ALIASES = new Set<string>();
 {
   const byLonghands = new Map<string, string>();
@@ -136,7 +138,10 @@ function blocksOf(css: string, positions: boolean): Block[] {
   return blocks;
 }
 
-/** Whether `y` (in block `j`) beats `x` (in block `i`); within a block, `y` must come after `x`. */
+/**
+ * Whether `y` (in block `j`) beats `x` (in block `i`); within a block, `y`
+ * must come after `x`.
+ */
 function beats(
   y: Decl,
   j: Block,
@@ -206,7 +211,8 @@ function firstAfter(list: Ref[], block: number, decl: number): number {
   return lo;
 }
 
-// Up to this many declarations, a block's own repeats are found by scanning.
+// Up to this many declarations, a block's own repeats are found by
+// scanning.
 const SCAN_LIMIT = 16;
 
 export function deadDeclarations(

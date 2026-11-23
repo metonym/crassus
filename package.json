@@ -1,59 +1,35 @@
 {
   "name": "crassus",
   "version": "0.3.2",
+  "description": "Zero-dependency CSS cascade regression testing.",
   "license": "MIT",
-  "description": "Zero-dependency CSS cascade regression testing: provably dead declarations, cascade-flip diffs between builds, and real-browser usage and computed-style checks.",
   "author": "Eric Liu (https://github.com/metonym)",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "bin": {
-    "crassus": "src/cli/index.ts"
-  },
-  "sideEffects": false,
-  "scripts": {
-    "build": "bun scripts/build.ts",
-    "test": "bun test --parallel ./tests",
-    "test:package": "bun scripts/test-package.ts",
-    "bench": "ostia bench bench/core.bench.ts",
-    "bench:ab": "ostia ab bench/core.bench.ts",
-    "eval:carbon": "bun eval/carbon/parity.ts",
-    "gen:shorthands": "bun scripts/gen-shorthands.ts",
-    "typecheck": "bun check",
-    "lint:all": "bun fmt && bun lint --fix",
-    "lint:changed": "bun fmt --staged && bun lint --staged --fix",
-    "knip": "knip-bun"
-  },
-  "devDependencies": {
-    "@carbon/styles": "^1.118.0",
-    "@primer/css": "^22.3.2",
-    "@types/bun": "^1.4.4",
-    "@types/css-tree": "^3.2.0",
-    "@types/jest": "^30.0.0",
-    "@typescript/typescript6": "^6.0.2",
-    "bootstrap": "5.3.8",
-    "bulma": "^1.0.4",
-    "carbon-components-svelte": "^0.113.1",
-    "css-tree": "^3.2.1",
-    "knip": "^6.43.0",
-    "lightningcss": "^1.33.0",
-    "open-props": "^1.7.23",
-    "ostia": "^0.2.12",
-    "sass-embedded": "^1.106.1",
-    "source-map-js": "^1.2.2",
-    "tailwindcss": "2.2.19"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/metonym/crassus.git"
   },
-  "keywords": [
-    "css",
-    "cascade",
-    "specificity",
-    "dead-css",
-    "regression-testing",
-    "visual-regression",
-    "zero-dependency"
-  ]
+  "homepage": "https://github.com/metonym/crassus",
+  "bugs": "https://github.com/metonym/crassus/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    },
+    "./git": {
+      "bun": "./git.js",
+      "types": "./git.d.ts",
+      "default": "./git.js"
+    },
+    "./browser": {
+      "bun": "./browser.js",
+      "types": "./browser.d.ts",
+      "default": "./browser.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "crassus": "cli.js"
+  },
+  "sideEffects": false
 }

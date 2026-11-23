@@ -1,7 +1,8 @@
 import path from "node:path";
+
 import {
-  type ChangedSelector,
   changedRules,
+  type ChangedSelector,
   impactProperties,
   nothingChanged,
 } from "../core/impact";
@@ -41,7 +42,10 @@ export interface CompareOptions extends Omit<
 > {
   /** The fixture directory, served once per side. */
   dir: string;
-  /** Text only the library stylesheet contains: the file `base` and `head` replace. */
+  /**
+   * Text only the library stylesheet contains: the file `base` and `head`
+   * replace.
+   */
   sheetMarker: string;
   /** The library stylesheet's CSS on each side. */
   base: string;
@@ -61,7 +65,10 @@ export interface CompareOptions extends Omit<
   indexDir?: string;
   /** Called with the change's reach, before any page is captured. */
   onImpact?: (impact: Impact) => void;
-  /** Keep what a report needs: changed elements' markup, and with `visual`, their crops. */
+  /**
+   * Keep what a report needs: changed elements' markup, and with `visual`,
+   * their crops.
+   */
   report?: boolean;
   /**
    * Trace what design tokens (custom properties with this prefix, like
@@ -169,10 +176,11 @@ async function planIn(
 }
 
 /**
- * Captures every fixture page with the library stylesheet replaced by `base`,
- * then by `head`, in the same tab, and diffs them page by page: the DOM is
- * the same on both sides, and no snapshot is kept. Both sides record every
- * property either stylesheet declares, so nothing is left uncompared.
+ * Captures every fixture page with the library stylesheet replaced by
+ * `base`, then by `head`, in the same tab, and diffs them page by page:
+ * the DOM is the same on both sides, and no snapshot is kept. Both sides
+ * record every property either stylesheet declares, so nothing is left
+ * uncompared.
  *
  * With `scope` (the default), the rules that differ decide what's read: a
  * page none of their selectors match (states and pseudo-elements dropped)
@@ -186,7 +194,10 @@ export async function compareCss(opts: CompareOptions): Promise<
   SnapshotDiff & {
     ms: number;
     notReady: string[];
-    /** The fixture file both sides replaced, relative to `dir`: `Winner.sheet` for its rules. */
+    /**
+     * The fixture file both sides replaced, relative to `dir`: `Winner.sheet`
+     * for its rules.
+     */
     library: string;
     impact: Impact;
     /** With `report` and `visual`. */
@@ -396,8 +407,8 @@ export async function compareCss(opts: CompareOptions): Promise<
 
 /**
  * Points the page's `<link>` to the sheet at `pathname` at the swapping
- * server's `alt` sheet, waits for it to apply, and freezes the animations it
- * starts. False when no such `<link>` exists.
+ * server's `alt` sheet, waits for it to apply, and freezes the animations
+ * it starts. False when no such `<link>` exists.
  */
 export async function switchSheet(
   view: View,

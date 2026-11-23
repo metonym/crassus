@@ -10,7 +10,9 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, normalize, relative, resolve } from "node:path";
+
 import { $ } from "bun";
+
 import type { Config } from "../core/config";
 import { stylesheets, UsageError } from "./project";
 import type { Sheet } from "./sources";
@@ -47,7 +49,10 @@ async function resolveRef(
   return { sha: sha.text().trim(), top: top.text().trim() };
 }
 
-/** Runs `fn` in a temporary detached worktree of `sha`, at `cwd`'s place in it. */
+/**
+ * Runs `fn` in a temporary detached worktree of `sha`, at `cwd`'s place in
+ * it.
+ */
 async function inCheckout<T>(
   cwd: string,
   top: string,
@@ -90,9 +95,9 @@ function inputPaths(config: Config): string[] | undefined {
 }
 
 /**
- * The git object ids of `paths` at `rev`: when two commits share them, they
- * build the same stylesheets. Undefined when any can't be named (a path the
- * commit lacks, or `rev` isn't in a git repository).
+ * The git object ids of `paths` at `rev`: when two commits share them,
+ * they build the same stylesheets. Undefined when any can't be named (a
+ * path the commit lacks, or `rev` isn't in a git repository).
  */
 async function treesAt(
   cwd: string,
@@ -119,9 +124,9 @@ async function pristine(cwd: string, paths: string[]): Promise<boolean> {
 }
 
 /**
- * Everything besides the sources and the config file that a build depends on
- * and that doesn't live in `inputs`: the installed dependencies, as far as
- * the lockfile names them.
+ * Everything besides the sources and the config file that a build depends
+ * on and that doesn't live in `inputs`: the installed dependencies, as far
+ * as the lockfile names them.
  */
 async function toolchain(cwd: string, top: string): Promise<string[]> {
   const hashes: string[] = [];
@@ -166,7 +171,10 @@ async function writeCached(dir: string, file: string, sheets: Sheet[]) {
   await Promise.all(stale.map(({ n }) => rm(join(dir, n), { force: true })));
 }
 
-/** Git couldn't write the inputs out; the caller checks out the commit whole. */
+/**
+ * Git couldn't write the inputs out; the caller checks out the commit
+ * whole.
+ */
 class Unextractable extends Error {}
 
 /** Runs `fn` in a temporary directory holding only `paths` as of `sha`. */
@@ -266,8 +274,8 @@ export async function baseStylesheets(opts: {
 }
 
 /**
- * The stylesheets of the working tree. With `inputs` that match HEAD's, they
- * are cached by those files' contents, like the base, so an unchanged
+ * The stylesheets of the working tree. With `inputs` that match HEAD's,
+ * they are cached by those files' contents, like the base, so an unchanged
  * project doesn't build again.
  */
 export async function headStylesheets(opts: {

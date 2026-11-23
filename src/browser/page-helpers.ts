@@ -1,8 +1,8 @@
 /**
- * Page function `(doc, selectors)`: the indexes of the selectors that match
- * in `doc`, and the `<body>` elements they match; `all` when one matches
- * `<html>` or `<body>` (everything inherits from them) or the engine
- * rejects it.
+ * Page function `(doc, selectors)`: the indexes of the selectors that
+ * match in `doc`, and the `<body>` elements they match; `all` when one
+ * matches `<html>` or `<body>` (everything inherits from them) or the
+ * engine rejects it.
  */
 export const MATCH_SELECTORS = `(doc, selectors) => {
   const hits = [];
@@ -20,8 +20,8 @@ export const MATCH_SELECTORS = `(doc, selectors) => {
   return { hits, all, els };
 }`;
 
-// From carbon-components-svelte's e2e/cascade-snapshot.ts, so captures compare
-// byte for byte. An expression, as evaluate() takes no statements.
+// From carbon-components-svelte's e2e/cascade-snapshot.ts, so captures
+// compare byte for byte. An expression, as evaluate() takes no statements.
 export const PAGE_HELPERS = `
   (() => {
     // Only longhands the stylesheets set, so diffs stay about the cascade.

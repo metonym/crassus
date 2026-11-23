@@ -48,7 +48,10 @@ export interface CascadeDiff {
   newRules: Rule[];
   /** Removed rules that aren't rewritten or moved. */
   dropped: Rule[];
-  /** Head rule -> base rule, same selector and declarations, new context, layer or scope. */
+  /**
+   * Head rule -> base rule, same selector and declarations, new context,
+   * layer or scope.
+   */
   contextMoves: Map<Rule, Rule>;
   /** Unchanged rules that moved relative to the others. */
   movedHead: Set<Rule>;
@@ -64,7 +67,10 @@ export const ROOT_SPLIT_RE = /__|--/;
 export const defaultComponentOf = (cls: string) =>
   cls.replace(PREFIX_RE, "").split(ROOT_SPLIT_RE)[0];
 
-/** Indexes of one longest strictly increasing subsequence (patience sorting). */
+/**
+ * Indexes of one longest strictly increasing subsequence (patience
+ * sorting).
+ */
 export function longestIncreasing(values: number[]): Set<number> {
   const tails: number[] = [];
   const tailIdx: number[] = [];
@@ -94,7 +100,8 @@ export function longestIncreasing(values: number[]): Set<number> {
 export interface DiffOptions {
   /**
    * The component a class belongs to: a rule that only moved is compared
-   * with its own component's rules. Default: `bx--slider__thumb--lower` -> `slider`.
+   * with its own component's rules. Default: `bx--slider__thumb--lower` ->
+   * `slider`.
    */
   componentOf?: (className: string) => string;
 }

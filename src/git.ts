@@ -27,13 +27,13 @@ const named = (sheets: Sheet[]): Stylesheets =>
   Object.fromEntries(sheets.map((s) => [s.name, { css: s.css, map: s.map }]));
 
 /**
- * The project's stylesheets at git `ref`, or at the working tree when `ref`
- * is `undefined`. Builds with the project's `crassus.config`, in a checkout
- * of just its `inputs` when it declares them, and caches the result under
- * `node_modules/.cache/crassus` by what those paths contain: any commit that
- * left them alone reuses it, and so does the working tree while they match
- * HEAD. Without `inputs` the ref is built in a full worktree and cached by
- * commit, and the working tree is built every time.
+ * The project's stylesheets at git `ref`, or at the working tree when
+ * `ref` is `undefined`. Builds with the project's `crassus.config`, in a
+ * checkout of just its `inputs` when it declares them, and caches the
+ * result under `node_modules/.cache/crassus` by what those paths contain:
+ * any commit that left them alone reuses it, and so does the working tree
+ * while they match HEAD. Without `inputs` the ref is built in a full
+ * worktree and cached by commit, and the working tree is built every time.
  */
 export async function compileAt(
   ref: string | undefined,

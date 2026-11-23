@@ -6,8 +6,8 @@ import { type Decl, parseStylesheet } from "./parse";
 import { placeRules } from "./placement";
 import {
   compareSpecificity,
-  type Specificity,
   serialize,
+  type Specificity,
   specificity,
 } from "./selector";
 import type { Declaration, MatchedRule } from "./usage";
@@ -52,9 +52,10 @@ export function libraryRules(css: string): LibraryRule[] {
 const ALIGN_WINDOW = 200;
 
 /**
- * The parsed rule behind each CSSOM rule, by selector text. CSSOM rules are
- * a subsequence of the source rules (the engine drops what it can't parse);
- * a rule not found within the next ALIGN_WINDOW parsed rules is undefined.
+ * The parsed rule behind each CSSOM rule, by selector text. CSSOM rules
+ * are a subsequence of the source rules (the engine drops what it can't
+ * parse); a rule not found within the next ALIGN_WINDOW parsed rules is
+ * undefined.
  */
 export function alignRules(
   cssomSelectors: string[],
@@ -128,9 +129,11 @@ export function engineDeclarations(aligned: (LibraryRule | undefined)[]): {
 }
 
 /**
- * `matches` (`[cssomRuleIndex, ...matchingSelectorIndexes]`) in normal cascade
+ * `matches` (`[cssomRuleIndex, ...matchingSelectorIndexes]`) in normal
+ * cascade
  * order: layer, heaviest matching selector, scoped before unscoped (scope
- * roots aren't evaluated), source order. Unaligned or empty rules are left out.
+ * roots aren't evaluated), source order. Unaligned or empty rules are left
+ * out.
  */
 export function cascadeOrder(
   matches: number[][],

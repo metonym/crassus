@@ -1,4 +1,7 @@
-/** The library sheet among a page's sheets: the largest that contains `marker`. */
+/**
+ * The library sheet among a page's sheets: the largest that contains
+ * `marker`.
+ */
 export function librarySheet<T extends { text: string | null | undefined }>(
   sheets: T[],
   marker: string,

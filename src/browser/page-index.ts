@@ -5,20 +5,24 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+
 import { MATCH_SELECTORS } from "./page-helpers";
 import { serveFixtures } from "./serve";
 import {
   type PageJob,
   View,
-  type VisitOptions,
   viewportsOf,
+  type VisitOptions,
   visitPages,
 } from "./view";
 
 // Bump when the recorded shape changes.
 const INDEX_VERSION = 1;
 
-/** `[localName, attributes, children, namespace?]`; namespace when not HTML. */
+/**
+ * `[localName, attributes, children, namespace?]`; namespace when not
+ * HTML.
+ */
 type Skeleton = [string, Record<string, string>, Skeleton[], string?];
 
 export interface PageIndex {
@@ -204,7 +208,10 @@ export async function pageIndex(opts: IndexOptions): Promise<{
   };
 }
 
-/** Page function `(skeleton, doc)`: builds it as `doc`'s root, and returns that. */
+/**
+ * Page function `(skeleton, doc)`: builds it as `doc`'s root, and returns
+ * that.
+ */
 export const BUILD = `(tree, doc) => {
   const make = ([name, attrs, children, ns]) => {
     const el = ns ? doc.createElementNS(ns, name) : doc.createElement(name);
@@ -234,7 +241,10 @@ export interface PageMatch {
   elements: number;
 }
 
-/** Runs `selectors` on every indexed page, in a view of the engine that will capture them. */
+/**
+ * Runs `selectors` on every indexed page, in a view of the engine that
+ * will capture them.
+ */
 export async function matchPages(
   index: PageIndex,
   jobs: PageJob[],

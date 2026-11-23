@@ -1,4 +1,7 @@
-/** What `resolvePath` needs of a DOM element: any DOM (browser, jsdom, linkedom). */
+/**
+ * What `resolvePath` needs of a DOM element: any DOM (browser, jsdom,
+ * linkedom).
+ */
 export interface PathElement {
   tagName: string;
   className: unknown;
@@ -6,11 +9,11 @@ export interface PathElement {
 }
 
 /**
- * The element a snapshot path names: `body>div.a.b[2]>p`, where `[n]` counts
- * earlier siblings with the same tag and class set, and a `@hover`,
- * `@focus^` or `::before` suffix is dropped. `root` is the `<html>` element
- * (`document.documentElement`). Self-contained, so it can be passed to
- * `page.evaluate` as it is.
+ * The element a snapshot path names: `body>div.a.b[2]>p`, where `[n]`
+ * counts earlier siblings with the same tag and class set, and a `@hover`,
+ * `@focus^` or `::before` suffix is dropped. `root` is the `<html>`
+ * element (`document.documentElement`). Self-contained, so it can be
+ * passed to `page.evaluate` as it is.
  */
 export function resolvePath<T extends PathElement>(
   path: string,

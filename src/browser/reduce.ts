@@ -1,13 +1,13 @@
-// `crassus reduce <id>`: the fewest declaration edits of a stylesheet change
-// that still give an element's property its head value, found by delta
-// debugging in one loaded page: the library stylesheet is swapped for each
-// candidate in place, and the property read again.
+// `crassus reduce <id>`: the fewest declaration edits of a stylesheet
+// change that still give an element's property its head value, found by
+// delta debugging in one loaded page: the library stylesheet is swapped
+// for each candidate in place, and the property read again.
 import {
   cssUnits,
   ddmin,
   diffUnits,
-  type Step,
   serializeUnit,
+  type Step,
 } from "../core/reduce";
 import { STATE_SETS } from "../page/states";
 import { serveFixtures, swappedSheet } from "./serve";

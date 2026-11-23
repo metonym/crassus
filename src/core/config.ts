@@ -25,7 +25,10 @@ export interface Config {
    * A sibling `.map` or `sourceMappingURL` attributes findings to sources.
    */
   css?: string | string[] | Record<string, string>;
-  /** Shell command that writes `css`, run in the project (and in a temporary base checkout for `diff`). */
+  /**
+   * Shell command that writes `css`, run in the project (and in a temporary
+   * base checkout for `diff`).
+   */
   build?: string;
   /**
    * The paths (relative to the project root) the stylesheets are built from,
@@ -77,13 +80,22 @@ export interface BrowserConfig {
   fixtures: string | { dir: string; build?: string };
   /** Themes to load each page in. Default: one run, with no theme attribute. */
   themes?: string[];
-  /** The `<html>` attribute a theme is set as, before first paint. Default `theme`. */
+  /**
+   * The `<html>` attribute a theme is set as, before first paint. Default
+   * `theme`.
+   */
   themeAttribute?: string;
-  /** Text only the library stylesheet contains (a class prefix): `usage` needs it. */
+  /**
+   * Text only the library stylesheet contains (a class prefix): `usage`
+   * needs it.
+   */
   sheetMarker?: string;
   /** Default: 1280 × 900. Cover your `min-width`/`max-width` breakpoints. */
   viewports?: { width: number; height: number }[];
-  /** After load, wait until this selector matches; a page that never does is reported. */
+  /**
+   * After load, wait until this selector matches; a page that never does is
+   * reported.
+   */
   readySelector?: string;
   /** Default 5000. */
   readyTimeoutMs?: number;
@@ -103,7 +115,10 @@ export interface BrowserConfig {
   engine?: "chrome" | "webkit";
   /** Tabs in parallel. Default: half the cores, at most 4. */
   concurrency?: number;
-  /** Chrome or Chromium binary. Default: Playwright's `chrome-headless-shell` if installed, else auto-detected. */
+  /**
+   * Chrome or Chromium binary. Default: Playwright's `chrome-headless-shell`
+   * if installed, else auto-detected.
+   */
   chromePath?: string;
 }
 

@@ -1,12 +1,13 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+
 import { version } from "../../package.json";
 import { baseStylesheets, headStylesheets } from "./baseline";
 import { bisectCommand } from "./bisect";
 import {
   type BrowserFlags,
-  COMPARE_FORMATS,
   captureCommand,
+  COMPARE_FORMATS,
   compareCommand,
   confirmDiff,
   snapshotDiffCommand,
@@ -22,7 +23,7 @@ import {
 } from "./card-commands";
 import { DEFAULT_DIR } from "./cards";
 import { runDead, runDiff } from "./commands";
-import { FixCheckError, fix } from "./fix";
+import { fix, FixCheckError } from "./fix";
 import {
   filesAsSheets,
   fixStylesheets,
@@ -33,13 +34,13 @@ import {
 } from "./project";
 import {
   appendSummary,
-  FORMATS,
   formatDead,
   formatDiff,
   formatFix,
+  FORMATS,
   refLabel,
-  type Summary,
   seconds,
+  type Summary,
   uncolored,
 } from "./report";
 import type { Sheet } from "./sources";

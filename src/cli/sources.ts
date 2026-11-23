@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { SourceMap } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import type { SourceMapJson } from "../core/config";
 
 export interface SourceLocation {
@@ -69,7 +70,10 @@ function locator(
   };
 }
 
-/** Reads a CSS file and its source map: `sourceMappingURL`, else `<file>.map`. */
+/**
+ * Reads a CSS file and its source map: `sourceMappingURL`, else
+ * `<file>.map`.
+ */
 export async function readStylesheet(file: string): Promise<{
   css: string;
   map?: string;

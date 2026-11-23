@@ -12,7 +12,10 @@ export function intersects<T>(
   return false;
 }
 
-/** A short, stable id for `text` (FNV-1a, 64 bits as two 32-bit halves, base 36). */
+/**
+ * A short, stable id for `text` (FNV-1a, 64 bits as two 32-bit halves,
+ * base 36).
+ */
 export function shortHash(text: string): string {
   let a = 0x811c9dc5;
   let b = 0x050c5d1f;

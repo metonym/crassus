@@ -4,7 +4,9 @@
 import { existsSync } from "node:fs";
 import { mkdir, statfs } from "node:fs/promises";
 import { join, resolve } from "node:path";
+
 import { $ } from "bun";
+
 import { version } from "../../package.json";
 import type { Crops } from "../browser/compare";
 import {
@@ -19,7 +21,10 @@ import {
 /** Crops for `card` elements, by run (`commit`, `""` for compare) and page. */
 export type RunCrops = Map<string, Crops>;
 
-/** Where `--report` defaults to, and `explain`, `repro`, `verify` and `approve` look. */
+/**
+ * Where `--report` defaults to, and `explain`, `repro`, `verify` and
+ * `approve` look.
+ */
 export const DEFAULT_DIR = ".crassus/report";
 
 /** Intended changes, at the project root. */
@@ -48,7 +53,10 @@ const label = (c: Card) =>
 const counts = (s: Report["summary"]) =>
   `${s["token-detached"] ? `${s["token-detached"]} token-detached, ` : ""}${s.visible} visible, ${s.imperceptible} imperceptible, ${s.invisible} invisible`;
 
-/** Reads the changed rule's source lines, at the commit its side was built from. */
+/**
+ * Reads the changed rule's source lines, at the commit its side was built
+ * from.
+ */
 export async function attachSources(
   report: Report,
   opts: {
@@ -180,7 +188,10 @@ export async function writeReport(
   ]);
 }
 
-/** One line per verdict, then one per card: what CI logs and agents read first. */
+/**
+ * One line per verdict, then one per card: what CI logs and agents read
+ * first.
+ */
 export function formatCardsSummary(report: Report, dir?: string): string {
   const { approved } = report.summary;
   const open = blocking(report.cards);
@@ -410,7 +421,10 @@ const escapeHtml = (s: string) =>
       ] ?? c,
   );
 
-/** An offline page: cards by root cause, filters, before/after slider, code. */
+/**
+ * An offline page: cards by root cause, filters, before/after slider,
+ * code.
+ */
 function reportHtml(report: Report, dir?: string): string {
   const data = JSON.stringify({
     ...report,

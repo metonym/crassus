@@ -1,8 +1,11 @@
-// Paths on one side only are DOM or forced-state changes, and properties one
-// side only recorded have no value to compare: listed, not diffed.
+// Paths on one side only are DOM or forced-state changes, and properties
+// one side only recorded have no value to compare: listed, not diffed.
 import { foldChanges, HIDDEN, STATE_SUFFIX_RE } from "./fold";
 
-/** Element path (with `::before`, `@hover` and similar suffixes) → longhand → computed value. */
+/**
+ * Element path (with `::before`, `@hover` and similar suffixes) → longhand
+ * → computed value.
+ */
 export type Snapshot = Record<string, Record<string, string>>;
 
 /**
@@ -15,9 +18,10 @@ const META = new Set([HIDDEN, NTH]);
 const TAG_RE = /^[a-z][\w-]*/i;
 
 /**
- * `path`'s element as a CSS selector a person can paste (`body > div:nth-child(2)
- * > p:nth-child(1)`), from each ancestor's index among its parent's children
- * (`readCapture`); undefined when one is missing (a capture before 0.3).
+ * `path`'s element as a CSS selector a person can paste
+ * (`body > div:nth-child(2) > p:nth-child(1)`), from each ancestor's index
+ * among its parent's children (`readCapture`); undefined when one is
+ * missing (a capture before 0.3).
  */
 export function selectorOf(
   nth: Record<string, number>,
@@ -69,8 +73,8 @@ export interface PropertyChange {
 
 /**
  * Properties one side recorded and the other didn't, because only that
- * side's stylesheets declare them. They aren't compared: the other side has
- * no value, and its computed one may well be the same.
+ * side's stylesheets declare them. They aren't compared: the other side
+ * has no value, and its computed one may well be the same.
  */
 export interface Uncompared {
   onlyBase: string[];
@@ -123,7 +127,10 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
 /** The declaration a property's computed value comes from. */
 export interface Winner {
   selector: string;
-  /** The stylesheet's path, `user agent`, `style attribute` or `inline <style>`. */
+  /**
+   * The stylesheet's path, `user agent`, `style attribute` or
+   * `inline <style>`.
+   */
   sheet: string;
   /** 1-based line in the stylesheet (or, mapped, its source). */
   line?: number;
@@ -131,13 +138,19 @@ export interface Winner {
   column?: number;
   /** Set when an ancestor's declaration was inherited. */
   inherited?: true;
-  /** Set when the rule differs between the sides: removed, added, edited or moved. */
+  /**
+   * Set when the rule differs between the sides: removed, added, edited or
+   * moved.
+   */
   changed?: true;
   /** The rule's whole selector list, when it has more than one. */
   list?: string;
 }
 
-/** Per side, the winning declaration (`null`: none declared, an initial value). */
+/**
+ * Per side, the winning declaration (`null`: none declared, an initial
+ * value).
+ */
 export interface Explained {
   base: Winner | null;
   head: Winner | null;
@@ -169,7 +182,10 @@ export interface ChangeGroup {
    * below 1 everywhere).
    */
   pixels?: { differ: number; same: number; imperceptible: number };
-  /** Over its elements whose pixels differ (same-size crops): the largest CIEDE2000, and the mean of their means. */
+  /**
+   * Over its elements whose pixels differ (same-size crops): the largest
+   * CIEDE2000, and the mean of their means.
+   */
   deltaE?: DeltaE;
   /**
    * With token tracing: elements where the property stopped following a
@@ -179,7 +195,10 @@ export interface ChangeGroup {
   tokens?: { detached: number; retokened: number; from: string[] };
 }
 
-/** What drives a property on each side: tokens whose sentinel its value carried. */
+/**
+ * What drives a property on each side: tokens whose sentinel its value
+ * carried.
+ */
 export interface TokenChange {
   base: string[];
   /** Empty: the property no longer follows any token. */
@@ -226,7 +245,10 @@ export const tokenChangeOf = (
   return undefined;
 };
 
-/** How far apart an element's pixels look between the sides (CIEDE2000, over the pixels that differ). */
+/**
+ * How far apart an element's pixels look between the sides (CIEDE2000,
+ * over the pixels that differ).
+ */
 export interface DeltaE {
   max: number;
   mean: number;
@@ -250,7 +272,10 @@ export interface Inspected {
 
 /** A changed element, as a person finds it. */
 export interface Where {
-  /** A CSS selector for it (`nth-child` from `body`), with `::before`/`::after`. */
+  /**
+   * A CSS selector for it (`nth-child` from `body`), with
+   * `::before`/`::after`.
+   */
   selector: string;
   /** With a report: its markup (cut at 20,000 characters)… */
   html?: string;
@@ -259,9 +284,10 @@ export interface Where {
 }
 
 /**
- * Groups changes by `(property, before, after)` across pages, so a systematic
- * change reads as one line: most frequent first, ties in first-seen order.
- * Invisible changes group apart from visible ones, by reason.
+ * Groups changes by `(property, before, after)` across pages, so a
+ * systematic change reads as one line: most frequent first, ties in
+ * first-seen order. Invisible changes group apart from visible ones, by
+ * reason.
  */
 export function groupChanges(
   pages: Iterable<{ page: string; changed: PageDiff["changed"] } & Inspected>,

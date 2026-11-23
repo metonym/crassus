@@ -4,8 +4,8 @@ import { SHORTHANDS } from "../core/shorthands";
 import type { PropertyChange, Winner } from "../core/snapshot-diff";
 import {
   authoredDeclarations,
-  type CdpProperty,
   cascadeWinners,
+  type CdpProperty,
   type MatchedRule,
 } from "../core/usage";
 import { STATE_SETS } from "../page/states";
@@ -44,7 +44,10 @@ const INHERITED_RE =
 
 const usable = (p: CdpProperty) => !p.disabled && p.parsedOk !== false;
 
-/** The longhands whose winner explains a change: a shorthand's, and logical twins. */
+/**
+ * The longhands whose winner explains a change: a shorthand's, and logical
+ * twins.
+ */
 function longhandsOf(change: PropertyChange): string[] {
   // Followers folded into `color` have winners of their own.
   if (change.property === "color") return ["color"];
@@ -185,7 +188,10 @@ export interface PageInspection {
   batches?: Batch[];
 }
 
-/** Elements screenshot together: those forced into one state at once, or none. */
+/**
+ * Elements screenshot together: those forced into one state at once, or
+ * none.
+ */
 interface Batch {
   state: string | null;
   /** `data-ccs-idx` of the elements forced. */

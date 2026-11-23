@@ -1,5 +1,6 @@
-// Bun macro: inlines src/page/usage-dom.ts as a minified IIFE, so dist/ needs
-// no page sources. A subprocess, as `Bun.build` deadlocks inside a macro.
+// Bun macro: inlines src/page/usage-dom.ts as a minified IIFE, so dist/
+// needs no page sources. A subprocess, as `Bun.build` deadlocks inside a
+// macro.
 import path from "node:path";
 
 const TRAILING_SEMICOLON_RE = /;\s*$/;

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+
 import type { Config, Stylesheets } from "../core/config";
 import { readStylesheet, type Sheet } from "./sources";
 
@@ -158,7 +159,10 @@ async function configuredSheets(
   );
 }
 
-/** What `dead --fix` proves against: the configured stylesheets plus `fixEntries`. */
+/**
+ * What `dead --fix` proves against: the configured stylesheets plus
+ * `fixEntries`.
+ */
 export async function fixStylesheets(
   root: string,
   config: Config,

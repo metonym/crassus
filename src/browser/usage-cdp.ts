@@ -60,7 +60,10 @@ function libraryLayerRanks(text: string): Map<string, number> {
   return ranksFor.ranks;
 }
 
-/** As `parseRules` resolves it. Nested declarations have no own selector: `&`. */
+/**
+ * As `parseRules` resolves it. Nested declarations have no own selector:
+ * `&`.
+ */
 function nestedSelector(own: string, ancestors: string[]): string {
   let parent = parseSelectorList(ancestors[ancestors.length - 1]);
   for (let i = ancestors.length - 2; i >= 0; i--) {
@@ -105,8 +108,9 @@ function toMatchedRule(
   return matched;
 }
 
-// Disables the domains however it ends: a tab left with CSS enabled gets no
-// `styleSheetAdded` replay on the next page, which then finds no library.
+// Disables the domains however it ends: a tab left with CSS enabled gets
+// no `styleSheetAdded` replay on the next page, which then finds no
+// library.
 export async function processPageCdp(
   view: View,
   agg: UsageAggregate,

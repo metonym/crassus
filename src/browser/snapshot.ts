@@ -1,5 +1,6 @@
 import { mkdir, rm, statfs } from "node:fs/promises";
 import path from "node:path";
+
 import { type StateTrigger, stateTriggers } from "../core/impact";
 import { NTH, type Snapshot } from "../core/snapshot-diff";
 import { resolvePath } from "../page/resolve-path";
@@ -218,7 +219,10 @@ export interface CaptureOptions {
   emulate: "cdp" | "cssom";
   concurrency: number;
   chromePath?: string;
-  /** `<html>` attribute set to the theme (with `serveFixtures`). Default `theme`; `null`: none. */
+  /**
+   * `<html>` attribute set to the theme (with `serveFixtures`). Default
+   * `theme`; `null`: none.
+   */
   themeAttribute?: string | null;
   /** One viewport (default 1280 × 900). Prefer `viewports`. */
   width?: number;
@@ -358,7 +362,10 @@ export interface StateStats {
 /** Per element, the properties that track tokens, and which. */
 export type TokenTrace = Record<string, Record<string, string[]>>;
 
-/** Loads the helpers, waits `settleMs` and freezes animations: the page as `capture` reads it. */
+/**
+ * Loads the helpers, waits `settleMs` and freezes animations: the page as
+ * `capture` reads it.
+ */
 export async function preparePage(
   view: View,
   opts: PageOptions,
@@ -375,7 +382,10 @@ export async function preparePage(
   await view.evaluate("window.__cr.freezeAnimations()");
 }
 
-/** Stops transitions and tags the elements whose states are forced: per element, the states it can reach. */
+/**
+ * Stops transitions and tags the elements whose states are forced: per
+ * element, the states it can reach.
+ */
 export async function tagStates(view: View): Promise<string[][]> {
   await view.evaluate(
     `(() => { const s = document.createElement("style"); s.textContent = ${JSON.stringify(FREEZE)}; document.head.append(s); })()`,
@@ -406,7 +416,10 @@ export interface ScopeRead {
   every: boolean;
 }
 
-/** One page as `capture` reads it; with `scope`, only what the change can reach. */
+/**
+ * One page as `capture` reads it; with `scope`, only what the change can
+ * reach.
+ */
 export async function capturePage(
   view: View,
   opts: PageOptions,
@@ -589,7 +602,10 @@ export interface CaptureManifest {
 const DISK_RESERVE = 512 * 1024 * 1024;
 const mb = (bytes: number) => `${Math.ceil(bytes / 1024 / 1024)} MB`;
 
-/** Stops before the disk fills, projecting the pages written so far over the rest. */
+/**
+ * Stops before the disk fills, projecting the pages written so far over
+ * the rest.
+ */
 export async function checkDisk(
   dir: string,
   written: number,

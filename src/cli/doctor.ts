@@ -1,9 +1,10 @@
-// `crassus doctor`: checks what browser runs need before a long one starts,
-// and says how to fix each problem.
+// `crassus doctor`: checks what browser runs need before a long one
+// starts, and says how to fix each problem.
 import { existsSync, readdirSync } from "node:fs";
 import { statfs } from "node:fs/promises";
 import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
+
 import type { Config } from "../core/config";
 import { defaultConcurrency } from "./browser";
 import type { Io } from "./main";

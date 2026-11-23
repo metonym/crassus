@@ -3,22 +3,28 @@ import { placeRules } from "./placement";
 import {
   argList,
   attrConstraint,
-  type Complex,
   compareSpecificity,
+  type Complex,
   type Part,
-  type Specificity,
   serialize,
+  type Specificity,
   specificity,
 } from "./selector";
 import { intersects, pushTo } from "./util";
 
 /** One selector of a style rule. */
 export interface Rule {
-  /** `@media`, `@supports`, `@container`, …, outermost first, joined with " / ". See `canonicalContext`. */
+  /**
+   * `@media`, `@supports`, `@container`, …, outermost first, joined with " /
+   * ". See `canonicalContext`.
+   */
   context: string;
   /** Dotted layer name, `""` when unlayered. */
   layer: string;
-  /** Higher wins for normal declarations; unlayered is highest. `!important` reverses it. */
+  /**
+   * Higher wins for normal declarations; unlayered is highest. `!important`
+   * reverses it.
+   */
   layerRank: number;
   /** `@scope` chain. */
   scope: string;
@@ -32,14 +38,20 @@ export interface Rule {
   subject: Subject;
   /** Placement, selector and declarations: the identity `cascadeDiff` counts. */
   key: string;
-  /** Where the selector starts (1-based line, 0-based column), with `positions`. */
+  /**
+   * Where the selector starts (1-based line, 0-based column), with
+   * `positions`.
+   */
   loc?: { line: number; column: number };
 }
 
 interface Subject {
   classes: ReadonlySet<string>;
   negated: ReadonlySet<string>;
-  /** Name -> exact value (`[data-state=open]`), or null if it only has to be there (`[hidden]`). */
+  /**
+   * Name -> exact value (`[data-state=open]`), or null if it only has to be
+   * there (`[hidden]`).
+   */
   attrs: ReadonlyMap<string, string | null>;
   /** `name` or `name=value`, from `:not([…])`. */
   negatedAttrs: ReadonlySet<string>;
@@ -90,7 +102,10 @@ const SAME_ELEMENT = new Set([
   "-moz-any",
 ]);
 
-/** One compound's attribute constraints, including `:is()`/`:where()` of a single compound. */
+/**
+ * One compound's attribute constraints, including `:is()`/`:where()` of a
+ * single compound.
+ */
 function addAttrs(
   parts: Part[],
   attrs: Map<string, string | null> | undefined,
@@ -184,7 +199,8 @@ export function canonicalValue(
   important: boolean,
   property = "",
 ): string {
-  // Custom property values keep their comments: `--x: /*!*/ /*!*/` is a space.
+  // Custom property values keep their comments: `--x: /*!*/ /*!*/` is a
+  // space.
   const value = property.startsWith("--")
     ? collapseWs(raw.trim())
     : canonicalText(raw);
@@ -262,10 +278,11 @@ function attrsExclude(x: Subject, y: Subject): boolean {
 }
 
 /**
- * Whether two rules' condition contexts hold together whenever the narrower
- * one does: the same, or one nested in the other (an unconditioned rule
- * beside an `@media` one). Sibling conditions (`@media print` and
- * `@media screen`) may never both hold, so they don't pair.
+ * Whether two rules' condition contexts hold together whenever the
+ * narrower one does: the same, or one nested in the other (an
+ * unconditioned rule beside an `@media` one). Sibling conditions
+ * (`@media print` and `@media screen`) may never both hold, so they don't
+ * pair.
  */
 function contextsNest(a: string, b: string): boolean {
   if (a === b || a === "" || b === "") return true;
@@ -344,7 +361,10 @@ export function wins(a: Rule, b: Rule, prop: string): boolean {
   return a.order > b.order;
 }
 
-/** Head rule -> the first `removed` rule `match` accepts; pairs are spliced out of both lists. */
+/**
+ * Head rule -> the first `removed` rule `match` accepts; pairs are spliced
+ * out of both lists.
+ */
 export function pairOff(
   removed: Rule[],
   added: Rule[],
@@ -395,7 +415,10 @@ export function indexBySubject(rules: Rule[]): {
   return { byClass, byAttr, noClass };
 }
 
-/** Rules that may be coMatchable with `rule`: a subject class or attribute in common. */
+/**
+ * Rules that may be coMatchable with `rule`: a subject class or attribute
+ * in common.
+ */
 export function candidates(
   rule: Rule,
   index: ReturnType<typeof indexBySubject>,

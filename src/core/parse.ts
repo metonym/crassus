@@ -1,5 +1,5 @@
-// Not a full CSS Syntax parser: values stay raw text. Error recovery follows
-// browsers (fuzz-tested against Chrome).
+// Not a full CSS Syntax parser: values stay raw text. Error recovery
+// follows browsers (fuzz-tested against Chrome).
 
 import {
   AT,
@@ -372,8 +372,8 @@ export function locator(css: string): (offset: number) => {
   };
 }
 
-// Comments dropped, whitespace collapsed (and dropped next to `,` `(` `)` and
-// after `:` in parens). Strings stay.
+// Comments dropped, whitespace collapsed (and dropped next to `,` `(` `)`
+// and after `:` in parens). Strings stay.
 export function canonicalText(raw: string): string {
   // Verbatim runs are copied as slices; whitespace and comments end them.
   const n = raw.length;
@@ -420,8 +420,9 @@ const NO_WS_AFTER = new Set([COMMA, LPAREN]);
 const COMPARISON = new Set([LT, GT, EQ]);
 const CONDITION_SPACING_RE = /\)[a-z]|[<>=]/i;
 
-// After `canonicalText`: a space between `)` and a keyword (`) and (`), none
-// around a range operator (`(width>=42rem)`), as Chrome serializes it.
+// After `canonicalText`: a space between `)` and a keyword (`) and (`),
+// none around a range operator (`(width>=42rem)`), as Chrome serializes
+// it.
 export function canonicalCondition(text: string): string {
   if (!CONDITION_SPACING_RE.test(text)) return text;
   let out = "";

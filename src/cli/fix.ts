@@ -1,18 +1,20 @@
 /**
- * `dead --fix`. A source declaration goes only when everything it produces,
- * in every stylesheet analyzed, is dead. Every edit is checked: re-analyzed,
- * the stylesheets must have lost exactly the fixed declarations.
+ * `dead --fix`. A source declaration goes only when everything it
+ * produces, in every stylesheet analyzed, is dead. Every edit is checked:
+ * re-analyzed, the stylesheets must have lost exactly the fixed
+ * declarations.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
+
 import { canonicalValue, propertyName } from "../core/cascade";
 import { commentEnd, stringEnd } from "../core/chars";
 import type { DeadDeclaration } from "../core/overrides";
 import {
-  locator as lineIndex,
   lineStarts,
+  locator as lineIndex,
   type Node,
   parseStylesheet,
 } from "../core/parse";
@@ -112,7 +114,10 @@ interface Range {
 
 const isBlank = (c: number) => c === 32 || c === 9 || c === 13;
 
-/** A deletion widened to whole lines when nothing else is on them, else over trailing spaces. */
+/**
+ * A deletion widened to whole lines when nothing else is on them, else
+ * over trailing spaces.
+ */
 function widen(text: string, r: Range): Range {
   let a = r.start;
   while (a > 0 && isBlank(text.charCodeAt(a - 1))) a--;
@@ -173,7 +178,10 @@ function statementEnd(
   return text.length;
 }
 
-/** Past a comment alone on the rest of the line: it was about the declaration. */
+/**
+ * Past a comment alone on the rest of the line: it was about the
+ * declaration.
+ */
 function withTrailingComment(text: string, end: number): number {
   const m = TRAILING_COMMENT_RE.exec(text.slice(end, end + 500));
   return m ? end + m[0].length : end;
@@ -273,7 +281,10 @@ const posKey = (s: SourceLocation) => `${s.file}:${s.line}:${s.column}`;
 
 type Productions = Map<string, { total: number; dead: number }>;
 
-/** Per source position: the compiled declarations it produces, and how many are dead. */
+/**
+ * Per source position: the compiled declarations it produces, and how many
+ * are dead.
+ */
 function productions(
   sheets: Sheet[],
   results: DeadResult[],
@@ -409,12 +420,18 @@ export interface FixReport {
   skipped: Skipped[];
   files: string[];
   written: boolean;
-  /** `unverified`: sources were edited but can't be rebuilt here (CSS files given on the command line). */
+  /**
+   * `unverified`: sources were edited but can't be rebuilt here (CSS files
+   * given on the command line).
+   */
   check: "verified" | "unverified";
   patch?: string;
 }
 
-/** Thrown, after restoring the files, when an edit changed more than it should. */
+/**
+ * Thrown, after restoring the files, when an edit changed more than it
+ * should.
+ */
 export class FixCheckError extends Error {}
 
 /** Entries whose declarations aren't `before` minus `removed`. */
@@ -440,10 +457,16 @@ export async function fix(opts: {
   sheets: Sheet[];
   results: DeadResult[];
   root: string;
-  /** The config's `build` writes the stylesheets: only their sources may be edited. */
+  /**
+   * The config's `build` writes the stylesheets: only their sources may be
+   * edited.
+   */
   generated: boolean;
   dryRun: boolean;
-  /** Reads the stylesheets again (rebuilding them); null when that's not possible. */
+  /**
+   * Reads the stylesheets again (rebuilding them); null when that's not
+   * possible.
+   */
   reload: (() => Promise<Sheet[]>) | null;
 }): Promise<FixReport> {
   const plan = planFix(opts.sheets, opts.results, opts.generated);

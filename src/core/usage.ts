@@ -34,7 +34,10 @@ const VENDOR_PREFIX_RE = /^-(?:webkit|moz|ms)-(.+)$/;
 
 const usable = (p: CdpProperty) => !p.disabled && p.parsedOk !== false;
 
-/** The standard property a vendor alias sets, when CDP lists it text-less beside it. */
+/**
+ * The standard property a vendor alias sets, when CDP lists it text-less
+ * beside it.
+ */
 function aliasTarget(
   name: string,
   cssProperties: CdpProperty[],
@@ -90,8 +93,8 @@ export function normalizeContext(context: string): string {
 type Loc = [ruleIndex: number, declIndex: number];
 
 /**
- * Longhand -> the winning declaration: the `!important` one in the earliest
- * layer, else the last normal one.
+ * Longhand -> the winning declaration: the `!important` one in the
+ * earliest layer, else the last normal one.
  */
 export function cascadeWinners(rules: MatchedRule[]): Map<string, Loc> {
   const important = new Map<string, Loc>();
@@ -115,7 +118,8 @@ export function cascadeWinners(rules: MatchedRule[]): Map<string, Loc> {
   return normal;
 }
 
-// A shorthand wins if it wins any longhand, so a partial override still shows.
+// A shorthand wins if it wins any longhand, so a partial override still
+// shows.
 const wonAny = (
   winners: Map<string, Loc>,
   decl: Declaration,
@@ -193,7 +197,8 @@ function statsFor(
 
 /**
  * Records one observation (element, pseudo-element or forced state): its
- * matched library rules in cascade order, as CDP or `cascadeOrder` gives them.
+ * matched library rules in cascade order, as CDP or `cascadeOrder` gives
+ * them.
  */
 export function recordObservation(
   agg: UsageAggregate,
@@ -212,7 +217,8 @@ export function recordObservation(
         stats.won++;
         continue;
       }
-      // Charged to the first longhand's winner: enough to spot a recurring override.
+      // Charged to the first longhand's winner: enough to spot a recurring
+      // override.
       const winnerLoc = winners.get(decl.longhands[0]);
       if (!winnerLoc) continue;
       const label = ruleLabel(rules[winnerLoc[0]]);
@@ -224,8 +230,9 @@ export function recordObservation(
 export const bytesOf = (d: { property: string; value: string }): number =>
   d.property.length + d.value.length + 2;
 
-// Runs emulate `prefers-reduced-motion`, where `transition` always loses to
-// `transition: none`: a preference-gated rule is an alternative, not an override.
+// Runs emulate `prefers-reduced-motion`, where `transition` always loses
+// to `transition: none`: a preference-gated rule is an alternative, not an
+// override.
 const PREFERENCE_MEDIA_RE =
   /prefers-reduced-motion|prefers-contrast|forced-colors/;
 
@@ -274,8 +281,9 @@ export function inventoryFromRules(
 }
 
 /**
- * Rules no observation matched. A selector authored twice in one context is
- * matched if either copy is: that under-reports, the safe side for evidence.
+ * Rules no observation matched. A selector authored twice in one context
+ * is matched if either copy is: that under-reports, the safe side for
+ * evidence.
  */
 export function neverMatchedRules(
   agg: UsageAggregate,

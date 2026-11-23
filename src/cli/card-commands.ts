@@ -3,6 +3,7 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
+
 import { approve, type Card, emptyApprovals, type Report } from "../core/cards";
 import type { Config } from "../core/config";
 import { serializeUnit } from "../core/reduce";
@@ -221,9 +222,9 @@ export async function verifyCommand(opts: {
 }
 
 /**
- * `crassus reduce <id>`: delta-debugs the report's stylesheet change down to
- * the fewest declaration edits that still give the card's element its head
- * value, and writes them to reduce/<id>.json.
+ * `crassus reduce <id>`: delta-debugs the report's stylesheet change down
+ * to the fewest declaration edits that still give the card's element its
+ * head value, and writes them to reduce/<id>.json.
  */
 export async function reduceCommand(opts: {
   ids: string[];

@@ -1,6 +1,7 @@
 // Decodes the PNGs Chrome's screenshots produce (8-bit RGB or RGBA,
 // non-interlaced) into RGBA pixels, to crop and compare in memory.
 import { deflateSync, inflateSync } from "node:zlib";
+
 import { ciede2000, lab } from "../core/color";
 
 export interface Image {
@@ -107,7 +108,10 @@ export interface Difference {
   mean: number;
 }
 
-/** How two same-size images differ, pixel by pixel; null when they're the same. */
+/**
+ * How two same-size images differ, pixel by pixel; null when they're the
+ * same.
+ */
 export function difference(a: Image, b: Image): Difference | null {
   const labs = new Map<number, [number, number, number]>();
   const labOf = (d: Uint8Array, i: number) => {

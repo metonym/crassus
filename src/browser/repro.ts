@@ -6,7 +6,10 @@ import { type EngineName, View } from "./view";
 
 const TAG_RE = /^<([a-z][\w-]*)([^>]*)>$/i;
 
-/** The element's markup inside its ancestors' opening tags, `<html>` and `<body>` aside. */
+/**
+ * The element's markup inside its ancestors' opening tags, `<html>` and
+ * `<body>` aside.
+ */
 function markup(card: Card): {
   html: string;
   htmlAttrs: string;
@@ -75,7 +78,10 @@ async function minimal(view: View, css: string): Promise<string> {
   })(${JSON.stringify(relaxed)})`);
 }
 
-/** A standalone page that shows the card's element under base's rules, and head's at a click. */
+/**
+ * A standalone page that shows the card's element under base's rules, and
+ * head's at a click.
+ */
 export async function reproHtml(
   card: Card,
   css: { base: string; head: string },

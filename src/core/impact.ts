@@ -1,7 +1,7 @@
 // What a stylesheet change can reach: the rules that changed between two
-// builds, their selectors relaxed to match every element they could style in
-// any state, and the computed properties those rules can move. `compare`
-// reads only that, and skips pages none of the selectors match.
+// builds, their selectors relaxed to match every element they could style
+// in any state, and the computed properties those rules can move.
+// `compare` reads only that, and skips pages none of the selectors match.
 
 import { parseRules, type Rule } from "./cascade";
 import { longestIncreasing } from "./diff";
@@ -10,9 +10,9 @@ import { layerRanks } from "./placement";
 import {
   argList,
   type Complex,
-  type Part,
   parseComplex,
   parseSelectorList,
+  type Part,
   serialize,
 } from "./selector";
 
@@ -67,7 +67,8 @@ const STRUCTURAL = new Set([
   "-moz-any",
   "has",
 ]);
-// Their arguments match the element itself, so each can be relaxed in place.
+// Their arguments match the element itself, so each can be relaxed in
+// place.
 const POSITIVE = new Set(["is", "where", "matches", "-webkit-any", "-moz-any"]);
 
 const UNIVERSAL: Part = { t: "universal" };
@@ -121,9 +122,9 @@ function relaxComplex(sel: Complex): Complex {
 /**
  * `selector` widened to every element it could style: state pseudo-classes
  * (`:hover`, `:checked`) and others a static DOM can't decide are dropped,
- * a pseudo-element becomes its element, and a `:not()` or `:has()` that held
- * one goes whole. The result matches a superset, so an element it doesn't
- * match can't be styled by the rule.
+ * a pseudo-element becomes its element, and a `:not()` or `:has()` that
+ * held one goes whole. The result matches a superset, so an element it
+ * doesn't match can't be styled by the rule.
  */
 export function relaxSelector(selector: string): string {
   return serialize(relaxComplex(parseComplex(selector)));
@@ -139,7 +140,10 @@ const STATE_OF: Record<string, string> = {
   active: "active",
 };
 
-/** Where a rule's state can apply: elements whose forced state can restyle what's recorded. */
+/**
+ * Where a rule's state can apply: elements whose forced state can restyle
+ * what's recorded.
+ */
 export interface StateTrigger {
   /** `hover`, `focus` or `active`, as forced. */
   state: string;
@@ -204,7 +208,8 @@ function triggersOf(sel: Complex, out: StateTrigger[]): void {
 }
 
 // At-rules that carry no style rules: compared whole. `@layer` statements
-// are compared as layer ranks; `@keyframes` rules come out of `parseRules`.
+// are compared as layer ranks; `@keyframes` rules come out of
+// `parseRules`.
 function atRules(nodes: Node[], into: string[] = []): string[] {
   for (const node of nodes) {
     if (node.kind === "rule" || node.rules) {
@@ -234,7 +239,10 @@ const KEYFRAMES_RE = /@(?:-[a-z]+-)?keyframes ([^ /]+)/;
 const ANIMATION_RE = /^(?:-[a-z]+-)?animation(?:-name)?$/;
 const TOKEN_RE = /[\s,]+/;
 
-/** Rules that run one of `names`, from their `animation` or `animation-name`. */
+/**
+ * Rules that run one of `names`, from their `animation` or
+ * `animation-name`.
+ */
 function animating(rules: Rule[], names: Set<string>): Rule[] {
   return rules.filter((r) => {
     for (const [p, v] of r.decls)
@@ -244,7 +252,10 @@ function animating(rules: Rule[], names: Set<string>): Rule[] {
   });
 }
 
-/** No rule differs, nor anything that reaches every page: no value can change. */
+/**
+ * No rule differs, nor anything that reaches every page: no value can
+ * change.
+ */
 export const nothingChanged = (c: ReturnType<typeof changedRules>) =>
   !c.everything && c.selectors.length === 0;
 
@@ -328,7 +339,10 @@ const allProperties = (a: Map<string, string>, b: Map<string, string>) => [
   ...new Set([...a.keys(), ...b.keys()]),
 ];
 
-/** Properties whose declaration differs between two blocks: all of them when their order changed. */
+/**
+ * Properties whose declaration differs between two blocks: all of them
+ * when their order changed.
+ */
 function declarationChanges(
   a: Map<string, string>,
   b: Map<string, string>,
@@ -484,8 +498,8 @@ function twins(property: string): string[] {
 /**
  * The computed properties a change to `changed` (longhands, as the engine
  * expands them) can move on the elements its rules match and their
- * descendants, among `universe`, plus those `foldChanges` reads; `null` when
- * any can. `layout` when a box can move: then values resolved against
+ * descendants, among `universe`, plus those `foldChanges` reads; `null`
+ * when any can. `layout` when a box can move: then values resolved against
  * layout can change on any element of the page.
  */
 export function impactProperties(
