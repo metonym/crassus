@@ -73,9 +73,12 @@ interface Classes {
 function collectClasses(sel: Complex, into: Classes, negated: boolean): void {
   const { compounds } = sel;
   for (let i = 0; i < compounds.length; i++) {
-    const { parts } = compounds[i];
+    const compound = compounds[i];
+    if (!compound) continue;
+    const { parts } = compound;
     for (let j = 0; j < parts.length; j++) {
       const p = parts[j];
+      if (!p) continue;
       if (p.t === "class") {
         if (!negated) into.found.add(p.name);
         else {
@@ -86,8 +89,7 @@ function collectClasses(sel: Complex, into: Classes, negated: boolean): void {
         const list = argList(p);
         if (!list) continue;
         const neg = negated || (p.t === "pseudo-class" && p.name === "not");
-        for (let k = 0; k < list.length; k++)
-          collectClasses(list[k], into, neg);
+        for (const inner of list) collectClasses(inner, into, neg);
       }
     }
   }
@@ -113,17 +115,15 @@ function addAttrs(
   let out = attrs;
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
+    if (!p) continue;
     if (p.t === "attr") {
       const { name, value } = attrConstraint(p.raw);
       out ??= new Map();
       if (value !== null || !out.has(name)) out.set(name, value);
-    } else if (
-      p.t === "pseudo-class" &&
-      p.list?.length === 1 &&
-      p.list[0].compounds.length === 1 &&
-      SAME_ELEMENT.has(p.name)
-    ) {
-      out = addAttrs(p.list[0].compounds[0].parts, out);
+    } else if (p.t === "pseudo-class" && SAME_ELEMENT.has(p.name)) {
+      const compounds = p.list?.length === 1 ? p.list[0]?.compounds : null;
+      const only = compounds?.length === 1 ? compounds[0] : undefined;
+      if (only) out = addAttrs(only.parts, out);
     }
   }
   return out;
@@ -139,10 +139,11 @@ function subjectOf(sel: Complex): Subject {
   for (let i = 0; i < compounds.length && !qualified; i++) {
     let hasType = false;
     let hasClass = false;
-    const { parts } = compounds[i];
+    const parts = compounds[i]?.parts ?? [];
     for (let j = 0; j < parts.length; j++) {
-      if (parts[j].t === "type") hasType = true;
-      else if (parts[j].t === "class") hasClass = true;
+      const t = parts[j]?.t;
+      if (t === "type") hasType = true;
+      else if (t === "class") hasClass = true;
     }
     qualified = hasType && hasClass;
   }
@@ -152,11 +153,11 @@ function subjectOf(sel: Complex): Subject {
   let negatedAttrs: Set<string> | undefined;
   let pseudoElement: string | null = null;
   let type: string | null = null;
-  const parts =
-    compounds.length > 0 ? compounds[compounds.length - 1].parts : [];
+  const parts = compounds.at(-1)?.parts ?? [];
   const attrs = addAttrs(parts, undefined);
   for (let i = 0; i < parts.length; i++) {
     const p = parts[i];
+    if (!p) continue;
     if (p.t === "class") classes.add(p.name);
     else if (p.t === "type") type = p.name;
     else if (p.t === "pseudo-element") pseudoElement = p.name;
@@ -164,9 +165,11 @@ function subjectOf(sel: Complex): Subject {
       for (const inner of p.list) {
         collectClasses(inner, negated, false);
         // `:not([a][b])` doesn't exclude `[a]`: only a lone attribute counts.
-        const only = inner.compounds.length === 1 && inner.compounds[0].parts;
-        if (only && only.length === 1 && only[0].t === "attr") {
-          const { name, value } = attrConstraint(only[0].raw);
+        const only =
+          inner.compounds.length === 1 ? inner.compounds[0]?.parts : undefined;
+        const first = only?.length === 1 ? only[0] : undefined;
+        if (first?.t === "attr") {
+          const { name, value } = attrConstraint(first.raw);
           negatedAttrs ??= new Set();
           negatedAttrs.add(value === null ? name : `${name}=${value}`);
         }
@@ -212,13 +215,16 @@ export function parseRules(css: string, positions = false): Rule[] {
   const loc = positions ? locator(css) : null;
   const rules: Rule[] = [];
   for (let order = 0; order < placed.length; order++) {
-    const { selectors, decls: list, context, layer, scope } = placed[order];
+    const rule = placed[order];
+    if (!rule) continue;
+    const { selectors, decls: list, context, layer, scope } = rule;
     const decls = new Map<string, string>();
     // A repeated property keeps its first position and its last value.
     const pairs: string[] = [];
     let repeated = false;
     for (let k = 0; k < list.length; k++) {
       const d = list[k];
+      if (!d) continue;
       const prop = d.property.toLowerCase();
       const value = canonicalValue(d.raw, d.important, d.property);
       if (decls.has(prop)) repeated = true;
@@ -349,7 +355,7 @@ const important = (rule: Rule, prop: string): boolean =>
  * so order decides.
  */
 export function wins(a: Rule, b: Rule, prop: string): boolean {
-  const base = prop.split("~")[0];
+  const base = prop.split("~")[0] ?? prop;
   const ia = important(a, base);
   const ib = important(b, base);
   if (ia !== ib) return ia;
@@ -374,8 +380,9 @@ export function pairOff(
   let kept = 0;
   for (const a of added) {
     const i = removed.findIndex((r) => match(r, a));
-    if (i >= 0) {
-      pairs.set(a, removed[i]);
+    const head = i >= 0 ? removed[i] : undefined;
+    if (head) {
+      pairs.set(a, head);
       removed.splice(i, 1);
     } else added[kept++] = a;
   }
@@ -453,7 +460,8 @@ export function histogram(rules: Iterable<Rule>): Histogram {
   };
   for (const r of rules) {
     h.selectors++;
-    h.classes[Math.min(r.specificity[1], 4)]++;
+    const bucket = Math.min(r.specificity[1], 4);
+    h.classes[bucket] = (h.classes[bucket] ?? 0) + 1;
     if (r.subject.qualified) h.qualified++;
     if (compareSpecificity(r.specificity, h.max) > 0) h.max = r.specificity;
   }
