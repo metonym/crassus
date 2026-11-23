@@ -67,10 +67,11 @@ async function inCheckout<T>(
     if (at.startsWith("..")) throw new UsageError(`${cwd} is outside ${top}`);
     const root = resolve(dir, at);
     // The build needs the project's installed dependencies.
-    for (const [from, to] of [
+    const links: [string, string][] = [
       [join(cwd, "node_modules"), join(root, "node_modules")],
       [join(top, "node_modules"), join(dir, "node_modules")],
-    ])
+    ];
+    for (const [from, to] of links)
       if (existsSync(from) && !existsSync(to)) symlinkSync(from, to, "dir");
     return await fn(root);
   } finally {
@@ -221,10 +222,11 @@ async function inInputs<T>(
       throw new Unextractable((e as Error).message);
     }
     const root = resolve(dir, at);
-    for (const [from, to] of [
+    const links: [string, string][] = [
       [join(cwd, "node_modules"), join(root, "node_modules")],
       [join(top, "node_modules"), join(dir, "node_modules")],
-    ])
+    ];
+    for (const [from, to] of links)
       if (existsSync(from) && !existsSync(to)) symlinkSync(from, to, "dir");
     return await fn(root);
   } finally {

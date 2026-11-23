@@ -22,13 +22,13 @@ export type Locate = (loc?: {
 export interface Sheet {
   name: string;
   css: string;
-  map?: string | SourceMapJson;
+  map?: string | SourceMapJson | undefined;
   /** Directory relative map sources resolve against. */
   mapDir: string;
   /** Project root the sources are reported relative to. */
   root: string;
   /** The CSS file, relative to `root`, when the sheet was read from one. */
-  file?: string;
+  file?: string | undefined;
 }
 
 const SOURCE_MAPPING_RE = /\/\*\s*[#@]\s*sourceMappingURL=([^\s*]+)\s*\*\/\s*$/;
@@ -86,8 +86,8 @@ export async function readStylesheet(file: string): Promise<{
     const data = DATA_URL_RE.exec(url);
     if (data) {
       const map = data[1]
-        ? Buffer.from(data[2], "base64").toString("utf8")
-        : decodeURIComponent(data[2]);
+        ? Buffer.from(data[2] ?? "", "base64").toString("utf8")
+        : decodeURIComponent(data[2] ?? "");
       return { css, map, mapDir };
     }
     const mapFile = resolve(mapDir, decodeURIComponent(url));

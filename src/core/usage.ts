@@ -27,7 +27,7 @@ export interface MatchedRule {
   selector: string;
   declarations: Declaration[];
   /** `Rule.layerRank`; omitted when unlayered. */
-  layerRank?: number;
+  layerRank?: number | undefined;
 }
 
 const VENDOR_PREFIX_RE = /^-(?:webkit|moz|ms)-(.+)$/;

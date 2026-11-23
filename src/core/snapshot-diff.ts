@@ -61,14 +61,14 @@ export interface PropertyChange {
    * a shorthand under its name (`border-color`), and properties that
    * follow `color` (currentColor) under `color`.
    */
-  aliases?: string[];
+  aliases?: string[] | undefined;
   /**
    * Why no one can see the change on either side, when no one can:
    * `display: none` (on it or an ancestor), `visibility: hidden` (painted
    * properties), `no border` (a side's color at width 0 or style none),
    * `outline-style: none`, `text-decoration-line: none`.
    */
-  invisible?: string;
+  invisible?: string | undefined;
 }
 
 /**
@@ -133,18 +133,18 @@ export interface Winner {
    */
   sheet: string;
   /** 1-based line in the stylesheet (or, mapped, its source). */
-  line?: number;
+  line?: number | undefined;
   /** 0-based column. */
-  column?: number;
+  column?: number | undefined;
   /** Set when an ancestor's declaration was inherited. */
-  inherited?: true;
+  inherited?: true | undefined;
   /**
    * Set when the rule differs between the sides: removed, added, edited or
    * moved.
    */
-  changed?: true;
+  changed?: true | undefined;
   /** The rule's whole selector list, when it has more than one. */
-  list?: string;
+  list?: string | undefined;
 }
 
 /**
@@ -237,7 +237,7 @@ export function diffTokens(
 export const tokenChangeOf = (
   tokens: Record<string, Record<string, TokenChange>> | undefined,
   path: string,
-  c: { property: string; aliases?: string[] },
+  c: { property: string; aliases?: string[] | undefined },
 ): TokenChange | undefined => {
   const at = tokens?.[path];
   if (!at) return undefined;

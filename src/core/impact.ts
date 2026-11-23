@@ -198,12 +198,15 @@ function triggersOf(sel: Complex, out: StateTrigger[]): void {
             combinators: sel.combinators.slice(0, k),
           }),
         );
-    for (const name of names)
+    for (const name of names) {
+      const state = STATE_OF[name];
+      if (state === undefined) continue;
       out.push({
-        state: STATE_OF[name],
+        state,
         prefix,
         ...(name === "focus-within" && { within: true as const }),
       });
+    }
   });
 }
 

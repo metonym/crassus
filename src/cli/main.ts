@@ -357,15 +357,16 @@ async function run(argv: string[], io: Io): Promise<number> {
         throw new UsageError(
           "diff takes two files (base, head), or --base <ref> with the config",
         );
+      const [baseFile = "", headFile = ""] = files;
       [baseSheets, headSheets] = await Promise.all([
-        filesAsSheets(cwd, [files[0]]),
-        filesAsSheets(cwd, [files[1]]),
+        filesAsSheets(cwd, [baseFile]),
+        filesAsSheets(cwd, [headFile]),
       ]);
       // Both files take one name, so they compare as one entry.
       const [headSheet] = headSheets;
       const [baseSheet] = baseSheets;
       if (headSheet && baseSheet) headSheet.name = baseSheet.name;
-      base = { ref: files[0], sha: "" };
+      base = { ref: baseFile, sha: "" };
     } else {
       const ref = values.base ?? "HEAD";
       const started = performance.now();

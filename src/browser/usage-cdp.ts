@@ -65,10 +65,10 @@ function libraryLayerRanks(text: string): Map<string, number> {
  * `&`.
  */
 function nestedSelector(own: string, ancestors: string[]): string {
-  let parent = parseSelectorList(ancestors[ancestors.length - 1]);
+  let parent = parseSelectorList(ancestors.at(-1) ?? "&");
   for (let i = ancestors.length - 2; i >= 0; i--) {
     const outer = parent;
-    parent = parseSelectorList(ancestors[i]).map((c) =>
+    parent = parseSelectorList(ancestors[i] ?? "&").map((c) =>
       resolveNested(c, outer),
     );
   }
@@ -249,6 +249,6 @@ function descendantsOf(
 ): number[] {
   const queue = [...(childrenOf.get(nodeId) ?? [])];
   for (let i = 0; i < queue.length && queue.length < cap; i++)
-    queue.push(...(childrenOf.get(queue[i]) ?? []));
+    queue.push(...(childrenOf.get(queue[i] ?? -1) ?? []));
   return queue.slice(0, cap);
 }

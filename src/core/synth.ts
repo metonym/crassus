@@ -68,11 +68,14 @@ function merge(a: El, b: El): El | null {
 function chainOf(selector: string): { subject: El; steps: Step[] } | null {
   const sel = parseComplex(selector);
   const els = sel.compounds.map((c) => elementOf(c.parts));
-  if (els.length === 0) return null;
+  const subject = els.at(-1);
+  if (!subject) return null;
   const steps: Step[] = [];
-  for (let i = els.length - 2; i >= 0; i--)
-    steps.push({ comb: sel.combinators[i] ?? " ", el: els[i] });
-  return { subject: els[els.length - 1], steps };
+  for (let i = els.length - 2; i >= 0; i--) {
+    const el = els[i];
+    if (el) steps.push({ comb: sel.combinators[i] ?? " ", el });
+  }
+  return { subject, steps };
 }
 
 const copy = (e: El): El => ({

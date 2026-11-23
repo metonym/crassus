@@ -27,10 +27,10 @@ function physical(property: string, dir: Direction): string | undefined {
     return `${size[1] ?? ""}${size[2] === "inline" ? "width" : "height"}`;
   const corner = CORNER_RE.exec(property);
   if (corner)
-    return `border-${side("block", corner[1], dir)}-${side("inline", corner[2], dir)}-radius`;
+    return `border-${side("block", corner[1] ?? "", dir)}-${side("inline", corner[2] ?? "", dir)}-radius`;
   const m = LOGICAL_RE.exec(property);
   if (!m) return undefined;
-  const out = property.replace(m[0], side(m[1], m[2], dir));
+  const out = property.replace(m[0], side(m[1] ?? "", m[2] ?? "", dir));
   return out.startsWith("inset-") ? out.slice("inset-".length) : out;
 }
 
@@ -139,7 +139,7 @@ const SIDES = ["top", "right", "bottom", "left"];
 
 /** Why nothing of `r` (and what it contains) is painted, if so. */
 function clippedAway(r: StyleRecord): string | undefined {
-  if (OUT_OF_FLOW.has(r.position)) {
+  if (OUT_OF_FLOW.has(r.position ?? "")) {
     // `clip` applies to absolutely positioned boxes: top, right, bottom, left.
     const m = ZERO_RECT_RE.exec(r.clip ?? "");
     if (m && (Number(m[2]) <= Number(m[4]) || Number(m[3]) <= Number(m[1])))
@@ -147,8 +147,8 @@ function clippedAway(r: StyleRecord): string | undefined {
     if (
       px(r.width) <= 1 &&
       px(r.height) <= 1 &&
-      CLIPPING.has(r["overflow-x"]) &&
-      CLIPPING.has(r["overflow-y"])
+      CLIPPING.has(r["overflow-x"] ?? "") &&
+      CLIPPING.has(r["overflow-y"] ?? "")
     )
       return "1px box, overflow: hidden";
   }
@@ -171,10 +171,10 @@ function concealed(
   // it sits, though it may also be off the page.
   for (const r of records) {
     const why = clippedAway(r);
-    if (why) return { why, all: OUT_OF_FLOW.has(r.position) };
+    if (why) return { why, all: OUT_OF_FLOW.has(r.position ?? "") };
   }
   if (own[HIDDEN])
-    return { why: own[HIDDEN], all: OUT_OF_FLOW.has(own.position) };
+    return { why: own[HIDDEN], all: OUT_OF_FLOW.has(own.position ?? "") };
   if (records.some((r) => r.opacity === "0"))
     return { why: "opacity: 0", all: false };
   return undefined;
@@ -277,7 +277,7 @@ function invisibleOn(
     test(before) && test(after);
   if (
     (COLOR_RE.test(property) || PAINT.has(property)) &&
-    both((r) => HIDDEN_VISIBILITY.has(r.visibility))
+    both((r) => HIDDEN_VISIBILITY.has(r.visibility ?? ""))
   )
     return "visibility: hidden";
   const border = BORDER_COLOR_RE.exec(property);
@@ -286,7 +286,7 @@ function invisibleOn(
     both(
       (r) =>
         r[`border-${border[1]}-width`] === "0px" ||
-        NO_BORDER.has(r[`border-${border[1]}-style`]),
+        NO_BORDER.has(r[`border-${border[1]}-style`] ?? ""),
     )
   )
     return "no border";
@@ -341,11 +341,13 @@ export function foldChanges(
   }
   let out: PropertyChange[] = [];
   for (const [name, list] of byName) {
-    if (list.length > 1 && !list.every((c) => same(c, list[0]))) {
+    const [head] = list;
+    if (!head) continue;
+    if (list.length > 1 && !list.every((c) => same(c, head))) {
       out.push(...list);
       continue;
     }
-    const c: PropertyChange = { ...list[0], property: name };
+    const c: PropertyChange = { ...head, property: name };
     const others = list.map((l) => l.property).filter((p) => p !== name);
     if (others.length) absorb(c, others);
     out.push(c);
@@ -396,7 +398,7 @@ export function foldChanges(
   if (out.length > 1) {
     const by = new Map(out.map((c) => [c.property, c]));
     for (const [name, longhands] of shorthands(mapped ? dir : "ltr")) {
-      const first = by.get(longhands[0]);
+      const first = by.get(longhands[0] ?? "");
       if (!first) continue;
       const parts = longhands.map((l) => by.get(l));
       if (!parts.every((p) => p && same(p, first))) continue;

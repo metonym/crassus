@@ -66,9 +66,9 @@ export function decodePng(png: Uint8Array): Image {
   if (channels === 4) return { width, height, data: rows };
   const data = new Uint8Array(width * height * 4);
   for (let i = 0, j = 0; i < rows.length; i += 3, j += 4) {
-    data[j] = rows[i];
-    data[j + 1] = rows[i + 1];
-    data[j + 2] = rows[i + 2];
+    data[j] = rows[i] ?? 0;
+    data[j + 1] = rows[i + 1] ?? 0;
+    data[j + 2] = rows[i + 2] ?? 0;
     data[j + 3] = 255;
   }
   return { width, height, data };
@@ -118,7 +118,7 @@ export function difference(a: Image, b: Image): Difference | null {
     const key = ((d[i] ?? 0) << 16) | ((d[i + 1] ?? 0) << 8) | (d[i + 2] ?? 0);
     let v = labs.get(key);
     if (!v) {
-      v = lab(d[i], d[i + 1], d[i + 2]);
+      v = lab(d[i] ?? 0, d[i + 1] ?? 0, d[i + 2] ?? 0);
       labs.set(key, v);
     }
     return v;
@@ -226,8 +226,8 @@ export function heatmap(base: Image, head: Image): Image {
         )
       )
         d = ciede2000(
-          lab(base.data[a], base.data[a + 1], base.data[a + 2]),
-          lab(head.data[b], head.data[b + 1], head.data[b + 2]),
+          lab(base.data[a] ?? 0, base.data[a + 1] ?? 0, base.data[a + 2] ?? 0),
+          lab(head.data[b] ?? 0, head.data[b + 1] ?? 0, head.data[b + 2] ?? 0),
         );
       const t = d === 0 ? 0 : Math.min(1, 0.35 + d / 20);
       data.set(

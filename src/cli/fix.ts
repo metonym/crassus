@@ -52,7 +52,7 @@ interface Skipped {
   selector: string;
   property: string;
   value: string;
-  source?: SourceLocation;
+  source?: SourceLocation | undefined;
   reason: string;
 }
 
@@ -147,7 +147,7 @@ function apply(text: string, ranges: Range[]): string {
 /** A CSS declaration's range, `;` included when one follows. */
 function cssRange(css: string, [start, end]: [number, number]): Range {
   let b = end;
-  while (b < css.length && WS_RE.test(css[b])) b++;
+  while (b < css.length && WS_RE.test(css.charAt(b))) b++;
   return { start, end: css[b] === ";" ? b + 1 : end };
 }
 

@@ -62,7 +62,10 @@ export async function attachSources(
   opts: {
     cwd: string;
     /** The commit each side was built from, if any. */
-    shas?: (card: Card) => { base?: string; head?: string };
+    shas?: (card: Card) => {
+      base?: string | undefined;
+      head?: string | undefined;
+    };
   },
 ): Promise<void> {
   const remote = await githubUrl(opts.cwd);

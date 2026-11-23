@@ -6,13 +6,13 @@ export type EngineName = "chrome" | "webkit";
 
 export interface ViewOptions {
   engine: EngineName;
-  width?: number;
-  height?: number;
+  width?: number | undefined;
+  height?: number | undefined;
   /**
    * Chrome/Chromium binary. Default: Playwright's newest
    * `chrome-headless-shell`, if installed, else Bun's auto-detection.
    */
-  chromePath?: string;
+  chromePath?: string | undefined;
 }
 
 const HEADLESS_SHELL_RE = /^chromium_headless_shell-(\d+)$/;
@@ -57,7 +57,7 @@ export function headlessShell(): string | undefined {
   return undefined;
 }
 
-let defaultChrome: { path?: string } | undefined;
+let defaultChrome: { path?: string | undefined } | undefined;
 const defaultChromePath = () => {
   const chrome = (defaultChrome ??= { path: headlessShell() });
   return chrome.path;
@@ -68,7 +68,10 @@ export interface Viewport {
   height: number;
 }
 
-const viewportOf = (o: { width?: number; height?: number }): Viewport => ({
+const viewportOf = (o: {
+  width?: number | undefined;
+  height?: number | undefined;
+}): Viewport => ({
   width: o.width ?? 1280,
   height: o.height ?? 900,
 });
@@ -76,9 +79,9 @@ const viewportOf = (o: { width?: number; height?: number }): Viewport => ({
 export const viewportName = (v: Viewport) => `${v.width}x${v.height}`;
 
 export const viewportsOf = (opts: {
-  viewports?: Viewport[];
-  width?: number;
-  height?: number;
+  viewports?: Viewport[] | undefined;
+  width?: number | undefined;
+  height?: number | undefined;
 }): Viewport[] =>
   opts.viewports?.length ? opts.viewports : [viewportOf(opts)];
 
@@ -112,6 +115,7 @@ export const View: new (opts: ViewOptions) => View = class implements View {
     this.engine = opts.engine;
     const size = viewportOf(opts);
     this.#size = opts.engine === "webkit" ? size : null;
+    const chromePath = opts.chromePath ?? defaultChromePath();
     this.#view = new Bun.WebView({
       ...size,
       backend:
@@ -120,7 +124,7 @@ export const View: new (opts: ViewOptions) => View = class implements View {
           : {
               type: "chrome",
               url: false,
-              path: opts.chromePath ?? defaultChromePath(),
+              ...(chromePath !== undefined && { path: chromePath }),
               // As Playwright: scrollbars take no width. One Chrome per
               // process: the first view's options win.
               argv: ["--hide-scrollbars"],
@@ -215,7 +219,7 @@ async function runPool<J, R>(
   makeView: () => View,
   work: (view: View, job: J, slot: number) => Promise<R>,
   onBusy?: VisitOptions["onBusy"],
-  load: () => number = () => loadavg()[0],
+  load: () => number = () => loadavg()[0] ?? 0,
 ): Promise<R[]> {
   const results: R[] = new Array<R>(jobs.length);
   let next = 0;
@@ -237,8 +241,10 @@ async function runPool<J, R>(
             continue;
           }
           const i = next++;
+          const job = jobs[i];
+          if (job === undefined) continue;
           try {
-            results[i] = await work(view, jobs[i], slot);
+            results[i] = await work(view, job, slot);
           } catch (e) {
             errors.push(e);
           }
@@ -292,23 +298,24 @@ export interface VisitOptions {
   baseUrl: string;
   fixtures: string[];
   themes: string[];
-  themeAttribute?: string | null;
-  width?: number;
-  height?: number;
-  viewports?: Viewport[];
+  themeAttribute?: string | null | undefined;
+  width?: number | undefined;
+  height?: number | undefined;
+  viewports?: Viewport[] | undefined;
   engine: EngineName;
-  chromePath?: string;
+  chromePath?: string | undefined;
   concurrency: number;
   emulate: "cdp" | "cssom";
-  readySelector?: string;
-  readyTimeoutMs?: number;
+  readySelector?: string | undefined;
+  readyTimeoutMs?: number | undefined;
   /** Visits only the pages it keeps. */
   only?: (job: PageJob) => boolean;
   /**
    * Told of each wait while the load average holds tabs back (`ms` of one
    * tab).
    */
-  onBusy?: (wait: { load: number; cores: number; ms: number }) => void;
+  onBusy?:
+    ((wait: { load: number; cores: number; ms: number }) => void) | undefined;
   /** Reads the 1-minute load average. Default `os.loadavg()[0]`. */
   loadAverage?: () => number;
 }

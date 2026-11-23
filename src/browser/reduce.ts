@@ -24,16 +24,16 @@ export interface ReduceOptions {
   fixture: string;
   theme: string;
   themeAttribute?: string | null;
-  viewport?: { width: number; height: number };
+  viewport?: { width: number; height: number } | undefined;
   /** The element, as a snapshot path (with its state and pseudo-element). */
   path: string;
   property: string;
   engine: EngineName;
-  chromePath?: string;
+  chromePath?: string | undefined;
   emulate: "cdp" | "cssom";
-  readySelector?: string;
-  readyTimeoutMs?: number;
-  settleMs?: number;
+  readySelector?: string | undefined;
+  readyTimeoutMs?: number | undefined;
+  settleMs?: number | undefined;
 }
 
 export interface Reduced {
@@ -147,7 +147,7 @@ export async function reduceChange(opts: ReduceOptions): Promise<Reduced> {
       before,
       after,
       total: edits.length,
-      edits: kept.map((i) => edits[i]),
+      edits: kept.flatMap((i) => edits[i] ?? []),
       tests,
       ms: performance.now() - started,
     };

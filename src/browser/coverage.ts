@@ -19,7 +19,7 @@ export interface CoverageOptions extends Omit<VisitOptions, "baseUrl"> {
   sheetMarker: string;
   /** The library stylesheet's CSS, swapped in for the fixtures' own. */
   css: string;
-  settleMs?: number;
+  settleMs?: number | undefined;
 }
 
 export interface RuleCoverage {

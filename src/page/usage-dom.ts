@@ -103,9 +103,9 @@ function bucketKey(host: string): string {
     .replace(PAREN_GROUP_RE, "")
     .replace(ATTRIBUTE_RE, "");
   const id = ID_RE.exec(compound);
-  if (id) return `#${unescapeIdent(id[1])}`;
+  if (id?.[1]) return `#${unescapeIdent(id[1])}`;
   const cls = CLASS_RE.exec(compound);
-  if (cls) return `.${unescapeIdent(cls[1])}`;
+  if (cls?.[1]) return `.${unescapeIdent(cls[1])}`;
   const tag = TAG_RE.exec(compound);
   if (tag?.[1]) return tag[1].toLowerCase();
   return "*";
@@ -176,9 +176,9 @@ function collectRules(
   };
   visit(sheet.cssRules, [], true, -1);
   return resolvedSelectors().map((sel, i) => ({
-    ctx: ctxs[i],
+    ctx: ctxs[i] ?? [],
     sel,
-    active: active[i],
+    active: active[i] ?? false,
   }));
 }
 
@@ -228,7 +228,8 @@ const api: UsageDomApi = {
   },
 
   inventory(sheetIndex: number) {
-    return collectRules(document.styleSheets[sheetIndex]);
+    const sheet = document.styleSheets[sheetIndex];
+    return sheet ? collectRules(sheet) : [];
   },
 
   /** Engine-native shorthand expansion and value validity. */

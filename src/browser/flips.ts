@@ -31,9 +31,9 @@ export interface FlipVerdict {
    */
   verdict: "confirmed" | "no change" | "never seen" | "unsynthesized";
   /** Where it was rendered: a fixture page (by label), or `synthesized`. */
-  on?: string;
-  before?: string;
-  after?: string;
+  on?: string | undefined;
+  before?: string | undefined;
+  after?: string | undefined;
 }
 
 const PSEUDO_RE = /::?(before|after)\b/;
@@ -63,7 +63,7 @@ export async function confirmFlips(opts: {
   head: string;
   index: PageIndex;
   engine: EngineName;
-  chromePath?: string;
+  chromePath?: string | undefined;
 }): Promise<FlipVerdict[]> {
   const relaxed = opts.flips.map(
     (f) => f.selectors.map(relaxSelector) as [string, string],

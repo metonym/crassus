@@ -62,8 +62,8 @@ type Located = MatchedRule & { winner: Omit<Winner, "inherited"> };
 
 function rulesOf(
   styles: {
-    inlineStyle?: { cssProperties: CdpProperty[] };
-    matchedCSSRules?: CdpMatch[];
+    inlineStyle?: { cssProperties: CdpProperty[] } | undefined;
+    matchedCSSRules?: CdpMatch[] | undefined;
   },
   sheets: Map<string, string>,
 ): Located[] {
@@ -152,7 +152,7 @@ function explain(
   const inherits = (w: { value: string } | undefined) =>
     w?.value.trim().toLowerCase() === "inherit";
   if (found && !inherits(found)) return found.winner;
-  if (!found && !INHERITED_RE.test(names[0])) return null;
+  if (!found && !INHERITED_RE.test(names[0] ?? "")) return null;
   // A pseudo-element inherits from its element first.
   const ancestors = [...(pseudo ? [styles] : []), ...(styles.inherited ?? [])];
   for (const a of ancestors) {
@@ -293,7 +293,7 @@ async function planBatches(view: View, keys: string[]): Promise<Batch[]> {
 export async function inspectPage(
   view: View,
   changed: Record<string, PropertyChange[]>,
-  what: { explain?: boolean; visual?: boolean },
+  what: { explain?: boolean | undefined; visual?: boolean | undefined },
   batches?: Batch[],
 ): Promise<PageInspection> {
   const sheets = new Map<string, string>();
@@ -376,7 +376,10 @@ export async function inspectPage(
             `${JSON.stringify(batch.keys)}.map((k) => window.__cr.target(k) && window.__cr.rect())`,
           );
           const boxes = Object.fromEntries(
-            batch.keys.map((k, i) => [k, rects[i] && pixelBox(rects[i])]),
+            batch.keys.map((k, i) => {
+              const rect = rects[i];
+              return [k, rect ? pixelBox(rect) : null];
+            }),
           );
           const drawn = Object.values(boxes).filter(
             (b): b is Rect => b !== null,

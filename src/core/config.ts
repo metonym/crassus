@@ -13,7 +13,7 @@ export interface SourceMapJson {
 interface Stylesheet {
   css: string;
   /** Sources may be `file:` URLs or paths relative to the map's directory. */
-  map?: string | SourceMapJson;
+  map?: string | SourceMapJson | undefined;
 }
 
 /** Stylesheets by name (`all`, `white`); reports group findings by name. */

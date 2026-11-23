@@ -32,7 +32,7 @@ function declared(css: string, prefix: string): Set<string> {
   const out = new Set<string>();
   for (let i = css.indexOf(prefix); i >= 0; i = css.indexOf(prefix, i + 1)) {
     let j = i + prefix.length;
-    while (j < css.length && NAME_CHAR_RE.test(css[j])) j++;
+    while (j < css.length && NAME_CHAR_RE.test(css.charAt(j))) j++;
     let k = j;
     while (css[k] === " ") k++;
     if (css[k] === ":") out.add(css.slice(i, j));
@@ -43,7 +43,7 @@ function declared(css: string, prefix: string): Set<string> {
 /** `crassus doctor`. Exit 1 when a check fails. */
 export async function doctorCommand(opts: {
   config: Config;
-  configFile?: string;
+  configFile?: string | undefined;
   io: Io;
 }): Promise<number> {
   const { io, config } = opts;

@@ -86,7 +86,7 @@ async function minimal(view: View, css: string): Promise<string> {
 export async function reproHtml(
   card: Card,
   css: { base: string; head: string },
-  opts: { engine: EngineName; chromePath?: string },
+  opts: { engine: EngineName; chromePath?: string | undefined },
 ): Promise<string> {
   const { html, htmlAttrs, bodyAttrs } = markup(card);
   const view = new View({ engine: opts.engine, chromePath: opts.chromePath });

@@ -115,7 +115,7 @@ async function commitsIn(cwd: string, from: string, to: string) {
   ]);
   const commits = log
     ? log.split("\n").map((line) => {
-        const [hash, subject = ""] = line.split("\t");
+        const [hash = "", subject = ""] = line.split("\t");
         return {
           sha: hash,
           subject,
@@ -138,33 +138,35 @@ const count = (diff: SnapshotDiff, invisible: boolean) =>
  */
 export async function bisectCommand(opts: {
   config: Config;
-  configFile?: string;
+  configFile?: string | undefined;
   flags: BrowserFlags;
   range: string[];
   groupBy: string;
   split: boolean;
   entry: string[];
   cache: boolean;
-  explain?: boolean;
-  visual?: boolean;
+  explain?: boolean | undefined;
+  visual?: boolean | undefined;
   scope?: boolean;
   format: CompareFormat;
   /** Write change cards to this directory. */
-  report?: string;
+  report?: string | undefined;
   io: Io;
-  summary?: Summary;
+  summary?: Summary | undefined;
 }): Promise<number> {
   const { io } = opts;
   const { cwd } = io;
-  const m = opts.range.length === 1 ? RANGE_RE.exec(opts.range[0]) : null;
-  if (!m) throw new UsageError("bisect takes one range: <from>..<to>");
+  const m = opts.range.length === 1 ? RANGE_RE.exec(opts.range[0] ?? "") : null;
+  const fromRef = m?.[1];
+  if (!m || fromRef === undefined)
+    throw new UsageError("bisect takes one range: <from>..<to>");
   const groupBy = opts.groupBy as GroupBy;
   if (!GROUP_BY.includes(groupBy))
     throw new UsageError(`--group-by takes ${GROUP_BY.join(" or ")}`);
   const { approvals, cards, cmp } = await cardComparer({ ...opts, cwd });
   const crops = new Map<string, Crops | undefined>();
   const to = m[2] || "HEAD";
-  const { from, commits } = await commitsIn(cwd, m[1], to);
+  const { from, commits } = await commitsIn(cwd, fromRef, to);
   if (commits.length === 0)
     throw new UsageError(`no commits in ${m[1]}..${to}`);
   const human = opts.format === "human";
@@ -280,7 +282,13 @@ export async function bisectCommand(opts: {
 
   const report = (format: "human" | "json") =>
     formatBisect(
-      { from: m[1], to, groupBy, commits: commits.length, segments: results },
+      {
+        from: fromRef,
+        to,
+        groupBy,
+        commits: commits.length,
+        segments: results,
+      },
       format,
     );
   await opts.summary?.(`crassus bisect ${m[1]}..${to}`, () => report("human"));
@@ -294,7 +302,7 @@ export async function bisectCommand(opts: {
           commit: h.to,
         })),
         command: "bisect",
-        base: m[1],
+        base: fromRef,
         head: to,
         cwd,
         shas: (card) => {

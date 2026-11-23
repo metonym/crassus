@@ -127,7 +127,7 @@ const SVG_RE =
 
 /** Traces `prefix` tokens over the pages as they're served. */
 export async function traceTokens(
-  opts: VisitOptions & { prefix: string; settleMs?: number },
+  opts: VisitOptions & { prefix: string; settleMs?: number | undefined },
 ): Promise<TokenReport> {
   const used = new Map<string, TokenUse & { pageSet: Set<string> }>();
   const traced = new Set<string>();

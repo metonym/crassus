@@ -22,7 +22,7 @@ export interface DeadDeclaration {
   /** What wins instead. */
   by: { property: string; value: string; layer: string; sameRule: boolean };
   /** With `positions`: 1-based line, 0-based column. */
-  loc?: { line: number; column: number };
+  loc?: { line: number; column: number } | undefined;
   /** Offsets in the CSS, up to the end of the value. */
   span: [number, number];
 }

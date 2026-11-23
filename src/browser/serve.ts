@@ -12,7 +12,7 @@ export interface ServeOptions {
    * `alt`, the same path with `?cr-sheet=alt` serves `alt` instead, so a
    * page can switch sheets without reloading.
    */
-  swap?: { marker: string; css: string; alt?: string };
+  swap?: { marker: string; css: string; alt?: string | undefined } | undefined;
 }
 
 function cssFiles(dir: string, at = ""): string[] {

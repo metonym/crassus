@@ -193,7 +193,10 @@ export async function fixStylesheets(
     ...sheets,
     ...compiledSheets(
       root,
-      extra.map((n) => [n, compiled[n]]),
+      extra.flatMap((n): [string, Stylesheets[string]][] => {
+        const sheet = compiled[n];
+        return sheet ? [[n, sheet]] : [];
+      }),
     ),
   ];
 }

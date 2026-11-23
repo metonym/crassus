@@ -124,6 +124,9 @@ export function diffUnits(a: Unit[], b: Unit[]): Step[] {
   }
   // Walk back through the saved frontiers.
   const steps: Step[] = [];
+  const step = (op: Step["op"], unit: Unit | undefined) => {
+    if (unit) steps.push({ op, unit });
+  };
   let x = n;
   let y = m;
   for (let d = trace.length - 1; d >= 0; d--) {
@@ -137,12 +140,12 @@ export function diffUnits(a: Unit[], b: Unit[]): Step[] {
     const px = t[max + prev] ?? 0;
     const py = px - prev;
     while (x > px && y > py) {
-      steps.push({ op: "=", unit: a[--x] });
+      step("=", a[--x]);
       y--;
     }
     if (d > 0) {
-      if (x === px) steps.push({ op: "+", unit: b[--y] });
-      else steps.push({ op: "-", unit: a[--x] });
+      if (x === px) step("+", b[--y]);
+      else step("-", a[--x]);
     }
   }
   return steps.reverse();

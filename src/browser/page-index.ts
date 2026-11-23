@@ -194,7 +194,7 @@ function rebuiltBecause(dir: string, now: IndexInputs): string {
   const [a, b] = [count(before.files), count(now.files)];
   const changed = new Set<string>();
   for (const k of new Set([...a.keys(), ...b.keys()]))
-    if ((a.get(k) ?? 0) !== (b.get(k) ?? 0)) changed.add(k.split("\0")[0]);
+    if ((a.get(k) ?? 0) !== (b.get(k) ?? 0)) changed.add(k.split("\0")[0] ?? k);
   const names = [...changed].sort();
   return names.length
     ? `fixture files changed: ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}`
@@ -210,9 +210,9 @@ interface IndexInputs {
 export interface IndexOptions extends Omit<VisitOptions, "baseUrl"> {
   dir: string;
   sheetMarker: string;
-  settleMs?: number;
+  settleMs?: number | undefined;
   /** Where to keep the index between runs. Without it, it's rebuilt. */
-  cacheDir?: string;
+  cacheDir?: string | undefined;
 }
 
 /**
@@ -345,7 +345,8 @@ export async function matchPages(
         `${MATCH}(${JSON.stringify(batch.map((j) => index.pages[j.label]?.skeleton))}, ${JSON.stringify(selectors)})`,
       );
       batch.forEach((job, k) => {
-        out.set(job.label, r[k]);
+        const match = r[k];
+        if (match) out.set(job.label, match);
       });
     }
   } finally {

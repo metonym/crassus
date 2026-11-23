@@ -45,13 +45,14 @@ async function readReport(cwd: string, dir: string | undefined) {
 
 function cardOf(report: Report, id: string, cwd: string, file: string): Card {
   const matches = report.cards.filter((c) => c.id.startsWith(id));
-  if (matches.length !== 1)
+  const [card] = matches;
+  if (matches.length !== 1 || !card)
     throw new UsageError(
       matches.length
         ? `${id} matches ${matches.length} cards: ${matches.map((c) => c.id).join(", ")}`
         : `no card ${id} in ${shownPath(cwd, file)}`,
     );
-  return matches[0];
+  return card;
 }
 
 /**
@@ -60,7 +61,7 @@ function cardOf(report: Report, id: string, cwd: string, file: string): Card {
  */
 export async function approveCommand(opts: {
   ids: string[];
-  report?: string;
+  report?: string | undefined;
   io: Io;
 }): Promise<number> {
   if (opts.ids.length === 0)
@@ -88,8 +89,9 @@ export async function approveCommand(opts: {
 async function load(
   cwd: string,
   dir: string | undefined,
-  id: string,
+  id: string | undefined,
 ): Promise<{ report: Report & { inputs: Inputs }; card: Card; dir: string }> {
+  if (id === undefined) throw new UsageError("name a card id");
   const { report, file, at } = await readReport(cwd, dir);
   return { report, card: cardOf(report, id, cwd, file), dir: at };
 }
@@ -97,7 +99,7 @@ async function load(
 /** `crassus explain <id>`: the card as Markdown, or JSON. */
 export async function explainCommand(opts: {
   ids: string[];
-  report?: string;
+  report?: string | undefined;
   format: "human" | "json";
   io: Io;
 }): Promise<number> {
@@ -112,7 +114,7 @@ export async function explainCommand(opts: {
 /** `crassus repro <id>`: writes repro/<id>.html in the report directory. */
 export async function reproCommand(opts: {
   ids: string[];
-  report?: string;
+  report?: string | undefined;
   config: Config;
   io: Io;
 }): Promise<number> {
@@ -149,7 +151,7 @@ const PAGE_RE = /^(.+?)\.([^.]+?)(?:\.(\d+x\d+))?$/;
  */
 export async function verifyCommand(opts: {
   ids: string[];
-  report?: string;
+  report?: string | undefined;
   config: Config;
   entry: string[];
   io: Io;
@@ -228,8 +230,8 @@ export async function verifyCommand(opts: {
  */
 export async function reduceCommand(opts: {
   ids: string[];
-  report?: string;
-  property?: string;
+  report?: string | undefined;
+  property?: string | undefined;
   config: Config;
   format: "human" | "json";
   io: Io;
@@ -259,8 +261,8 @@ export async function reduceCommand(opts: {
     sheetMarker: browser.sheetMarker,
     base: await Bun.file(join(dir, "base.css")).text(),
     head: await Bun.file(join(dir, "head.css")).text(),
-    fixture: page[1],
-    theme: page[2],
+    fixture: page[1] ?? "",
+    theme: page[2] ?? "",
     themeAttribute: pages.themeAttribute,
     viewport: width && height ? { width, height } : pages.viewports?.[0],
     path: el.path,

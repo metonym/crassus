@@ -51,31 +51,31 @@ export interface CompareOptions extends Omit<
   base: string;
   head: string;
   /** Example paths per group. Default 3. */
-  examples?: number;
+  examples?: number | undefined;
   /** Chrome: the declaration that won each changed property, on each side. */
-  explain?: boolean;
+  explain?: boolean | undefined;
   /** Chrome: screenshot each changed element on each side, and compare. */
-  visual?: boolean;
+  visual?: boolean | undefined;
   /**
    * Default true: load only the pages the changed rules can reach, and read
    * only what they can change there (see `Impact`). False reads everything.
    */
-  scope?: boolean;
+  scope?: boolean | undefined;
   /** Where to keep the page index `scope` builds, between runs. */
-  indexDir?: string;
+  indexDir?: string | undefined;
   /** Called with the change's reach, before any page is captured. */
-  onImpact?: (impact: Impact) => void;
+  onImpact?: ((impact: Impact) => void) | undefined;
   /**
    * Keep what a report needs: changed elements' markup, and with `visual`,
    * their crops.
    */
-  report?: boolean;
+  report?: boolean | undefined;
   /**
    * Trace what design tokens (custom properties with this prefix, like
    * `--cds-`) drive each property on both sides, and report properties
    * that stop following one (`PageDiff.tokens`). Unforced states only.
    */
-  tokens?: string;
+  tokens?: string | undefined;
 }
 
 /** An element's crops on each side, kept for a report: `crops[page][path]`. */

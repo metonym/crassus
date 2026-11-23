@@ -43,15 +43,15 @@ import { mappedLocator, type Sheet } from "./sources";
 
 /** Command-line overrides of `browser` in the config. */
 export interface BrowserFlags {
-  only?: string;
-  themes?: string;
-  viewport?: string[];
-  noStates?: boolean;
-  engine?: string;
-  matcher?: string;
-  concurrency?: string;
-  url?: string;
-  tokens?: string;
+  only?: string | undefined;
+  themes?: string | undefined;
+  viewport?: string[] | undefined;
+  noStates?: boolean | undefined;
+  engine?: string | undefined;
+  matcher?: string | undefined;
+  concurrency?: string | undefined;
+  url?: string | undefined;
+  tokens?: string | undefined;
 }
 
 const VIEWPORT_RE = /^(\d+)x(\d+)$/;
@@ -235,11 +235,14 @@ export const throttled = (t: Throttle): string =>
 export function reportNotReady(
   io: Io,
   labels: string[],
-  pages: { readySelector?: string; allowNotReady?: string[] },
+  pages: {
+    readySelector?: string | undefined;
+    allowNotReady?: string[] | undefined;
+  },
   anyway: string,
 ): number {
   const allowed = new Set(pages.allowNotReady);
-  const late = labels.filter((l) => !allowed.has(l.split(" ")[0]));
+  const late = labels.filter((l) => !allowed.has(l.split(" ")[0] ?? l));
   if (late.length)
     io.err(
       `crassus: ${plural(late.length, "page")} never matched readySelector ${JSON.stringify(pages.readySelector)} (${anyway} anyway): ${late.join(", ")}`,
@@ -277,8 +280,8 @@ export async function captureCommand(opts: {
   config: Config;
   flags: BrowserFlags;
   outDir: string;
-  base?: string;
-  css?: string;
+  base?: string | undefined;
+  css?: string | undefined;
   io: Io;
 }): Promise<number> {
   const { flags, io, base } = opts;
@@ -372,11 +375,11 @@ export async function snapshotDiffCommand(opts: {
   dirs: string[];
   format: "human" | "json";
   io: Io;
-  summary?: Summary;
+  summary?: Summary | undefined;
 }): Promise<number> {
   if (opts.dirs.length !== 2)
     throw new UsageError("snapshot-diff takes two directories (base, head)");
-  const [base, head] = opts.dirs.map((d) => {
+  const [base = "", head = ""] = opts.dirs.map((d) => {
     const path = resolve(opts.io.cwd, d);
     if (!existsSync(path)) throw new UsageError(`no such directory: ${d}`);
     return path;
@@ -502,10 +505,10 @@ export function comparer(opts: {
   config: Config;
   flags: BrowserFlags;
   cwd: string;
-  explain?: boolean;
-  visual?: boolean;
+  explain?: boolean | undefined;
+  visual?: boolean | undefined;
   /** Default true. */
-  scope?: boolean;
+  scope?: boolean | undefined;
   /** Keep what change cards need (markup, crops). */
   report?: boolean;
   io?: Io;
@@ -590,20 +593,20 @@ export function comparer(opts: {
  */
 export async function compareCommand(opts: {
   config: Config;
-  configFile?: string;
+  configFile?: string | undefined;
   flags: BrowserFlags;
   files: string[];
-  base?: string;
+  base?: string | undefined;
   entry: string[];
   cache: boolean;
-  explain?: boolean;
-  visual?: boolean;
+  explain?: boolean | undefined;
+  visual?: boolean | undefined;
   scope?: boolean;
   format: CompareFormat;
   /** Write change cards to this directory. */
-  report?: string;
+  report?: string | undefined;
   io: Io;
-  summary?: Summary;
+  summary?: Summary | undefined;
 }): Promise<number> {
   const { io, files } = opts;
   const { cwd } = io;
@@ -618,8 +621,9 @@ export async function compareCommand(opts: {
         "compare takes two CSS files (base, head), or --base <ref> with the config",
       );
     const [base, head] = await filesAsSheets(cwd, files);
+    if (!base || !head) throw new Error("two files gave fewer sheets");
     sides = { base, head };
-    label = files[0];
+    label = files[0] ?? base.name;
   } else {
     const ref = opts.base ?? "HEAD";
     const configText = opts.configFile
@@ -698,13 +702,15 @@ export const COMPARE_FORMATS = ["human", "json", "markdown", "sarif"] as const;
 export type CompareFormat = (typeof COMPARE_FORMATS)[number];
 
 /** Cards come with `--report`, Markdown and SARIF: they need the winners. */
-const cardsWanted = (o: { report?: string; format: CompareFormat }) =>
-  Boolean(o.report) || o.format === "markdown" || o.format === "sarif";
+const cardsWanted = (o: {
+  report?: string | undefined;
+  format: CompareFormat;
+}) => Boolean(o.report) || o.format === "markdown" || o.format === "sarif";
 
 /** `comparer` for compare and bisect, keeping what their change cards need. */
 export async function cardComparer(
   opts: Omit<Parameters<typeof comparer>[0], "report"> & {
-    report?: string;
+    report?: string | undefined;
     format: CompareFormat;
   },
 ): Promise<{
@@ -730,7 +736,7 @@ export async function cardComparer(
  */
 export function cardsOrText(
   report: Report | undefined,
-  o: { format: CompareFormat; report?: string; cwd: string },
+  o: { format: CompareFormat; report?: string | undefined; cwd: string },
   text: (format: "human" | "json") => string,
   summary: boolean = Boolean(report),
 ): string {
@@ -767,7 +773,7 @@ export function cardsOrText(
 export async function changeCards(o: {
   runs: {
     pages: Parameters<typeof buildCards>[0][number]["pages"];
-    crops?: Crops;
+    crops?: Crops | undefined;
     commits?: { sha: string; subject: string }[];
     commit?: string;
   }[];
@@ -775,10 +781,13 @@ export async function changeCards(o: {
   base: string;
   head: string;
   cwd: string;
-  shas: (card: Card) => { base?: string; head?: string };
+  shas: (card: Card) => {
+    base?: string | undefined;
+    head?: string | undefined;
+  };
   css: { base: string; head: string };
-  dir?: string;
-  approvals?: Approvals;
+  dir?: string | undefined;
+  approvals?: Approvals | undefined;
   inputs: object;
 }): Promise<Report> {
   const report = buildReport(
@@ -922,7 +931,7 @@ const colorList = (
 export async function usageCommand(opts: {
   config: Config;
   flags: BrowserFlags;
-  outDir?: string;
+  outDir?: string | undefined;
   io: Io;
 }): Promise<number> {
   const { flags, io } = opts;

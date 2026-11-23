@@ -218,32 +218,32 @@ export interface CaptureOptions {
   states: "cdp" | "rewrite" | false;
   emulate: "cdp" | "cssom";
   concurrency: number;
-  chromePath?: string;
+  chromePath?: string | undefined;
   /**
    * `<html>` attribute set to the theme (with `serveFixtures`). Default
    * `theme`; `null`: none.
    */
-  themeAttribute?: string | null;
+  themeAttribute?: string | null | undefined;
   /** One viewport (default 1280 × 900). Prefer `viewports`. */
-  width?: number;
-  height?: number;
+  width?: number | undefined;
+  height?: number | undefined;
   /** With several, files are named `<name>.<theme>.<W>x<H>.json.gz`. */
-  viewports?: Viewport[];
+  viewports?: Viewport[] | undefined;
   /**
    * Polled after load (up to `readyTimeoutMs`), before `settleMs`. A page it
    * never matches on is still captured, and listed in `notReady`.
    */
-  readySelector?: string;
+  readySelector?: string | undefined;
   /** Default 5000 ms. */
-  readyTimeoutMs?: number;
+  readyTimeoutMs?: number | undefined;
   /** After load. Default 500 ms. */
-  settleMs?: number;
+  settleMs?: number | undefined;
   /**
    * Default true: force a state (CDP mode) only on elements some rule's
    * state applies to, and read the others unforced, which gives the same
    * records (focus is always forced: the user agent's focus ring).
    */
-  stateIndex?: boolean;
+  stateIndex?: boolean | undefined;
 }
 
 export const snapshotFile = (job: PageJob, several: boolean) =>
@@ -322,7 +322,8 @@ export function decodeCapture(bytes: Uint8Array<ArrayBuffer>): {
   const snapshot: Snapshot = {};
   const nth: Record<string, number> = {};
   for (const [path, i, n] of file.elements) {
-    snapshot[path] = records[i];
+    const record = records[i];
+    if (record) snapshot[path] = record;
     if (n) nth[path] = n;
   }
   return { snapshot, nth };
@@ -349,7 +350,7 @@ type PageOptions = Pick<
   "states" | "emulate" | "settleMs" | "stateIndex"
 > & {
   /** Custom-property prefix of the design tokens to trace (`--cds-`). */
-  tokens?: string;
+  tokens?: string | undefined;
 };
 
 /** What a page's forced states cost (CDP mode). */
@@ -505,15 +506,19 @@ export async function capturePage(
     // Only plain records carry the element's index.
     const thaw = (r: Record<string, string>) => {
       const { [NTH]: _, ...out } = r;
-      for (const p in frozen) if (p in out) out[p] = frozen[p];
+      for (const p in frozen) {
+        const value = frozen[p];
+        if (p in out && value !== undefined) out[p] = value;
+      }
       return out;
     };
     if (keys?.every((pairs) => pairs.every(([, from]) => snap[from]))) {
       for (const pairs of keys)
         for (const [to, from] of pairs)
-          for (const pseudo of ["", "::before", "::after"])
-            if (snap[from + pseudo])
-              snap[to + pseudo] = thaw(snap[from + pseudo]);
+          for (const pseudo of ["", "::before", "::after"]) {
+            const record = snap[from + pseudo];
+            if (record) snap[to + pseudo] = thaw(record);
+          }
     } else {
       Object.assign(
         snap,

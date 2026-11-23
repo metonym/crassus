@@ -59,7 +59,7 @@ export interface FlipFinding {
   rule: RuleRef;
   other: RuleRef;
   /** With `diff --confirm`: what rendering it in Chrome showed. */
-  confirmed?: FlipVerdict;
+  confirmed?: FlipVerdict | undefined;
   /** The other rule's selector in the base, when it changed. */
   otherWas?: string;
   property: string;

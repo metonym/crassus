@@ -36,7 +36,7 @@ interface Finding {
   rule: keyof typeof RULES;
   entry: string;
   message: string;
-  source?: SourceLocation;
+  source?: SourceLocation | undefined;
 }
 
 const RULES = {
@@ -690,7 +690,7 @@ export async function appendSummary(
     let size = 0;
     let kept = 0;
     while (kept < lines.length) {
-      const next = Buffer.byteLength(lines[kept]) + 1;
+      const next = Buffer.byteLength(lines[kept] ?? "") + 1;
       if (size + next > budget) break;
       size += next;
       kept++;

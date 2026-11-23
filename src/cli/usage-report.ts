@@ -30,9 +30,9 @@ export function formatUsageReport(
   usage: UsageFile,
   run: {
     themes: string[];
-    viewports?: { width: number; height: number }[];
+    viewports?: { width: number; height: number }[] | undefined;
     states: boolean;
-    readySelector?: string;
+    readySelector?: string | undefined;
   },
 ): string {
   const s = usage.summary;
@@ -91,7 +91,7 @@ export function formatUsageReport(
     ],
     fold.map(
       (d) =>
-        `| ${bytesOf(d)} | ${declaration(d)} | ${ruleCell(d)} | ${code(Object.keys(d.lostTo)[0])} |`,
+        `| ${bytesOf(d)} | ${declaration(d)} | ${ruleCell(d)} | ${code(Object.keys(d.lostTo)[0] ?? "")} |`,
     ),
   );
   section(

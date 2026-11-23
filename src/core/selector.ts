@@ -288,7 +288,7 @@ export function parseComplex(text: string): Complex {
     if (i >= n) break;
     const c = text.charCodeAt(i);
     if (isCombinator(c)) {
-      pendingCombinator = text[i++];
+      pendingCombinator = text.charAt(i++);
       continue;
     }
     if (c === PIPE && text.charCodeAt(i + 1) === PIPE) {
@@ -504,7 +504,9 @@ export function specificity(sel: Complex): Specificity {
 export function serialize(sel: Complex): string {
   let out = serializeCompound(sel.compounds[0] ?? { parts: [] });
   for (let i = 1; i < sel.compounds.length; i++)
-    out += sel.combinators[i - 1] + serializeCompound(sel.compounds[i]);
+    out +=
+      sel.combinators[i - 1] +
+      serializeCompound(sel.compounds[i] ?? { parts: [] });
   return out;
 }
 

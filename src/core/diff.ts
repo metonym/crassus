@@ -64,8 +64,10 @@ export const PREFIX_RE: RegExp = /^[a-z]+--/;
 export const ROOT_SPLIT_RE: RegExp = /__|--/;
 
 /** `bx--btn--primary` -> `btn`: drop a `prefix--`, cut at `__` or `--`. */
-export const defaultComponentOf = (cls: string): string | undefined =>
-  cls.replace(PREFIX_RE, "").split(ROOT_SPLIT_RE)[0];
+export const defaultComponentOf = (cls: string): string => {
+  const name = cls.replace(PREFIX_RE, "");
+  return name.split(ROOT_SPLIT_RE)[0] ?? name;
+};
 
 /**
  * Indexes of one longest strictly increasing subsequence (patience
@@ -103,7 +105,7 @@ interface DiffOptions {
    * with its own component's rules. Default: `bx--slider__thumb--lower` ->
    * `slider`.
    */
-  componentOf?: (className: string) => string;
+  componentOf?: ((className: string) => string) | undefined;
 }
 
 /** What changed between two builds' rules, and which winners flipped. */
@@ -166,8 +168,11 @@ export function diffWith(
   const baseToHead = new Map<Rule, Rule>();
   for (const [key, hlist] of headByKey) {
     const blist = baseByKey.get(key) ?? [];
-    for (let i = 0; i < Math.min(hlist.length, blist.length); i++)
-      baseToHead.set(blist[i], hlist[i]);
+    for (const [i, b] of blist.entries()) {
+      const h = hlist[i];
+      if (h === undefined) break;
+      baseToHead.set(b, h);
+    }
   }
   for (const [h, b] of rewrites) baseToHead.set(b, h);
   for (const [h, b] of contextMoves) baseToHead.set(b, h);
@@ -187,8 +192,8 @@ export function diffWith(
     const stable = longestIncreasing(
       pairedHead.map((h) => position.get(h) as number),
     );
-    for (let i = 0; i < pairedHead.length; i++)
-      if (!stable.has(i)) movedHead.add(pairedHead[i]);
+    for (const [i, h] of pairedHead.entries())
+      if (!stable.has(i)) movedHead.add(h);
   }
 
   const components = new Map<Rule, Set<string>>();

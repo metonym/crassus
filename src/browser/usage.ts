@@ -38,7 +38,7 @@ export interface UsageOptions {
   emulate: "cdp" | "cssom";
   states: boolean;
   concurrency: number;
-  chromePath?: string;
+  chromePath?: string | undefined;
   /**
    * Text only the library stylesheet contains, e.g. a class prefix
    * (`.bx--`).
@@ -48,17 +48,17 @@ export interface UsageOptions {
    * `<html>` attribute set to the theme (with `serveFixtures`). Default
    * `theme`; `null`: none.
    */
-  themeAttribute?: string | null;
-  settleMs?: number;
+  themeAttribute?: string | null | undefined;
+  settleMs?: number | undefined;
   /** Default 1280 × 900. A declaration that wins at any viewport has won. */
-  viewports?: Viewport[];
+  viewports?: Viewport[] | undefined;
   /**
    * Polled after load (up to `readyTimeoutMs`). A page it never matches on
    * is still read, and listed in `notReady`.
    */
-  readySelector?: string;
+  readySelector?: string | undefined;
   /** Default 5000 ms. */
-  readyTimeoutMs?: number;
+  readyTimeoutMs?: number | undefined;
 }
 
 /** `usage.json`. */
