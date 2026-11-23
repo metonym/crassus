@@ -43,7 +43,15 @@ function locator(
 ): Locate {
   if (!map) return noLocation;
   const json: SourceMapJson = typeof map === "string" ? JSON.parse(map) : map;
-  const sm = new SourceMap(json as ConstructorParameters<typeof SourceMap>[0]);
+  const sm = new SourceMap({
+    version: json.version,
+    file: json.file ?? "",
+    sources: json.sources,
+    sourceRoot: json.sourceRoot ?? "",
+    sourcesContent: (json.sourcesContent ?? []).map((c) => c ?? ""),
+    names: json.names ?? [],
+    mappings: json.mappings,
+  });
   const files = new Map<string, string>();
   const fileOf = (source: string) => {
     let file = files.get(source);

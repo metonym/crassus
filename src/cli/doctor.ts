@@ -6,6 +6,7 @@ import { availableParallelism, loadavg, tmpdir } from "node:os";
 import { relative, resolve } from "node:path";
 
 import type { Config } from "../core/config";
+import { messageOf } from "../core/util";
 import { defaultConcurrency } from "./browser";
 import type { Io } from "./main";
 
@@ -97,7 +98,7 @@ export async function doctorCommand(opts: {
     } catch (e) {
       add(
         "error",
-        `${engine} doesn't start: ${(e as Error).message}`,
+        `${engine} doesn't start: ${messageOf(e)}`,
         "install Chrome, or set browser.chromePath",
       );
     }
@@ -197,7 +198,7 @@ export async function doctorCommand(opts: {
       } catch (e) {
         add(
           "error",
-          (e as Error).message,
+          messageOf(e),
           "set browser.sheetMarker to text the library stylesheet contains",
         );
       }

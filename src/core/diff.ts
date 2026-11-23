@@ -190,7 +190,7 @@ export function diffWith(
       if (h) pairedHead.push(h);
     }
     const stable = longestIncreasing(
-      pairedHead.map((h) => position.get(h) as number),
+      pairedHead.map((h) => position.get(h) ?? -1),
     );
     for (const [i, h] of pairedHead.entries())
       if (!stable.has(i)) movedHead.add(h);

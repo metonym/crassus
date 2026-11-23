@@ -3,6 +3,7 @@ import { relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type { Config, Stylesheets } from "../core/config";
+import { messageOf } from "../core/util";
 import { readStylesheet, type Sheet } from "./sources";
 
 /** A mistake in how crassus was called or configured (exit code 2). */
@@ -17,7 +18,7 @@ export function shownPath(cwd: string, file: string): string {
 export const isOneOf = <T extends string>(
   options: readonly T[],
   value: string,
-): value is T => (options as readonly string[]).includes(value);
+): value is T => options.some((option) => option === value);
 
 const CONFIG_FILES = [
   "crassus.config.ts",
@@ -112,7 +113,7 @@ async function compileWith(
   } catch (e) {
     if (e instanceof UsageError) throw e;
     // Paths as the project names them (a base builds in a temporary checkout).
-    const lines = String((e as Error).message ?? e)
+    const lines = messageOf(e)
       .replaceAll(`${root}/`, "")
       .replace(ERROR_PREFIX_RE, "")
       .split("\n")

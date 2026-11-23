@@ -135,7 +135,7 @@ function github(findings: Finding[]): string {
 }
 
 function sarif(findings: Finding[]): string {
-  const ids = Object.keys(RULES) as (keyof typeof RULES)[];
+  const ids: string[] = Object.keys(RULES);
   return JSON.stringify(
     {
       $schema: "https://json.schemastore.org/sarif-2.1.0.json",
@@ -147,13 +147,13 @@ function sarif(findings: Finding[]): string {
               name: "crassus",
               version,
               informationUri: "https://github.com/metonym/crassus",
-              rules: ids.map((id) => ({
+              rules: Object.entries(RULES).map(([id, rule]) => ({
                 id,
-                name: RULES[id].title,
-                shortDescription: { text: RULES[id].title },
-                fullDescription: { text: RULES[id].description },
-                defaultConfiguration: { level: RULES[id].level },
-                properties: { claim: RULES[id].claim },
+                name: rule.title,
+                shortDescription: { text: rule.title },
+                fullDescription: { text: rule.description },
+                defaultConfiguration: { level: rule.level },
+                properties: { claim: rule.claim },
               })),
             },
           },

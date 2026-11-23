@@ -266,9 +266,10 @@ async function planBatches(view: View, keys: string[]): Promise<Batch[]> {
   for (const [state, els] of by) {
     const batches: (Batch & { boxes: Rect[] })[] = [];
     for (const [id, el] of els) {
+      const { box } = el;
       const fits = (b: Batch & { boxes: Rect[] }) =>
-        el.box !== null &&
-        b.boxes.every((x) => !overlap(x, el.box as Rect)) &&
+        box !== null &&
+        b.boxes.every((x) => !overlap(x, box)) &&
         b.forced.every((f) => !related(f, id));
       let batch = batches.find(fits);
       if (!batch || el.box === null) {

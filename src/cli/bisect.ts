@@ -23,7 +23,7 @@ import {
   throttled,
 } from "./browser";
 import type { Io } from "./main";
-import { UsageError } from "./project";
+import { isOneOf, UsageError } from "./project";
 import { formatSnapshotDiff, seconds, type Summary } from "./report";
 import type { Sheet } from "./sources";
 
@@ -160,8 +160,8 @@ export async function bisectCommand(opts: {
   const fromRef = m?.[1];
   if (!m || fromRef === undefined)
     throw new UsageError("bisect takes one range: <from>..<to>");
-  const groupBy = opts.groupBy as GroupBy;
-  if (!GROUP_BY.includes(groupBy))
+  const { groupBy } = opts;
+  if (!isOneOf(GROUP_BY, groupBy))
     throw new UsageError(`--group-by takes ${GROUP_BY.join(" or ")}`);
   const { approvals, cards, cmp } = await cardComparer({ ...opts, cwd });
   const crops = new Map<string, Crops | undefined>();
@@ -296,7 +296,7 @@ export async function bisectCommand(opts: {
   const cardReport = cards
     ? await changeCards({
         runs: hits.map((h) => ({
-          pages: (h.diff as SnapshotDiff).pages,
+          pages: h.diff?.pages ?? [],
           crops: crops.get(h.to),
           commits: h.commits,
           commit: h.to,
@@ -410,7 +410,7 @@ function formatBisect(
         ? r.commits.map((c) => `   ${short(c.sha)} ${c.subject}`)
         : []),
       "",
-      formatSnapshotDiff(r.diff as SnapshotDiff, "human", "compare"),
+      r.diff ? formatSnapshotDiff(r.diff, "human", "compare") : "",
     );
   return lines.join("\n");
 }

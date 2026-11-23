@@ -327,7 +327,7 @@ export function foldChanges(
   // mode, in one direction on both sides.
   const horizontal = (r: StyleRecord) =>
     (r["writing-mode"] ?? "horizontal-tb") === "horizontal-tb";
-  const dir = (before.direction ?? "ltr") as Direction;
+  const dir: Direction = before.direction === "rtl" ? "rtl" : "ltr";
   const mapped =
     horizontal(before) &&
     horizontal(after) &&

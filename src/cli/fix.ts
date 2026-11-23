@@ -20,7 +20,7 @@ import {
 } from "../core/parse";
 import { placeRules } from "../core/placement";
 import { serialize } from "../core/selector";
-import { pushTo } from "../core/util";
+import { messageOf, pushTo } from "../core/util";
 import type { DeadFinding, DeadResult } from "./commands";
 import {
   type Locate,
@@ -513,7 +513,7 @@ export async function fix(opts: {
     } catch (e) {
       await write("before");
       throw new FixCheckError(
-        `rebuilding after the fix failed, so it was undone: ${(e as Error).message}`,
+        `rebuilding after the fix failed, so it was undone: ${messageOf(e)}`,
       );
     }
     const wrong = mismatches(opts.sheets, after, plan.removed);

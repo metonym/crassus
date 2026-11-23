@@ -15,7 +15,7 @@ export interface PathElement {
  * element (`document.documentElement`). Self-contained, so it can be
  * passed to `page.evaluate` as it is.
  */
-export function resolvePath<T extends PathElement>(
+export function resolvePath<T extends PathElement & { children: ArrayLike<T> }>(
   path: string,
   root: T,
 ): T | null {
@@ -35,7 +35,8 @@ export function resolvePath<T extends PathElement>(
   const walk = (el: T, rest: string): T | null => {
     const seen = new Map<string, number>();
     for (let i = 0; i < el.children.length; i++) {
-      const child = el.children[i] as T;
+      const child = el.children[i];
+      if (!child) continue;
       const s = sig(child);
       const nth = seen.get(s) ?? 0;
       seen.set(s, nth + 1);

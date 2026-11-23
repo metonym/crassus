@@ -65,9 +65,10 @@ export async function confirmFlips(opts: {
   engine: EngineName;
   chromePath?: string | undefined;
 }): Promise<FlipVerdict[]> {
-  const relaxed = opts.flips.map(
-    (f) => f.selectors.map(relaxSelector) as [string, string],
-  );
+  const relaxed = opts.flips.map((f): [string, string] => [
+    relaxSelector(f.selectors[0]),
+    relaxSelector(f.selectors[1]),
+  ]);
   const labels = Object.keys(opts.index.pages);
   const view = new View({ engine: opts.engine, chromePath: opts.chromePath });
   try {
@@ -81,9 +82,9 @@ export async function confirmFlips(opts: {
       () => null,
     );
     for (const label of labels) {
-      const open = relaxed
-        .map((pair, i) => (found[i] ? null : [i, pair]))
-        .filter(Boolean) as [number, [string, string]][];
+      const open = relaxed.flatMap((pair, i): [number, [string, string]][] =>
+        found[i] ? [] : [[i, pair]],
+      );
       const r = await view.evaluate<{
         vocab: string[];
         hits: [number, number][];

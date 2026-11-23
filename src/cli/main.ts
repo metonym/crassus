@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 import { version } from "../../package.json";
+import { messageOf } from "../core/util";
 import { baseStylesheets, headStylesheets } from "./baseline";
 import { bisectCommand } from "./bisect";
 import {
@@ -178,20 +179,23 @@ export async function main(
   try {
     return await run(argv, io);
   } catch (e) {
-    const err = e as Error & { code?: string; path?: string };
+    const field = (name: string): string | undefined => {
+      const value: unknown =
+        e instanceof Error ? Reflect.get(e, name) : undefined;
+      return typeof value === "string" ? value : undefined;
+    };
+    const code = field("code");
+    const path = field("path");
+    const message = messageOf(e);
     const expected =
       e instanceof UsageError ||
       e instanceof FixCheckError ||
-      err.code?.startsWith("ERR_PARSE_ARGS");
+      code?.startsWith("ERR_PARSE_ARGS");
     // A system error (ENOSPC, EACCES) is about the machine, not crassus.
-    const system =
-      typeof err.code === "string" && SYSTEM_ERROR_RE.test(err.code);
-    const where =
-      system && err.path && !err.message.includes(err.path)
-        ? ` (${err.path})`
-        : "";
+    const system = code !== undefined && SYSTEM_ERROR_RE.test(code);
+    const where = system && path && !message.includes(path) ? ` (${path})` : "";
     io.err(
-      `crassus: ${expected || system ? err.message + where : (err.stack ?? e)}`,
+      `crassus: ${expected || system ? message + where : ((e instanceof Error ? e.stack : undefined) ?? message)}`,
     );
     return 2;
   }

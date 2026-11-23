@@ -14,6 +14,7 @@ import { isAbsolute, join, normalize, relative, resolve } from "node:path";
 import { $ } from "bun";
 
 import type { Config } from "../core/config";
+import { messageOf } from "../core/util";
 import { stylesheets, UsageError } from "./project";
 import type { Sheet } from "./sources";
 
@@ -219,7 +220,7 @@ async function inInputs<T>(
         .env(env)
         .quiet();
     } catch (e) {
-      throw new Unextractable((e as Error).message);
+      throw new Unextractable(messageOf(e));
     }
     const root = resolve(dir, at);
     const links: [string, string][] = [

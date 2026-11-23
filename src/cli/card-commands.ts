@@ -131,7 +131,7 @@ export async function reproCommand(opts: {
       head: await Bun.file(join(dir, "head.css")).text(),
     },
     {
-      engine: (report.inputs.flags.engine as "chrome" | "webkit") ?? "chrome",
+      engine: report.inputs.flags.engine === "webkit" ? "webkit" : "chrome",
       chromePath: opts.config.browser?.chromePath,
     },
   );

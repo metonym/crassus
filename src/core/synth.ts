@@ -112,7 +112,8 @@ function lockstep(a: Step[], b: Step[]): Step[] | null {
     const x = a[i];
     const y = b[i];
     if (!x || !y) {
-      out.push((x ?? y) as Step);
+      const only = x ?? y;
+      if (only) out.push(only);
       continue;
     }
     if (PARENT.has(x.comb) === PARENT.has(y.comb)) {
@@ -164,14 +165,15 @@ export function synthesize(a: string, b: string): Tree[] {
       const found = steps.find((s) => s.el.tag === tag);
       return found ? toTree(found.el)[1] : {};
     };
-    return [
+    const tree: Tree = [
       "html",
       rootAttrs("html"),
       [
         ["head", {}, []],
         ["body", rootAttrs("body"), body.map(toTree)],
       ],
-    ] as Tree;
+    ];
+    return tree;
   });
 }
 

@@ -1,3 +1,6 @@
+export const messageOf = (e: unknown): string =>
+  e instanceof Error ? e.message : String(e);
+
 export function pushTo<K, V>(map: Map<K, V[]>, key: K, value: V): void {
   const list = map.get(key);
   if (list) list.push(value);

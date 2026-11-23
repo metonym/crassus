@@ -20,6 +20,11 @@ import {
 
 const PSEUDO_END = /::?(before|after)$/i;
 
+// Checked by `cssRules`, not by class, since engines differ in which rule
+// classes hold rules (a nested style rule, `@media`, `@supports`).
+const hasRules = (r: CSSRule): r is CSSRule & { cssRules: CSSRuleList } =>
+  "cssRules" in r;
+
 interface Prepared {
   rule: number;
   sel: number;
@@ -169,8 +174,8 @@ function collectRules(
           false,
           parent,
         );
-      } else if ("cssRules" in r && !(r instanceof CSSKeyframesRule)) {
-        visit((r as CSSGroupingRule).cssRules, ctx, on, parent);
+      } else if (hasRules(r) && !(r instanceof CSSKeyframesRule)) {
+        visit(r.cssRules, ctx, on, parent);
       }
     }
   };
@@ -216,9 +221,7 @@ const api: UsageDomApi = {
    */
   sheets(marker: string) {
     return Array.from(document.styleSheets).map((s, i) => {
-      const inline = s.href
-        ? null
-        : ((s.ownerNode as HTMLElement | null)?.textContent ?? "");
+      const inline = s.href ? null : (s.ownerNode?.textContent ?? "");
       return {
         i,
         href: s.href,
@@ -265,7 +268,7 @@ const api: UsageDomApi = {
             r.media.mediaText = NO_PREFERENCE_RE.test(r.media.mediaText)
               ? "not all"
               : "all";
-          if ("cssRules" in r) visit((r as CSSGroupingRule).cssRules);
+          if (hasRules(r)) visit(r.cssRules);
         }
       };
       try {
