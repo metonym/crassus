@@ -74,7 +74,7 @@ export const defaultComponentOf = (cls: string) =>
 export function longestIncreasing(values: number[]): Set<number> {
   const tails: number[] = [];
   const tailIdx: number[] = [];
-  const prev: number[] = new Array(values.length).fill(-1);
+  const prev: number[] = new Array<number>(values.length).fill(-1);
   for (let i = 0; i < values.length; i++) {
     let lo = 0;
     let hi = tails.length;

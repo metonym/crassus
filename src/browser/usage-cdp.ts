@@ -55,7 +55,7 @@ function libraryLayerRanks(text: string): Map<string, number> {
       text,
       ranks: text.includes("@layer")
         ? layerRanks(parseStylesheet(text))
-        : new Map(),
+        : new Map<string, number>(),
     };
   return ranksFor.ranks;
 }

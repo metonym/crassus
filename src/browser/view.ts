@@ -217,7 +217,7 @@ async function runPool<J, R>(
   onBusy?: VisitOptions["onBusy"],
   load: () => number = () => loadavg()[0],
 ): Promise<R[]> {
-  const results: R[] = new Array(jobs.length);
+  const results: R[] = new Array<R>(jobs.length);
   let next = 0;
   // The first failure stops every view taking new jobs; views close once
   // their current job settles.
