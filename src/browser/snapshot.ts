@@ -337,7 +337,10 @@ export async function readSnapshot(file: string): Promise<Snapshot> {
 }
 
 /** Reads one `capture` file with its elements' child indexes. */
-export async function readCapture(file: string) {
+export async function readCapture(file: string): Promise<{
+  snapshot: Snapshot;
+  nth: Record<string, number>;
+}> {
   return decodeCapture(await Bun.file(file).bytes());
 }
 
@@ -614,7 +617,7 @@ export async function checkDisk(
   written: number,
   done: number,
   total: number,
-) {
+): Promise<void> {
   if (done >= total) return;
   const { bavail, bsize } = await statfs(dir);
   const free = bavail * bsize;

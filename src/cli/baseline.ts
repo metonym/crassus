@@ -245,7 +245,7 @@ export async function atRef<T>(
 }
 
 /** Where builds and indexes are cached for the project at `cwd`. */
-export const cacheDir = (cwd: string) =>
+export const cacheDir = (cwd: string): string =>
   existsSync(join(cwd, "node_modules"))
     ? join(cwd, "node_modules/.cache/crassus")
     : join(tmpdir(), "crassus-cache");

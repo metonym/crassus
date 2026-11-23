@@ -22,7 +22,7 @@ export const MATCH_SELECTORS = `(doc, selectors) => {
 
 // From carbon-components-svelte's e2e/cascade-snapshot.ts, so captures
 // compare byte for byte. An expression, as evaluate() takes no statements.
-export const PAGE_HELPERS = `
+export const PAGE_HELPERS: string = `
   (() => {
     // Only longhands the stylesheets set, so diffs stay about the cascade.
     // Custom properties are theme tokens: skipped.

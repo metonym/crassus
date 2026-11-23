@@ -76,7 +76,8 @@ const IMPORTANT_RE = /!\s*important\s*(?:\/\*[\s\S]*?\*\/\s*)*$/i;
 // would overflow.
 export const MAX_DEPTH = 256;
 
-export const unprefixed = (name: string) => name.replace(VENDOR_PREFIX_RE, "");
+export const unprefixed = (name: string): string =>
+  name.replace(VENDOR_PREFIX_RE, "");
 
 const DECL_AT_RULES = new Set([
   "font-face",

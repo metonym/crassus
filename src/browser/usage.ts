@@ -87,7 +87,12 @@ export interface UsageFile {
 }
 
 /** Which library declarations match and win on the fixture pages. */
-export async function runUsage(opts: UsageOptions) {
+export async function runUsage(opts: UsageOptions): Promise<{
+  ms: number;
+  summary: Summary;
+  domStats: DomPageStats[];
+  notReady: string[];
+}> {
   await mkdir(opts.outDir, { recursive: true });
   // Per view, merged in pool order so output order doesn't depend on timing.
   const aggs: UsageAggregate[] = [];

@@ -60,11 +60,11 @@ export interface CascadeDiff {
   moveFlips: Flip[];
 }
 
-export const PREFIX_RE = /^[a-z]+--/;
-export const ROOT_SPLIT_RE = /__|--/;
+export const PREFIX_RE: RegExp = /^[a-z]+--/;
+export const ROOT_SPLIT_RE: RegExp = /__|--/;
 
 /** `bx--btn--primary` -> `btn`: drop a `prefix--`, cut at `__` or `--`. */
-export const defaultComponentOf = (cls: string) =>
+export const defaultComponentOf = (cls: string): string | undefined =>
   cls.replace(PREFIX_RE, "").split(ROOT_SPLIT_RE)[0];
 
 /**

@@ -192,7 +192,7 @@ export function approve(approvals: Approvals, cards: Card[]): Approvals {
 }
 
 /** Visible or token-detached cards no approval covers: what fails a run. */
-export const blocking = (cards: Card[]) =>
+export const blocking = (cards: Card[]): Card[] =>
   cards.filter(
     (c) =>
       (c.verdict === "visible" || c.verdict === "token-detached") &&

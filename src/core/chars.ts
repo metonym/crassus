@@ -30,10 +30,11 @@ export const PIPE = 124;
 export const RBRACE = 125;
 export const TILDE = 126;
 
-export const isWs = (c: number) =>
+export const isWs = (c: number): c is 9 | 10 | 12 | 13 | 32 =>
   c === SPACE || c === LF || c === TAB || c === CR || c === FF;
 
-export const isQuote = (c: number) => c === DQUOTE || c === SQUOTE;
+export const isQuote = (c: number): c is 34 | 39 =>
+  c === DQUOTE || c === SQUOTE;
 
 /** Index of the quote closing the string at `i`; past the end if unclosed. */
 export function stringEnd(text: string, i: number): number {

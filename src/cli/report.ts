@@ -27,7 +27,7 @@ const json = (body: object) =>
 export type Summary = (title: string, report: () => string) => Promise<void>;
 
 /** A ref, with its commit when the ref doesn't spell it. */
-export const refLabel = (ref: string, sha: string) =>
+export const refLabel = (ref: string, sha: string): string =>
   !sha || sha.startsWith(ref) ? ref : `${ref} (${sha.slice(0, 9)})`;
 export const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
 

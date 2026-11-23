@@ -8,7 +8,7 @@ export const STATE_SETS: Record<string, string[]> = {
  * State pseudo-classes, rewritten to `[data-cr-*]` when forced without
  * CDP.
  */
-export const STATE_RE =
+export const STATE_RE: RegExp =
   /:(focus-visible|focus-within|hover|focus|active)(?![\w-])/g;
 
 /** Elements whose states are forced, up to MAX_STATE_ELEMENTS per page. */

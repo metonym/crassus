@@ -43,13 +43,19 @@ const PSEUDO_RE =
  * State pseudo-classes rewritten to the `[data-cr-*]` attributes that
  * stand in for them.
  */
-export const asAttrs = (css: string) => css.replace(STATE_RE, "[data-cr-$1]");
+export const asAttrs = (css: string): string =>
+  css.replace(STATE_RE, "[data-cr-$1]");
 
 /**
  * The states `selector` needs, on the elements it needs them on
  * (`prefix`).
  */
-export const stateSets = (selector: string) =>
+export const stateSets = (
+  selector: string,
+): {
+  prefix: string;
+  names: string[] | undefined;
+}[] =>
   stateTriggers(selector).flatMap((t) =>
     t.prefix
       ? [

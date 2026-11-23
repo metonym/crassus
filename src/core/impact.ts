@@ -256,7 +256,7 @@ function animating(rules: Rule[], names: Set<string>): Rule[] {
  * No rule differs, nor anything that reaches every page: no value can
  * change.
  */
-export const nothingChanged = (c: ReturnType<typeof changedRules>) =>
+export const nothingChanged = (c: ReturnType<typeof changedRules>): boolean =>
   !c.everything && c.selectors.length === 0;
 
 /**

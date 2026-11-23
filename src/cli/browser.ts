@@ -61,7 +61,7 @@ const MATCHERS = ["cdp", "dom"] as const;
 export const EMULATE = { chrome: "cdp", webkit: "cssom" } as const;
 
 /** Half the cores, at most 4: each tab is a renderer process. */
-export const defaultConcurrency = () =>
+export const defaultConcurrency = (): number =>
   Math.min(4, Math.max(1, Math.floor(availableParallelism() / 2)));
 
 function parseViewport(text: string) {
@@ -71,7 +71,43 @@ function parseViewport(text: string) {
   return { width: Number(m[1]), height: Number(m[2]) };
 }
 
-export function settings(config: Config, flags: BrowserFlags, io?: Io) {
+/** A run's time on one tab while the machine was busy, for `throttled`. */
+interface Throttle {
+  ms: number;
+  cores: number;
+}
+
+/** What `capture` and `runUsage` share. */
+interface PageSettings {
+  engine: (typeof ENGINES)[number];
+  concurrency: number;
+  chromePath: BrowserConfig["chromePath"];
+  /** Without themes: one run per page, and no attribute to set. */
+  themes: string[];
+  themeAttribute: string | null;
+  viewports: BrowserConfig["viewports"];
+  readySelector: BrowserConfig["readySelector"];
+  readyTimeoutMs: BrowserConfig["readyTimeoutMs"];
+  allowNotReady: BrowserConfig["allowNotReady"];
+  onBusy:
+    ((wait: { load: number; cores: number; ms: number }) => void) | undefined;
+}
+
+/** A command's browser settings, from its config and flags. */
+interface Settings {
+  throttle: Throttle;
+  browser: BrowserConfig;
+  states: boolean;
+  /** Design-token prefix to trace (`compare`, `bisect`, `tokens`). */
+  tokens: string | undefined;
+  pages: PageSettings;
+}
+
+export function settings(
+  config: Config,
+  flags: BrowserFlags,
+  io?: Io,
+): Settings {
   const { browser } = config;
   if (!browser)
     throw new UsageError(
@@ -95,15 +131,12 @@ export function settings(config: Config, flags: BrowserFlags, io?: Io) {
     throttle,
     browser,
     states: !flags.noStates,
-    /** Design-token prefix to trace (`compare`, `bisect`, `tokens`). */
     // `cds-` or `--cds-`: the shell can't pass a value that starts with `--`.
     tokens: tokens && (tokens.startsWith("--") ? tokens : `--${tokens}`),
-    /** What `capture` and `runUsage` share. */
     pages: {
       engine,
       concurrency,
       chromePath: browser.chromePath,
-      // Without themes: one run per page, and no attribute to set.
       themes: themes?.length ? themes : ["default"],
       themeAttribute: themes?.length
         ? (browser.themeAttribute ?? "theme")
@@ -192,7 +225,7 @@ const pagesLine = (
   `${plural(pages, "page")} (${plural(fixtures, "fixture")} × ${plural(themes, "theme")} × ${plural(viewports, "viewport")})`;
 
 /** A summary line's note of the time a run spent on one tab, if any. */
-export const throttled = (t: { ms: number; cores: number }) =>
+export const throttled = (t: Throttle): string =>
   t.ms ? ` (${seconds(t.ms)} on one tab: load above ${t.cores} cores)` : "";
 
 /**
@@ -313,7 +346,7 @@ export const fails = (
   diff: SnapshotDiff,
   report: Report | undefined,
   approvals: Approvals | undefined,
-) =>
+): boolean =>
   report && approvals
     ? blocking(report.cards).length > 0 || domDiffers(diff)
     : differs(diff);
@@ -328,7 +361,7 @@ const detached = (diff: SnapshotDiff) =>
 
 // Properties one side didn't record, and changes no one can see, are
 // listed for review, not failed on.
-export const differs = (diff: SnapshotDiff) =>
+export const differs = (diff: SnapshotDiff): boolean =>
   detached(diff) || diff.groups.some((g) => !g.invisible) || domDiffers(diff);
 
 /**
@@ -442,6 +475,29 @@ function impactLine(impact: Impact): string {
  * What `compare` and `bisect` share: checks first, then a run per
  * stylesheet pair.
  */
+/** One run of the fixtures with each side's stylesheet. */
+interface CompareRun {
+  result: SnapshotDiff & { impact: Impact };
+  ms: number;
+  notReady: string[];
+  crops: Crops | undefined;
+  fixtures: number;
+}
+
+/** Runs the fixtures with each side's stylesheet, building them once. */
+interface Comparer {
+  pages: PageSettings;
+  throttle: Throttle;
+  /** `pages × fixtures × themes × viewports`, for a summary line. */
+  describe(n: number, fixtures: number): string;
+  run(
+    sides: { base: Sheet; head: Sheet },
+    onImpact?: (impact: Impact) => void,
+    /** Only these fixtures (by name). */
+    only?: string[],
+  ): Promise<CompareRun>;
+}
+
 export function comparer(opts: {
   config: Config;
   flags: BrowserFlags;
@@ -453,7 +509,7 @@ export function comparer(opts: {
   /** Keep what change cards need (markup, crops). */
   report?: boolean;
   io?: Io;
-}) {
+}): Comparer {
   const { flags, cwd } = opts;
   const { browser, states, pages, tokens, throttle } = settings(
     opts.config,
@@ -470,13 +526,11 @@ export function comparer(opts: {
   return {
     pages,
     throttle,
-    /** `pages × fixtures × themes × viewports`, for a summary line. */
     describe: (n: number, fixtures: number) =>
       pagesLine(n, fixtures, pages.themes.length, pages.viewports?.length ?? 1),
     async run(
       sides: { base: Sheet; head: Sheet },
       onImpact?: (impact: Impact) => void,
-      /** Only these fixtures (by name). */
       only?: string[],
     ) {
       // Nothing to load, nor fixtures to build, when no rule differs.
@@ -653,7 +707,11 @@ export async function cardComparer(
     report?: string;
     format: CompareFormat;
   },
-) {
+): Promise<{
+  approvals: Approvals | undefined;
+  cards: boolean;
+  cmp: Comparer;
+}> {
   const approvals = await readApprovals(opts.cwd);
   // Approvals are by card: they need the winners.
   const cards = cardsWanted(opts) || Boolean(approvals);
@@ -674,7 +732,7 @@ export function cardsOrText(
   report: Report | undefined,
   o: { format: CompareFormat; report?: string; cwd: string },
   text: (format: "human" | "json") => string,
-  summary = Boolean(report),
+  summary: boolean = Boolean(report),
 ): string {
   if (report && (o.format === "markdown" || o.format === "sarif"))
     return o.format === "markdown"

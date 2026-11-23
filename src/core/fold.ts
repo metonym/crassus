@@ -94,7 +94,7 @@ const TRANSITION_RE = /^transition(?:-|$)/;
 const BORDER_COLOR_RE = /^border-(top|right|bottom|left)-color$/;
 const HIDDEN_VISIBILITY = new Set(["hidden", "collapse"]);
 const NO_BORDER = new Set(["none", "hidden"]);
-export const STATE_SUFFIX_RE =
+export const STATE_SUFFIX_RE: RegExp =
   /(@(?:hover|focus|active)\^?)?(::before|::after)?$/;
 
 /**
