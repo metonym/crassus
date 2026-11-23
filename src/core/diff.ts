@@ -97,7 +97,7 @@ export function longestIncreasing(values: number[]): Set<number> {
   return out;
 }
 
-export interface DiffOptions {
+interface DiffOptions {
   /**
    * The component a class belongs to: a rule that only moved is compared
    * with its own component's rules. Default: `bx--slider__thumb--lower` ->

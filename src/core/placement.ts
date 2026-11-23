@@ -36,7 +36,7 @@ export interface Layer {
   named: Map<string, Layer>;
 }
 
-export interface Placed {
+interface Placed {
   /** `&` resolved; offsets into the sheet. */
   selectors: { complex: Complex; offset: number }[];
   /** The prelude, or for nested rules the resolved list. */

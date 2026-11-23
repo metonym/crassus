@@ -12,7 +12,7 @@ import {
 } from "./selector";
 import type { Declaration, MatchedRule } from "./usage";
 
-export interface LibraryRule {
+interface LibraryRule {
   context: string;
   /** `Rule.layerRank`, or undefined when unlayered. */
   layerRank: number | undefined;

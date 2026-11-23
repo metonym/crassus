@@ -26,7 +26,7 @@ export interface ChangedSelector {
   properties: string[];
 }
 
-export interface RuleChanges {
+interface RuleChanges {
   /** Set when any element may change, and why: such a change isn't scoped. */
   everything: string | null;
   /**

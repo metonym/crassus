@@ -28,9 +28,9 @@ import { formatSnapshotDiff, seconds, type Summary } from "./report";
 import type { Sheet } from "./sources";
 
 const GROUP_BY = ["type", "commit"] as const;
-export type GroupBy = (typeof GROUP_BY)[number];
+type GroupBy = (typeof GROUP_BY)[number];
 
-export interface Commit {
+interface Commit {
   sha: string;
   subject: string;
   /** The conventional-commit type (`perf`, `fix`), or `other`. */

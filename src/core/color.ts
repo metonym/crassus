@@ -1,7 +1,7 @@
 // Colors as computed styles spell them, and how far apart two look:
 // CIEDE2000 over CIELAB (D65), after Sharma, Wu and Dalal (2005).
 
-export type Rgba = [r: number, g: number, b: number, a: number];
+type Rgba = [r: number, g: number, b: number, a: number];
 
 const RGB_RE =
   /^rgba?\(\s*([\d.]+)[\s,]+([\d.]+)[\s,]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)$/;

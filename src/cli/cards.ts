@@ -19,7 +19,7 @@ import {
 } from "../core/cards";
 
 /** Crops for `card` elements, by run (`commit`, `""` for compare) and page. */
-export type RunCrops = Map<string, Crops>;
+type RunCrops = Map<string, Crops>;
 
 /**
  * Where `--report` defaults to, and `explain`, `repro`, `verify` and
