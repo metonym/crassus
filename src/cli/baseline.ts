@@ -131,16 +131,15 @@ async function pristine(cwd: string, paths: string[]): Promise<boolean> {
  * as the lockfile names them.
  */
 async function toolchain(cwd: string, top: string): Promise<string[]> {
-  const hashes: string[] = [];
-  /* eslint-disable no-await-in-loop -- a few small files */
-  for (const dir of new Set([cwd, top]))
-    for (const name of LOCKFILES) {
-      const file = Bun.file(join(dir, name));
-      if (await file.exists())
-        hashes.push(`${name}:${Bun.hash(await file.bytes())}`);
-    }
-  /* eslint-enable no-await-in-loop */
-  return hashes;
+  const files = [...new Set([cwd, top])].flatMap((dir) =>
+    LOCKFILES.map((name) => ({ name, file: Bun.file(join(dir, name)) })),
+  );
+  const hashes = await Promise.all(
+    files.map(async ({ name, file }) =>
+      (await file.exists()) ? [`${name}:${Bun.hash(await file.bytes())}`] : [],
+    ),
+  );
+  return hashes.flat();
 }
 
 const cacheKey = (parts: unknown[]) =>
