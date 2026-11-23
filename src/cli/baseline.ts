@@ -144,10 +144,28 @@ async function toolchain(cwd: string, top: string): Promise<string[]> {
 const cacheKey = (parts: unknown[]) =>
   Bun.hash(JSON.stringify([...parts, CACHE_VERSION])).toString(36);
 
+const optional = (v: unknown, type: "string" | "object") =>
+  v === undefined || (typeof v === type && v !== null);
+
+function isSheet(v: unknown): v is Sheet {
+  if (typeof v !== "object" || v === null) return false;
+  const get = (key: string): unknown => Reflect.get(v, key);
+  return (
+    typeof get("name") === "string" &&
+    typeof get("css") === "string" &&
+    typeof get("mapDir") === "string" &&
+    typeof get("root") === "string" &&
+    optional(get("file"), "string") &&
+    (optional(get("map"), "string") || optional(get("map"), "object"))
+  );
+}
+
 async function readCached(file: string): Promise<Sheet[] | undefined> {
   if (!existsSync(file)) return undefined;
   try {
-    const sheets = await Bun.file(file).json();
+    const sheets: unknown = await Bun.file(file).json();
+    // An entry from another shape of the cache builds again.
+    if (!Array.isArray(sheets) || !sheets.every(isSheet)) return undefined;
     const now = new Date();
     await utimes(file, now, now);
     return sheets;

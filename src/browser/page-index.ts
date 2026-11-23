@@ -30,6 +30,61 @@ export interface PageIndex {
   pages: Record<string, { skeleton: Skeleton; ready: boolean }>;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+const isArray = (v: unknown): v is unknown[] => Array.isArray(v);
+
+const isStrings = (v: unknown): v is Record<string, string> =>
+  isRecord(v) && Object.values(v).every((s) => typeof s === "string");
+
+function isSkeleton(v: unknown): v is Skeleton {
+  if (!isArray(v) || v.length < 3 || v.length > 4) return false;
+  const [name, attrs, children, ns] = v;
+  return (
+    typeof name === "string" &&
+    isStrings(attrs) &&
+    isArray(children) &&
+    children.every(isSkeleton) &&
+    (ns === undefined || typeof ns === "string")
+  );
+}
+
+// Checked whole, so a stale or partial index is rebuilt instead of
+// failing deep in a run.
+function isPageIndex(v: unknown): v is PageIndex {
+  return (
+    isRecord(v) &&
+    isRecord(v.pages) &&
+    Object.values(v.pages).every(
+      (p) =>
+        isRecord(p) && typeof p.ready === "boolean" && isSkeleton(p.skeleton),
+    )
+  );
+}
+
+function isIndexInputs(v: unknown): v is IndexInputs {
+  return (
+    isRecord(v) &&
+    typeof v.options === "string" &&
+    isArray(v.files) &&
+    v.files.every(
+      (f) =>
+        isArray(f) && f.length === 2 && f.every((s) => typeof s === "string"),
+    )
+  );
+}
+
+// Undefined for bad JSON, so the caller rebuilds instead of throwing.
+function readJson(text: string): unknown {
+  try {
+    const value: unknown = JSON.parse(text);
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 // <head>'s children can't be styled into <body>: kept as an empty <head>.
 const SKELETON = `(() => {
   const HTML = "http://www.w3.org/1999/xhtml";
@@ -106,6 +161,16 @@ const indexKey = (inputs: IndexInputs) =>
     .digest("hex")
     .slice(0, 16);
 
+async function readIndex(file: string): Promise<unknown> {
+  try {
+    const bytes = Bun.gunzipSync(await Bun.file(file).bytes());
+    return readJson(new TextDecoder().decode(bytes));
+  } catch {
+    // A truncated gzip reads as unreadable, like bad JSON.
+    return undefined;
+  }
+}
+
 /** What changed since the index last written to `dir`, for a rebuild. */
 function rebuiltBecause(dir: string, now: IndexInputs): string {
   const last = existsSync(dir)
@@ -115,7 +180,8 @@ function rebuiltBecause(dir: string, now: IndexInputs): string {
         .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0]
     : undefined;
   if (!last) return "no index cached yet";
-  const before: IndexInputs = JSON.parse(readFileSync(last, "utf8"));
+  const before = readJson(readFileSync(last, "utf8"));
+  if (!isIndexInputs(before)) return "the cached index's inputs are unreadable";
   if (before.options !== now.options) return "the run's options changed";
   const count = (l: [string, string][]) => {
     const m = new Map<string, number>();
@@ -167,14 +233,18 @@ export async function pageIndex(opts: IndexOptions): Promise<{
     opts.cacheDir &&
     inputs &&
     path.join(opts.cacheDir, `pages-${indexKey(inputs)}.json.gz`);
+  let unreadable = false;
   if (file && existsSync(file)) {
-    const index: PageIndex = JSON.parse(
-      new TextDecoder().decode(Bun.gunzipSync(await Bun.file(file).bytes())),
-    );
-    return { index, cached: true, ms: performance.now() - started };
+    const index = await readIndex(file);
+    if (isPageIndex(index))
+      return { index, cached: true, ms: performance.now() - started };
+    unreadable = true;
   }
-  const why =
-    opts.cacheDir && inputs ? rebuiltBecause(opts.cacheDir, inputs) : undefined;
+  const why = unreadable
+    ? "the cached index is unreadable"
+    : opts.cacheDir && inputs
+      ? rebuiltBecause(opts.cacheDir, inputs)
+      : undefined;
   const server = serveFixtures(opts.dir);
   const index: PageIndex = { pages: {} };
   try {
