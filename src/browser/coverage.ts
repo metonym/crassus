@@ -1,7 +1,7 @@
 // Mutation coverage: which declarations of the library stylesheet decide
 // something on the fixtures. Each declaration is removed from its rule in
-// the page (CSSOM), one at a time, and the elements the rule styles are
-// read
+// the page (CSSOM), one at a time, and the elements the rule styles
+// are read
 // again: if no value changes, nothing the fixtures render depends on it.
 import { relaxSelector, stateTriggers } from "../core/impact";
 import { parseSelectorList, serializeList } from "../core/selector";
@@ -12,8 +12,8 @@ import { type VisitOptions, visitPages } from "./view";
 
 export interface CoverageOptions extends Omit<VisitOptions, "baseUrl"> {
   /**
-   * The fixture directory, and the text only the library stylesheet
-   * contains.
+   * The fixture directory, and the text only the library
+   * stylesheet contains.
    */
   dir: string;
   sheetMarker: string;
@@ -47,8 +47,8 @@ export const asAttrs = (css: string): string =>
   css.replace(STATE_RE, "[data-cr-$1]");
 
 /**
- * The states `selector` needs, on the elements it needs them on
- * (`prefix`).
+ * The states `selector` needs, on the elements it needs them
+ * on (`prefix`).
  */
 export const stateSets = (
   selector: string,

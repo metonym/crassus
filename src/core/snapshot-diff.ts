@@ -128,8 +128,8 @@ export function diffSnapshot(base: Snapshot, head: Snapshot): PageDiff {
 export interface Winner {
   selector: string;
   /**
-   * The stylesheet's path, `user agent`, `style attribute` or
-   * `inline <style>`.
+   * The stylesheet's path, `user agent`, `style attribute`
+   * or `inline <style>`.
    */
   sheet: string;
   /** 1-based line in the stylesheet (or, mapped, its source). */
@@ -139,8 +139,8 @@ export interface Winner {
   /** Set when an ancestor's declaration was inherited. */
   inherited?: true | undefined;
   /**
-   * Set when the rule differs between the sides: removed, added, edited or
-   * moved.
+   * Set when the rule differs between the sides: removed, added, edited
+   * or moved.
    */
   changed?: true | undefined;
   /** The rule's whole selector list, when it has more than one. */
@@ -148,8 +148,8 @@ export interface Winner {
 }
 
 /**
- * Per side, the winning declaration (`null`: none declared, an initial
- * value).
+ * Per side, the winning declaration (`null`: none declared, an
+ * initial value).
  */
 export interface Explained {
   base: Winner | null;
@@ -196,8 +196,8 @@ export interface ChangeGroup {
 }
 
 /**
- * What drives a property on each side: tokens whose sentinel its value
- * carried.
+ * What drives a property on each side: tokens whose sentinel its
+ * value carried.
  */
 export interface TokenChange {
   base: string[];
@@ -273,8 +273,8 @@ export interface Inspected {
 /** A changed element, as a person finds it. */
 export interface Where {
   /**
-   * A CSS selector for it (`nth-child` from `body`), with
-   * `::before`/`::after`.
+   * A CSS selector for it (`nth-child` from `body`),
+   * with `::before`/`::after`.
    */
   selector: string;
   /** With a report: its markup (cut at 20,000 characters)… */
@@ -286,8 +286,8 @@ export interface Where {
 /**
  * Groups changes by `(property, before, after)` across pages, so a
  * systematic change reads as one line: most frequent first, ties in
- * first-seen order. Invisible changes group apart from visible ones, by
- * reason.
+ * first-seen order. Invisible changes group apart from visible ones,
+ * by reason.
  */
 export function groupChanges(
   pages: Iterable<{ page: string; changed: PageDiff["changed"] } & Inspected>,

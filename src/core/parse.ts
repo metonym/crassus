@@ -422,8 +422,8 @@ const COMPARISON = new Set([LT, GT, EQ]);
 const CONDITION_SPACING_RE = /\)[a-z]|[<>=]/i;
 
 // After `canonicalText`: a space between `)` and a keyword (`) and (`),
-// none around a range operator (`(width>=42rem)`), as Chrome serializes
-// it.
+// none around a range operator (`(width>=42rem)`), as Chrome
+// serializes it.
 export function canonicalCondition(text: string): string {
   if (!CONDITION_SPACING_RE.test(text)) return text;
   let out = "";

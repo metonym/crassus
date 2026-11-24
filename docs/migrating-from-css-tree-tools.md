@@ -54,14 +54,14 @@ use these to key its output to `parseRules` without a second CSS parser:
   `selectorList.selectors[i].text` as `Rule.selector` does.
 - **`canonicalContext(name, prelude)`** spells CDP's `media[].text`,
   `supports[].text` and `containerQueries[].conditionText`
-  (as `canonicalContext("media", text)`) as one segment of
-  `Rule.context`.
+  (as `canonicalContext("media", text)`) as one segment
+  of `Rule.context`.
   Segments join with `" / "`, outermost first.
 - **`SHORTHANDS[name]`** lists the longhands a shorthand sets,
   spelled as CDP lists them.
   When CDP matches a shorthand without `longhandProperties`
-  (`padding: var(--a) 2px`), expand it with
-  `SHORTHANDS[name]?.includes(longhand)`.
+  (`padding: var(--a) 2px`), expand it
+  with `SHORTHANDS[name]?.includes(longhand)`.
   This covers logical shorthands too:
   `margin-block` sets `margin-block-start` and `margin-block-end`,
   not `margin-top`.
@@ -95,8 +95,8 @@ Add `.crassus/` to `.gitignore`.
 
 `capture --base` runs the same command in a fresh worktree,
 which has only tracked files: if the fixtures import built output
-(`css/all.css`), build that first, as in
-`bun run build:css && bunx vite build …`.
+(`css/all.css`), build that first, as
+in `bun run build:css && bunx vite build …`.
 
 A `readySelector` has to match every fixture,
 including index or listing pages without your mount point:

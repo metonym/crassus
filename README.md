@@ -93,8 +93,8 @@ every tab but one waits for it to settle,
 so a run beside other work slows down instead of piling on;
 it says so once on stderr when it starts waiting,
 and the summary line ends with the time spent on one tab.
-`loadAverage` on the visit options replaces the reader
-(`os.loadavg()[0]`).
+`loadAverage` on the visit options replaces the
+reader (`os.loadavg()[0]`).
 `crassus doctor` checks the Chrome it would use (and starts it),
 the tabs against the cores, the load,
 free disk for the project and the temp directory, the fixture pages,
@@ -158,8 +158,8 @@ Without one they point at the CSS.
 (`<fixture>.<theme>.json.gz`, or `<fixture>.<theme>.<W>x<H>.json.gz`
 with several viewports), storing each distinct computed style once:
 most elements share theirs, so a page is a few kilobytes
-(Carbon's data-table pages: 154 kB for 12, against 48.6 MB as plain
-JSON).
+(Carbon's data-table pages: 154 kB for 12, against 48.6 MB as
+plain JSON).
 Read one with `readSnapshot`.
 Once every page is written, it adds a `.crassus-capture` manifest
 listing them.
@@ -175,8 +175,8 @@ grouped by `property: before -> after`,
 so a systematic change reads as one line with its pages
 and example elements.
 Each example's path comes with a CSS selector to paste into DevTools
-(`body > div:nth-child(2) > button:nth-child(1)`),
-built from each element's index among its parent's children,
+(`body > div:nth-child(2) > button:nth-child(1)`), built from each
+element's index among its parent's children,
 which `capture` keeps beside its record
 (captures made before 0.3 have none).
 One cause reads as one change on each element:
@@ -247,9 +247,10 @@ and cached under `node_modules/.cache/crassus` by the fixture files'
 contents, stylesheets aside and with bundlers' asset hashes
 (`mount-CYiQnMsr.css`) dropped, so editing the CSS
 and rebuilding the fixtures keeps it.
-When it's rebuilt, the reach line says why
-(`fixture files changed: page.html`).
-Before capturing, `compare` prints the reach
+When it's rebuilt, the reach line says
+why (`fixture files changed: page.html`).
+Before capturing, `compare` prints the
+reach
 (`the changed rules (12 selectors) reach 3 of 124 pages (41 elements, with their descendants)`).
 Changes it can't scope read everything, and say why:
 an at-rule outside style rules (`@font-face`, `@property`, `@import`),
@@ -263,8 +264,8 @@ a one-declaration color change took 2.1 s instead of 48.2 s,
 a padding change on `.bx--btn` 12.6 s instead of 47.2 s
 (35 pages reached, each read whole for layout),
 and 25 runs of CSS refactor commits (82 commits, `2d710c03e..97164eeec`)
-288 s instead of 1,218 s, with identical results on every one
-(`eval/carbon/scope.ts`).
+288 s instead of 1,218 s, with identical results on every
+one (`eval/carbon/scope.ts`).
 Building the page index is one load of each page, 20 s there,
 once per fixture build.
 `--no-scope` reads everything.
@@ -286,9 +287,8 @@ from: the selector and its source line
 (through the stylesheet's source map, as `dead` and `diff` report),
 following `inherit` and inheritance up to the ancestor that set it.
 Each example in the report says
-`won by .bx--btn (css/_button.scss:42) on both sides`
-or `base: … -> head: …`; `--format json` has it for every changed
-element.
+`won by .bx--btn (css/_button.scss:42) on both sides` or
+`base: … -> head: …`; `--format json` has it for every changed element.
 `compare --visual` screenshots each changed element on both sides
 (its box padded to at least 24 × 16, plus 8 px for outlines and shadows;
 nothing for an element that renders no box),
@@ -356,9 +356,8 @@ a verdict
 than ΔE 1, or `invisible` with its reason),
 what changed (folded, with counts), where
 (a CSS selector, the snapshot path and the element's markup),
-why
-(the rule at its source line, with a few lines of it, `vscode://` and
-GitHub links, and with `bisect` the commit),
+why (the rule at its source line, with a few lines of it, `vscode://`
+and GitHub links, and with `bisect` the commit),
 the blast radius (elements and pages),
 a suggested fix from the provenance (the values a lost rule set),
 crops of an element on each side with a heatmap of what differs,
@@ -419,8 +418,8 @@ Tracing reads each page once more, in unforced states only,
 and only finds tokens used directly (`var()`),
 not through `calc()` or `color-mix()`.
 On carbon-components-svelte's 124 fixture pages it took the
-TooltipDefinition regression's compare from 18.6 s to 19.0 s
-(`eval/carbon/tokens.ts`).
+TooltipDefinition regression's compare from 18.6 s to
+19.0 s (`eval/carbon/tokens.ts`).
 
 `crassus tokens --tokens cds-` reports, over the fixtures as built,
 which tokens drive which properties on how many elements and pages,
@@ -540,8 +539,8 @@ or more classes, the minified size as Bun minifies it
 (a trend, not a budget), dropped, new, rewritten and moved rules,
 and two sections of flips: **cascade flips**,
 where the winner between two rules that may match one element changed
-(these fail), and **order-tie flips** from rules that only moved
-(review).
+(these fail), and **order-tie flips** from rules that only
+moved (review).
 Both are rung 1 heuristics: confirm them with a computed-style snapshot
 (rung 3).
 
@@ -600,8 +599,8 @@ where it can prove the edit removes nothing else:
   Run it without `--entry`, and configure every entry that shares the
   sources: the proof only covers the stylesheets crassus compiles.
   If your `compile` hook builds only some entries by default,
-  list the rest in `fixEntries`: `--fix` asks the hook for them with
-  `compile(root, { entries })`.
+  list the rest in `fixEntries`: `--fix` asks the hook for them
+  with `compile(root, { entries })`.
   When it deletes from a partial (`_*.scss`) without `fixEntries`,
   it says which entries the proof covered.
 - **Every fix is checked.**
@@ -722,8 +721,8 @@ its source line:
 - run: bunx crassus diff --base origin/${{ github.base_ref }} --format github --summary "$GITHUB_STEP_SUMMARY"
 ```
 
-`--summary` puts the full human report in the job summary from the same
-run.
+`--summary` puts the full human report in the job summary from the
+same run.
 
 ## API
 
@@ -751,8 +750,8 @@ Types: `Rule`, `DeadDeclaration`, `CascadeDiff`, `Flip`, `Config`,
 ### `crassus/browser` (Bun)
 
 Real-browser rungs on
-[`Bun.WebView`](https://bun.sh/docs/runtime/webview):
-Chrome or Chromium over CDP
+[`Bun.WebView`](https://bun.sh/docs/runtime/webview): Chrome
+or Chromium over CDP
 (Playwright's cached `chrome-headless-shell` when installed, else
 auto-detected), or the system WebKit on macOS.
 No Playwright and no browser download.
@@ -772,8 +771,8 @@ Both browser runs take:
   (default one, 1280 × 900; `width`/`height` still set a single one).
   Use enough to cover the stylesheet's `min-width`/`max-width`
   breakpoints, or rules outside them read as never matched.
-  With several, capture files are named
-  `<name>.<theme>.<W>x<H>.json.gz`.
+  With several, capture files are
+  named `<name>.<theme>.<W>x<H>.json.gz`.
 - `readySelector` (and `readyTimeoutMs`, default 5000):
   wait after load until the selector matches,
   for content that mounts late.
@@ -801,8 +800,8 @@ Types: `CaptureOptions`, `CompareOptions`, `Impact`, `TokenChange`,
   Primer, Tailwind 2 and Open Props.
   On carbon-components-svelte's history it reproduces the original
   css-tree-based tools exactly: identical dead declarations,
-  and identical cascade flips on six real refs including a 3,666-rule
-  refactor.
+  and identical cascade flips on six real refs including a
+  3,666-rule refactor.
 - **Spec-correct where the original tools weren't.**
   One-colon pseudo-elements (`.a:after` is `(0,1,1)`),
   `:nth-child(An+B of S)` and `:host(X)` specificity,
@@ -872,8 +871,8 @@ with covering arrays and shrinking.
   If a browser rejects its value or its selector,
   the earlier declaration still wins there.
   Known fallback patterns
-  (vendor prefixes, `fit-content`, `dvh`, legacy aliases) aren't
-  reported.
+  (vendor prefixes, `fit-content`, `dvh`, legacy aliases)
+  aren't reported.
 - **Logical properties assume a horizontal writing mode.**
   `inset-block-start` and `top` share a slot;
   the inline axis is left alone.

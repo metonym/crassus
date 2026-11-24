@@ -49,8 +49,8 @@ export interface BisectResult {
   to: string;
   commits: { sha: string; subject: string }[];
   /**
-   * `unchanged`: the stylesheet is byte-identical at both ends: not
-   * compared.
+   * `unchanged`: the stylesheet is byte-identical at both ends:
+   * not compared.
    */
   css: "changed" | "unchanged";
   /** Element changes users can see, and those no one can. */
@@ -133,8 +133,8 @@ const count = (diff: SnapshotDiff, invisible: boolean) =>
     .reduce((n, g) => n + g.count, 0);
 
 /**
- * `crassus bisect <from>..<to>`. Exit 1 when a commit changed what users
- * see.
+ * `crassus bisect <from>..<to>`. Exit 1 when a commit changed what
+ * users see.
  */
 export async function bisectCommand(opts: {
   config: Config;
@@ -340,8 +340,8 @@ const failing = (r: BisectResult) =>
   r.fails ?? Boolean(r.diff && differs(r.diff));
 
 /**
- * The narrowest results with visible changes: where the halves don't show
- * them.
+ * The narrowest results with visible changes: where the halves don't
+ * show them.
  */
 export function found(results: BisectResult[]): BisectResult[] {
   return results.flatMap((r) => {

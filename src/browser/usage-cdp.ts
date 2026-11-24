@@ -61,8 +61,8 @@ function libraryLayerRanks(text: string): Map<string, number> {
 }
 
 /**
- * As `parseRules` resolves it. Nested declarations have no own selector:
- * `&`.
+ * As `parseRules` resolves it. Nested declarations have no
+ * own selector: `&`.
  */
 function nestedSelector(own: string, ancestors: string[]): string {
   let parent = parseSelectorList(ancestors.at(-1) ?? "&");
@@ -109,8 +109,8 @@ function toMatchedRule(
 }
 
 // Disables the domains however it ends: a tab left with CSS enabled gets
-// no `styleSheetAdded` replay on the next page, which then finds no
-// library.
+// no `styleSheetAdded` replay on the next page, which then finds
+// no library.
 export async function processPageCdp(
   view: View,
   agg: UsageAggregate,

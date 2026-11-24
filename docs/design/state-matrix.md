@@ -13,8 +13,8 @@ and a failure is shrunk to a minimal repro.
 It is built from parts crassus already has.
 Where it makes a claim about cost or noise,
 the claim is measured on carbon-components-svelte's fixtures
-(124 pages at `5198d984e`), with scratch probes described under
-[Evidence behind this design](#evidence-behind-this-design).
+(124 pages at `5198d984e`), with scratch probes described
+under [Evidence behind this design](#evidence-behind-this-design).
 
 ## Goals and non-goals
 
@@ -28,11 +28,11 @@ Goals:
   a change to compare against.
 - Keep the matrix small with covering arrays and impact scoping.
   Fit the resource limits
-  (concurrency ≤ cores/2, backoff under load, disk projected before
-  writing).
+  (concurrency ≤ cores/2, backoff under load, disk projected
+  before writing).
 - Keep every failure actionable: a change card with the exact matrix
-  row, the event steps, a shrunk repro and the rule that decided the
-  value.
+  row, the event steps, a shrunk repro and the rule that decided
+  the value.
 
 Non-goals:
 
@@ -41,8 +41,8 @@ Non-goals:
   never behavior such as "Escape closes the menu".
   The crawl fires events only to reach states.
 - Not a screen-reader audit.
-  Focus order, names and roles belong to axe or the component's own
-  tests.
+  Focus order, names and roles belong to axe
+  or the component's own tests.
 - Zero runtime dependencies stays.
   IPOG, generators, shrinking, WCAG contrast and the crawl are written
   here, as ddmin and CIEDE2000 were.
@@ -127,8 +127,8 @@ matrix: {
 }
 ```
 
-`text()`, `count()` and `number()` are crassus's data generators
-(below).
+`text()`, `count()` and `number()` are crassus's data
+generators (below).
 Constraints are plain predicates over a partial row.
 IPOG asks them about partial rows, so a constraint must return true
 when the factors it reads aren't set yet.
@@ -187,8 +187,8 @@ the `hover: none` case: a hover style that sticks after a tap.
 
 ### Data generators
 
-Each generator lists named levels, so the covering array treats them as
-values.
+Each generator lists named levels, so the covering array treats them
+as values.
 Each draws its concrete value from a seeded choice sequence,
 so shrinking can make it simpler (see Shrinking).
 
@@ -337,8 +337,8 @@ phase 3 measures it before choosing the defaults.
 ### Cross-checking the passes
 
 - A state the crawl reaches that forcing didn't capture is
-  **JS-driven**, and its records join the capture under
-  `path@crawl:<steps>`.
+  **JS-driven**, and its records join the capture
+  under `path@crawl:<steps>`.
 - An element the crawl focuses or hovers whose forced read differs from
   the real one shows forcing being unfaithful there:
   `:focus-visible` heuristics, `:hover` on a parent the pointer passed
@@ -372,8 +372,8 @@ Applied to every invariant:
 2. **The scope is library-decided elements.**
    An element counts only if the value the invariant reads was decided
    by a library rule
-   (`sheetMarker`, from the cascade crassus already walks for
-   `--explain`).
+   (`sheetMarker`, from the cascade crassus already walks
+   for `--explain`).
    The probe's 32 contrast hits included 15 on `consumer-override`,
    a fixture that sets its own colors on purpose.
    Library text on a backdrop no library rule painted is reported as a
@@ -419,8 +419,8 @@ Those become approvals on the first run.
 The rule's noise is low enough to fail by default.
 
 Contrast and target size fail by default once rules 1–4 apply.
-Motion and RTL start as warnings until a phase-5 eval measures their
-noise.
+Motion and RTL start as warnings until a phase-5 eval measures
+their noise.
 
 ## Shrinking
 
@@ -454,8 +454,8 @@ each checking it still fails the same way:
   generator could have produced.
 - **Steps.**
   A crawl failure's event path is ddmin'd:
-  drop events while the same failure still occurs at the end of the
-  path.
+  drop events while the same failure still occurs at the end of
+  the path.
 
 Each try re-mounts in place (protocol fixtures)
 and reads only the failing element, so a try costs a re-render
@@ -569,14 +569,14 @@ with fixtures built by its config, in Chrome (`chrome-headless-shell`),
 4 tabs:
 
 - **Capture cost and size.**
-  `crassus capture --themes white --viewport 1280x900`:
-  124 pages in 75.6 s (2.4 tab-seconds per page with forced states),
+  `crassus capture --themes white --viewport 1280x900`: 124 pages in
+  75.6 s (2.4 tab-seconds per page with forced states),
   996 KB of snapshots.
 - **Covering arrays.**
   A scratch IPOG
   (about 100 lines, with constraints, relations and a coverage checker)
-  on the Button model in this document gave the row counts in the table
-  above.
+  on the Button model in this document gave the row counts in the
+  table above.
 - **Invariant probe.**
   One page script for text contrast
   (WCAG relative luminance, alpha composed over DOM ancestors),

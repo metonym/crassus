@@ -311,8 +311,8 @@ export interface VisitOptions {
   /** Visits only the pages it keeps. */
   only?: (job: PageJob) => boolean;
   /**
-   * Told of each wait while the load average holds tabs back (`ms` of one
-   * tab).
+   * Told of each wait while the load average holds tabs back (`ms` of
+   * one tab).
    */
   onBusy?:
     ((wait: { load: number; cores: number; ms: number }) => void) | undefined;
@@ -321,8 +321,8 @@ export interface VisitOptions {
 }
 
 /**
- * Loads `url` in `view` and waits for `readySelector`; false if it never
- * matched.
+ * Loads `url` in `view` and waits for `readySelector`; false if it
+ * never matched.
  */
 export async function loadPage(
   view: View,

@@ -67,8 +67,8 @@ const STRUCTURAL = new Set([
   "-moz-any",
   "has",
 ]);
-// Their arguments match the element itself, so each can be relaxed in
-// place.
+// Their arguments match the element itself, so each can be relaxed
+// in place.
 const POSITIVE = new Set(["is", "where", "matches", "-webkit-any", "-moz-any"]);
 
 const UNIVERSAL: Part = { t: "universal" };
@@ -176,8 +176,8 @@ function statesIn(parts: Part[], into: Set<string>, deep = false): boolean {
 
 /**
  * What a selector's state pseudo-classes need forced to apply: per state,
- * the elements it must be forced on. A state inside `:has()` can be on any
- * element.
+ * the elements it must be forced on. A state inside `:has()` can be on
+ * any element.
  */
 export function stateTriggers(selector: string): StateTrigger[] {
   const out: StateTrigger[] = [];
@@ -211,8 +211,8 @@ function triggersOf(sel: Complex, out: StateTrigger[]): void {
 }
 
 // At-rules that carry no style rules: compared whole. `@layer` statements
-// are compared as layer ranks; `@keyframes` rules come out of
-// `parseRules`.
+// are compared as layer ranks; `@keyframes` rules come out
+// of `parseRules`.
 function atRules(nodes: Node[], into: string[] = []): string[] {
   for (const node of nodes) {
     if (node.kind === "rule" || node.rules) {
@@ -243,8 +243,8 @@ const ANIMATION_RE = /^(?:-[a-z]+-)?animation(?:-name)?$/;
 const TOKEN_RE = /[\s,]+/;
 
 /**
- * Rules that run one of `names`, from their `animation` or
- * `animation-name`.
+ * Rules that run one of `names`, from their `animation`
+ * or `animation-name`.
  */
 function animating(rules: Rule[], names: Set<string>): Rule[] {
   return rules.filter((r) => {
@@ -256,8 +256,8 @@ function animating(rules: Rule[], names: Set<string>): Rule[] {
 }
 
 /**
- * No rule differs, nor anything that reaches every page: no value can
- * change.
+ * No rule differs, nor anything that reaches every page: no value
+ * can change.
  */
 export const nothingChanged = (c: ReturnType<typeof changedRules>): boolean =>
   !c.everything && c.selectors.length === 0;

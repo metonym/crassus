@@ -33,8 +33,8 @@ function markup(card: Card): {
 /**
  * The rules of `css` that can style the page in `view` (their selectors
  * relaxed as `compare` does: any state, a pseudo-element's element),
- * with the at-rules that hold them, `@font-face`, `@keyframes` and
- * `@property`.
+ * with the at-rules that hold them, `@font-face`, `@keyframes`
+ * and `@property`.
  */
 async function minimal(view: View, css: string): Promise<string> {
   const selectors = await view.evaluate<string[]>(`((text) => {

@@ -36,13 +36,13 @@ export interface SnapshotDiff {
   /** Pages with any change, by file name. */
   pages: SnapshotPageDiff[];
   /**
-   * Style changes grouped by `(property, before -> after)`, most frequent
-   * first.
+   * Style changes grouped by `(property, before -> after)`, most
+   * frequent first.
    */
   groups: ChangeGroup[];
   /**
-   * Over all compared pages: properties one side never recorded, so not
-   * compared.
+   * Over all compared pages: properties one side never recorded, so
+   * not compared.
    */
   uncompared: Uncompared;
 }

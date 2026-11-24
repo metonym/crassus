@@ -1,8 +1,8 @@
 /**
  * `dead --fix`. A source declaration goes only when everything it
  * produces, in every stylesheet analyzed, is dead. Every edit is checked:
- * re-analyzed, the stylesheets must have lost exactly the fixed
- * declarations.
+ * re-analyzed, the stylesheets must have lost exactly the
+ * fixed declarations.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -179,8 +179,8 @@ function statementEnd(
 }
 
 /**
- * Past a comment alone on the rest of the line: it was about the
- * declaration.
+ * Past a comment alone on the rest of the line: it was about
+ * the declaration.
  */
 function withTrailingComment(text: string, end: number): number {
   const m = TRAILING_COMMENT_RE.exec(text.slice(end, end + 500));
@@ -429,8 +429,8 @@ export interface FixReport {
 }
 
 /**
- * Thrown, after restoring the files, when an edit changed more than it
- * should.
+ * Thrown, after restoring the files, when an edit changed more than
+ * it should.
  */
 export class FixCheckError extends Error {}
 
@@ -458,14 +458,14 @@ export async function fix(opts: {
   results: DeadResult[];
   root: string;
   /**
-   * The config's `build` writes the stylesheets: only their sources may be
-   * edited.
+   * The config's `build` writes the stylesheets: only their sources may
+   * be edited.
    */
   generated: boolean;
   dryRun: boolean;
   /**
-   * Reads the stylesheets again (rebuilding them); null when that's not
-   * possible.
+   * Reads the stylesheets again (rebuilding them); null when that's
+   * not possible.
    */
   reload: (() => Promise<Sheet[]>) | null;
 }): Promise<FixReport> {

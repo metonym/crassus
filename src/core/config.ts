@@ -74,15 +74,15 @@ export interface Config {
 export interface BrowserConfig {
   /**
    * The fixture directory (relative to the project root), optionally with
-   * the shell command that writes it, run first (in the base checkout for
-   * `capture --base`).
+   * the shell command that writes it, run first (in the base checkout
+   * for `capture --base`).
    */
   fixtures: string | { dir: string; build?: string };
   /** Themes to load each page in. Default: one run, with no theme attribute. */
   themes?: string[];
   /**
-   * The `<html>` attribute a theme is set as, before first paint. Default
-   * `theme`.
+   * The `<html>` attribute a theme is set as, before first paint.
+   * Default `theme`.
    */
   themeAttribute?: string;
   /**
@@ -93,8 +93,8 @@ export interface BrowserConfig {
   /** Default: 1280 × 900. Cover your `min-width`/`max-width` breakpoints. */
   viewports?: { width: number; height: number }[];
   /**
-   * After load, wait until this selector matches; a page that never does is
-   * reported.
+   * After load, wait until this selector matches; a page that never does
+   * is reported.
    */
   readySelector?: string;
   /** Default 5000. */

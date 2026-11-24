@@ -54,8 +54,8 @@ const counts = (s: Report["summary"]) =>
   `${s["token-detached"] ? `${s["token-detached"]} token-detached, ` : ""}${s.visible} visible, ${s.imperceptible} imperceptible, ${s.invisible} invisible`;
 
 /**
- * Reads the changed rule's source lines, at the commit its side was built
- * from.
+ * Reads the changed rule's source lines, at the commit its side was
+ * built from.
  */
 export async function attachSources(
   report: Report,
@@ -192,8 +192,8 @@ export async function writeReport(
 }
 
 /**
- * One line per verdict, then one per card: what CI logs and agents read
- * first.
+ * One line per verdict, then one per card: what CI logs and agents
+ * read first.
  */
 export function formatCardsSummary(report: Report, dir?: string): string {
   const { approved } = report.summary;
@@ -427,8 +427,8 @@ const escapeHtml = (s: string) =>
   );
 
 /**
- * An offline page: cards by root cause, filters, before/after slider,
- * code.
+ * An offline page: cards by root cause, filters, before/after
+ * slider, code.
  */
 function reportHtml(report: Report, dir?: string): string {
   const data = JSON.stringify({

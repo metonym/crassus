@@ -1,8 +1,8 @@
 // Layers order by first declaration, sublayers before their parent's own
 // rules, unlayered last; a layer first declared under a condition is
 // uncertain. Nesting is flattened: declarations after a nested rule, or in
-// a group rule nested in a style rule, become `&` rules
-// (CSSNestedDeclarations).
+// a group rule nested in a style rule, become `&`
+// rules (CSSNestedDeclarations).
 
 import {
   canonicalCondition,
@@ -147,8 +147,8 @@ export function placeRules(nodes: Node[]): Placed[] {
     return l;
   };
 
-  // `@import` only counts before other rules (`@charset` and `@layer;`
-  // aside).
+  // `@import` only counts before other rules (`@charset` and
+  // `@layer;` aside).
   let importsOpen = true;
 
   const place = (
@@ -281,8 +281,8 @@ export function placeRules(nodes: Node[]): Placed[] {
 }
 
 /**
- * Layer name -> `Rule.layerRank`. Anonymous layers share a name: the first
- * wins.
+ * Layer name -> `Rule.layerRank`. Anonymous layers share a name: the
+ * first wins.
  */
 export function layerRanks(nodes: Node[]): Map<string, number> {
   const ranks = new Map<string, number>();

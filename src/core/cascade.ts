@@ -39,8 +39,8 @@ export interface Rule {
   /** Placement, selector and declarations: the identity `cascadeDiff` counts. */
   key: string;
   /**
-   * Where the selector starts (1-based line, 0-based column), with
-   * `positions`.
+   * Where the selector starts (1-based line, 0-based column),
+   * with `positions`.
    */
   loc?: { line: number; column: number };
 }
@@ -202,8 +202,8 @@ export function canonicalValue(
   important: boolean,
   property = "",
 ): string {
-  // Custom property values keep their comments: `--x: /*!*/ /*!*/` is a
-  // space.
+  // Custom property values keep their comments: `--x: /*!*/ /*!*/` is
+  // a space.
   const value = property.startsWith("--")
     ? collapseWs(raw.trim())
     : canonicalText(raw);
@@ -287,8 +287,8 @@ function attrsExclude(x: Subject, y: Subject): boolean {
  * Whether two rules' condition contexts hold together whenever the
  * narrower one does: the same, or one nested in the other (an
  * unconditioned rule beside an `@media` one). Sibling conditions
- * (`@media print` and `@media screen`) may never both hold, so they don't
- * pair.
+ * (`@media print` and `@media screen`) may never both hold, so they
+ * don't pair.
  */
 function contextsNest(a: string, b: string): boolean {
   if (a === b || a === "" || b === "") return true;

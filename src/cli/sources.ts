@@ -79,8 +79,8 @@ function locator(
 }
 
 /**
- * Reads a CSS file and its source map: `sourceMappingURL`, else
- * `<file>.map`.
+ * Reads a CSS file and its source map: `sourceMappingURL`,
+ * else `<file>.map`.
  */
 export async function readStylesheet(file: string): Promise<{
   css: string;

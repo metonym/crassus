@@ -31,8 +31,8 @@ export interface UsageOptions {
   outDir: string;
   engine: EngineName;
   /**
-   * `cdp` asks Chrome per element (exact); `dom` matches in the page (any
-   * engine).
+   * `cdp` asks Chrome per element (exact); `dom` matches in the page
+   * (any engine).
    */
   matcher: "cdp" | "dom";
   emulate: "cdp" | "cssom";
@@ -40,8 +40,8 @@ export interface UsageOptions {
   concurrency: number;
   chromePath?: string | undefined;
   /**
-   * Text only the library stylesheet contains, e.g. a class prefix
-   * (`.bx--`).
+   * Text only the library stylesheet contains, e.g. a class
+   * prefix (`.bx--`).
    */
   sheetMarker: string;
   /**
@@ -78,8 +78,8 @@ export interface UsageFile {
   notReady: string[];
   /**
    * Matched but never won, ignoring losses to `prefers-reduced-motion`,
-   * `prefers-contrast` and `forced-colors` rules (preferences, not
-   * overrides).
+   * `prefers-contrast` and `forced-colors` rules (preferences,
+   * not overrides).
    */
   deadInFixtures: DeclarationStats[];
   /** Dead in fixtures, always losing to the same single rule. */

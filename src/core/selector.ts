@@ -187,8 +187,8 @@ export function parseComplex(text: string): Complex {
   };
 
   /**
-   * From an opening `(` or `[` to just past its match; returns what's
-   * inside.
+   * From an opening `(` or `[` to just past its match; returns
+   * what's inside.
    */
   const readGroup = (open: number, close: number): string => {
     let depth = 0;

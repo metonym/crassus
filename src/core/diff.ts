@@ -70,8 +70,8 @@ export const defaultComponentOf = (cls: string): string => {
 };
 
 /**
- * Indexes of one longest strictly increasing subsequence (patience
- * sorting).
+ * Indexes of one longest strictly increasing subsequence
+ * (patience sorting).
  */
 export function longestIncreasing(values: number[]): Set<number> {
   const tails: number[] = [];
@@ -102,8 +102,8 @@ export function longestIncreasing(values: number[]): Set<number> {
 interface DiffOptions {
   /**
    * The component a class belongs to: a rule that only moved is compared
-   * with its own component's rules. Default: `bx--slider__thumb--lower` ->
-   * `slider`.
+   * with its own component's rules. Default: `bx--slider__thumb--lower`
+   * -> `slider`.
    */
   componentOf?: ((className: string) => string) | undefined;
 }

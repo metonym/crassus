@@ -1,5 +1,5 @@
-// crassus/browser loads on first use, so `dead` and `diff` don't pay for
-// it.
+// crassus/browser loads on first use, so `dead` and `diff` don't pay
+// for it.
 import { existsSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
 import { availableParallelism } from "node:os";
@@ -162,8 +162,8 @@ export function settings(
 }
 
 /**
- * Builds the fixtures in `root` (unless `--url` serves them) and lists
- * them.
+ * Builds the fixtures in `root` (unless `--url` serves them) and
+ * lists them.
  */
 export async function fixturePages(
   root: string,
@@ -368,8 +368,8 @@ export const differs = (diff: SnapshotDiff): boolean =>
   detached(diff) || diff.groups.some((g) => !g.invisible) || domDiffers(diff);
 
 /**
- * `crassus snapshot-diff <baseDir> <headDir>`. Exit 1 when anything
- * differs.
+ * `crassus snapshot-diff <baseDir> <headDir>`. Exit 1 when
+ * anything differs.
  */
 export async function snapshotDiffCommand(opts: {
   dirs: string[];
@@ -767,8 +767,8 @@ export function cardsOrText(
 }
 
 /**
- * Builds a run's change cards, reads their sources, and writes the report
- * directory.
+ * Builds a run's change cards, reads their sources, and writes the
+ * report directory.
  */
 export async function changeCards(o: {
   runs: {

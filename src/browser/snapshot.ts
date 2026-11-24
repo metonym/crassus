@@ -421,8 +421,8 @@ export interface ScopeRead {
 }
 
 /**
- * One page as `capture` reads it; with `scope`, only what the change can
- * reach.
+ * One page as `capture` reads it; with `scope`, only what the change
+ * can reach.
  */
 export async function capturePage(
   view: View,

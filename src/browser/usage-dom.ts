@@ -1,5 +1,5 @@
-// Drives src/page/usage-dom.ts; rule alignment and cascade order are in
-// src/core/align.ts.
+// Drives src/page/usage-dom.ts; rule alignment and cascade order are
+// in src/core/align.ts.
 import {
   alignRules,
   cascadeOrder,

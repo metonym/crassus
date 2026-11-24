@@ -51,8 +51,8 @@ async function resolveRef(
 }
 
 /**
- * Runs `fn` in a temporary detached worktree of `sha`, at `cwd`'s place in
- * it.
+ * Runs `fn` in a temporary detached worktree of `sha`, at `cwd`'s place
+ * in it.
  */
 async function inCheckout<T>(
   cwd: string,
@@ -191,8 +191,8 @@ async function writeCached(dir: string, file: string, sheets: Sheet[]) {
 }
 
 /**
- * Git couldn't write the inputs out; the caller checks out the commit
- * whole.
+ * Git couldn't write the inputs out; the caller checks out the
+ * commit whole.
  */
 class Unextractable extends Error {}
 

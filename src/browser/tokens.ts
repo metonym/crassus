@@ -27,8 +27,8 @@ export interface TokenReport {
    */
   hardCoded: ColorUse[];
   /**
-   * Colors that follow no token where no author rule sets them: the user
-   * agent's.
+   * Colors that follow no token where no author rule sets them: the
+   * user agent's.
    */
   uaDefaults: ColorUse[];
   /** Per list, the elements left out of it. */
@@ -55,8 +55,8 @@ interface Omitted {
 }
 
 /**
- * A list's entries with elements listed, most first, and what all left
- * out.
+ * A list's entries with elements listed, most first, and what all
+ * left out.
  */
 function listed(uses: Map<string, ColorUse>) {
   const omitted: Omitted = { invisible: 0, inherited: 0 };

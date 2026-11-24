@@ -20,8 +20,8 @@ import {
 const INDEX_VERSION = 1;
 
 /**
- * `[localName, attributes, children, namespace?]`; namespace when not
- * HTML.
+ * `[localName, attributes, children, namespace?]`; namespace when
+ * not HTML.
  */
 type Skeleton = [string, Record<string, string>, Skeleton[], string?];
 
@@ -282,8 +282,8 @@ export async function pageIndex(opts: IndexOptions): Promise<{
 }
 
 /**
- * Page function `(skeleton, doc)`: builds it as `doc`'s root, and returns
- * that.
+ * Page function `(skeleton, doc)`: builds it as `doc`'s root, and
+ * returns that.
  */
 export const BUILD = `(tree, doc) => {
   const make = ([name, attrs, children, ns]) => {

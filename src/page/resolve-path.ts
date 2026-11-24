@@ -1,6 +1,6 @@
 /**
- * What `resolvePath` needs of a DOM element: any DOM (browser, jsdom,
- * linkedom).
+ * What `resolvePath` needs of a DOM element: any DOM (browser,
+ * jsdom, linkedom).
  */
 export interface PathElement {
   tagName: string;

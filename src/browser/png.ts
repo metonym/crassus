@@ -109,8 +109,8 @@ export interface Difference {
 }
 
 /**
- * How two same-size images differ, pixel by pixel; null when they're the
- * same.
+ * How two same-size images differ, pixel by pixel; null when they're
+ * the same.
  */
 export function difference(a: Image, b: Image): Difference | null {
   const labs = new Map<number, [number, number, number]>();

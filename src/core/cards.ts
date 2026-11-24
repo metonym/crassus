@@ -1,8 +1,8 @@
 // Change cards: a compare's changes grouped by root cause, the rule that
 // changed and so stopped or started winning, each with what a person or an
 // agent needs to act on it without opening a snapshot. One model, rendered
-// as JSON (`crassus/report@1`), HTML, Markdown, a terminal summary and
-// SARIF.
+// as JSON (`crassus/report@1`), HTML, Markdown, a terminal summary
+// and SARIF.
 import {
   type DeltaE,
   type Explained,
@@ -82,8 +82,8 @@ export interface Card {
   id: string;
   verdict: Verdict;
   /**
-   * Why no one can see it, for an invisible card: its reasons, most common
-   * first.
+   * Why no one can see it, for an invisible card: its reasons, most
+   * common first.
    */
   invisible?: string;
   title: string;

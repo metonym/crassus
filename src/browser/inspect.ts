@@ -45,8 +45,8 @@ const INHERITED_RE =
 const usable = (p: CdpProperty) => !p.disabled && p.parsedOk !== false;
 
 /**
- * The longhands whose winner explains a change: a shorthand's, and logical
- * twins.
+ * The longhands whose winner explains a change: a shorthand's, and
+ * logical twins.
  */
 function longhandsOf(change: PropertyChange): string[] {
   // Followers folded into `color` have winners of their own.
@@ -191,8 +191,8 @@ export interface PageInspection {
 }
 
 /**
- * Elements screenshot together: those forced into one state at once, or
- * none.
+ * Elements screenshot together: those forced into one state at once,
+ * or none.
  */
 interface Batch {
   state: string | null;

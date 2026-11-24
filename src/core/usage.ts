@@ -120,8 +120,8 @@ export function cascadeWinners(rules: MatchedRule[]): Map<string, Loc> {
   return normal;
 }
 
-// A shorthand wins if it wins any longhand, so a partial override still
-// shows.
+// A shorthand wins if it wins any longhand, so a partial override
+// still shows.
 const wonAny = (
   winners: Map<string, Loc>,
   decl: Declaration,
@@ -199,8 +199,8 @@ function statsFor(
 
 /**
  * Records one observation (element, pseudo-element or forced state): its
- * matched library rules in cascade order, as CDP or `cascadeOrder` gives
- * them.
+ * matched library rules in cascade order, as CDP or `cascadeOrder`
+ * gives them.
  */
 export function recordObservation(
   agg: UsageAggregate,
@@ -221,8 +221,8 @@ export function recordObservation(
         stats.won++;
         continue;
       }
-      // Charged to the first longhand's winner: enough to spot a recurring
-      // override.
+      // Charged to the first longhand's winner: enough to spot a
+      // recurring override.
       const first = decl.longhands[0];
       const winnerLoc = first === undefined ? undefined : winners.get(first);
       const winner = winnerLoc && rules[winnerLoc[0]];
@@ -237,8 +237,8 @@ export const bytesOf = (d: { property: string; value: string }): number =>
   d.property.length + d.value.length + 2;
 
 // Runs emulate `prefers-reduced-motion`, where `transition` always loses
-// to `transition: none`: a preference-gated rule is an alternative, not an
-// override.
+// to `transition: none`: a preference-gated rule is an alternative, not
+// an override.
 const PREFERENCE_MEDIA_RE =
   /prefers-reduced-motion|prefers-contrast|forced-colors/;
 
@@ -288,8 +288,8 @@ export function inventoryFromRules(
 
 /**
  * Rules no observation matched. A selector authored twice in one context
- * is matched if either copy is: that under-reports, the safe side for
- * evidence.
+ * is matched if either copy is: that under-reports, the safe side
+ * for evidence.
  */
 export function neverMatchedRules(
   agg: UsageAggregate,

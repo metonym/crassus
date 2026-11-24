@@ -1,5 +1,5 @@
-// Folds one element's computed-style changes so a single cause reads as
-// one
+// Folds one element's computed-style changes so a single cause reads
+// as one
 // change: logical twins, a shorthand's longhands and `color` followers
 // become `aliases` of the change they repeat, and changes no one can see
 // are marked.
@@ -35,8 +35,8 @@ function physical(property: string, dir: Direction): string | undefined {
 }
 
 /**
- * Shorthands by physical longhand set, largest first, a physical name
- * preferred.
+ * Shorthands by physical longhand set, largest first, a physical
+ * name preferred.
  */
 const shorthandTables = new Map<Direction, [string, string[]][]>();
 function shorthands(dir: Direction): [string, string[]][] {
@@ -160,8 +160,8 @@ function clippedAway(r: StyleRecord): string | undefined {
 /**
  * Why the element with `records` (its `lineage`) can't be seen, if it
  * can't, and whether that holds for every property (its box is out of
- * flow, so even its layout moves nothing anyone sees) or only for painted
- * ones.
+ * flow, so even its layout moves nothing anyone sees) or only for
+ * painted ones.
  */
 function concealed(
   own: StyleRecord,

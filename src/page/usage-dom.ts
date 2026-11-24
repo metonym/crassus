@@ -1,6 +1,6 @@
 // The `dom` usage engine's page half: `Element.matches()` against rules
-// bucketed by the rightmost compound's id, class or tag, as Blink's
-// RuleSet.
+// bucketed by the rightmost compound's id, class or tag, as
+// Blink's RuleSet.
 import {
   type Complex,
   parseComplex,
@@ -216,8 +216,8 @@ export interface UsageDomApi {
 
 const api: UsageDomApi = {
   /**
-   * Each sheet's index and href, and its text if inline and containing
-   * `marker`.
+   * Each sheet's index and href, and its text if inline and
+   * containing `marker`.
    */
   sheets(marker: string) {
     return Array.from(document.styleSheets).map((s, i) => {

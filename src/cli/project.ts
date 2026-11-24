@@ -165,8 +165,8 @@ async function configuredSheets(
 }
 
 /**
- * What `dead --fix` proves against: the configured stylesheets plus
- * `fixEntries`.
+ * What `dead --fix` proves against: the configured stylesheets
+ * plus `fixEntries`.
  */
 export async function fixStylesheets(
   root: string,
