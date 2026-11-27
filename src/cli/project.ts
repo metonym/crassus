@@ -9,6 +9,49 @@ import { readStylesheet, type Sheet } from "./sources";
 /** A mistake in how crassus was called or configured (exit code 2). */
 export class UsageError extends Error {}
 
+// A swap of two neighbours counts as one edit, since typos make them
+// (`hlep` is one from `help`); plain Levenshtein would count two.
+function distance(a: string, b: string): number {
+  let before: number[] = [];
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      let d = Math.min(
+        (prev[j] ?? 0) + 1,
+        (row[j - 1] ?? 0) + 1,
+        (prev[j - 1] ?? 0) + cost,
+      );
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1])
+        d = Math.min(d, (before[j - 2] ?? 0) + 1);
+      row.push(d);
+    }
+    before = prev;
+    prev = row;
+  }
+  return prev[b.length] ?? 0;
+}
+
+// The name in `names` nearest to `typed`, only when it's close enough
+// to be the one meant: one edit in every three characters.
+export function nearest(
+  typed: string,
+  names: Iterable<string>,
+): string | undefined {
+  const most = Math.max(1, Math.floor(typed.length / 3));
+  let best: string | undefined;
+  let bestDistance = most + 1;
+  for (const name of names) {
+    const d = distance(typed, name);
+    if (d < bestDistance) {
+      best = name;
+      bestDistance = d;
+    }
+  }
+  return best;
+}
+
 /** `file` as the project at `cwd` names it; absolute when it's outside. */
 export function shownPath(cwd: string, file: string): string {
   const rel = relative(cwd, file);

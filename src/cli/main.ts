@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import { parseArgs } from "node:util";
+import { parseArgs, type ParseArgsOptionsConfig } from "node:util";
 
 import { version } from "../../package.json";
 import { messageOf } from "../core/util";
@@ -30,6 +30,7 @@ import {
   fixStylesheets,
   isOneOf,
   loadConfig,
+  nearest,
   stylesheets,
   UsageError,
 } from "./project";
@@ -108,10 +109,12 @@ Options:
   --dry-run          with --fix: print the edits as a patch, write nothing
   --no-cache         rebuild the base
   --verbose          show every rule in review sections
-  --summary <file>   dead, diff, snapshot-diff, compare, bisect: also append the human report
-                     to this file ($GITHUB_STEP_SUMMARY), whatever --format
+  --summary <file>   dead, diff, snapshot-diff, compare, bisect: also append
+                     the human report to this file ($GITHUB_STEP_SUMMARY),
+                     whatever --format
 
-Browser options (capture, compare, bisect, usage; override the config's \`browser\`):
+Browser options (capture, compare, bisect, usage), which override the
+config's \`browser\`:
   --only <text>      only fixtures whose name contains this
   --themes <a,b>     themes to load each page in
   --viewport <WxH>   viewport (repeatable)
@@ -137,9 +140,8 @@ Browser options (capture, compare, bisect, usage; override the config's \`browse
                      instead of only what the changed rules can reach
   --tokens <prefix>  compare, bisect: trace which properties follow design
                      tokens (custom properties with this prefix: cds- for
-                     --cds-*),
-                     and fail where one stops following them; tokens: the
-                     prefix to report on (default: the config's
+                     --cds-*), and fail where one stops following them;
+                     tokens: the prefix to report on (default: the config's
                      browser.tokens)
   --property <name>  reduce: the property to reproduce (default: the card's
                      most frequent change)
@@ -201,45 +203,97 @@ export async function main(
   }
 }
 
+const OPTIONS = {
+  base: { type: "string" },
+  entry: { type: "string", multiple: true },
+  format: { type: "string" },
+  json: { type: "boolean" },
+  config: { type: "string" },
+  "no-cache": { type: "boolean" },
+  fix: { type: "boolean" },
+  "dry-run": { type: "boolean" },
+  verbose: { type: "boolean" },
+  only: { type: "string" },
+  themes: { type: "string" },
+  viewport: { type: "string", multiple: true },
+  "no-states": { type: "boolean" },
+  engine: { type: "string" },
+  matcher: { type: "string" },
+  concurrency: { type: "string" },
+  url: { type: "string" },
+  css: { type: "string" },
+  explain: { type: "boolean" },
+  "group-by": { type: "string" },
+  "no-split": { type: "boolean" },
+  "no-scope": { type: "boolean" },
+  confirm: { type: "boolean" },
+  report: { type: "string" },
+  tokens: { type: "string" },
+  property: { type: "string" },
+  visual: { type: "boolean" },
+  out: { type: "string" },
+  summary: { type: "string" },
+  help: { type: "boolean", short: "h" },
+  version: { type: "boolean", short: "v" },
+} satisfies ParseArgsOptionsConfig;
+
+const COMMANDS = [
+  "dead",
+  "diff",
+  "capture",
+  "snapshot-diff",
+  "compare",
+  "bisect",
+  "usage",
+  "coverage",
+  "doctor",
+  "tokens",
+  "explain",
+  "repro",
+  "verify",
+  "reduce",
+  "approve",
+];
+
+const UNKNOWN_OPTION_RE = /^Unknown option '([^']*)'/;
+
+// Only a close guess is offered: a wrong name would mislead more
+// than none.
+function hint(typed: string, names: Iterable<string>, prefix = ""): string {
+  const near = nearest(typed, names);
+  return near === undefined
+    ? "(run crassus --help)"
+    : `(did you mean ${prefix}${near}?)`;
+}
+
+function parse(argv: string[]) {
+  try {
+    return parseArgs({
+      args: argv,
+      allowPositionals: true,
+      strict: true,
+      options: OPTIONS,
+    });
+  } catch (e) {
+    const code: unknown =
+      e instanceof Error ? Reflect.get(e, "code") : undefined;
+    const raw =
+      code === "ERR_PARSE_ARGS_UNKNOWN_OPTION"
+        ? UNKNOWN_OPTION_RE.exec(messageOf(e))?.[1]
+        : undefined;
+    if (raw === undefined) throw e;
+    // parseArgs names a short option in a group (-hx) without its dash.
+    const flag = raw.startsWith("-") ? raw : `-${raw}`;
+    // Only long names are worth a guess: any one letter is near another.
+    const said = flag.startsWith("--")
+      ? hint(flag.slice(2), Object.keys(OPTIONS), "--")
+      : "(run crassus --help)";
+    throw new UsageError(`unknown option ${flag} ${said}`);
+  }
+}
+
 async function run(argv: string[], io: Io): Promise<number> {
-  const { values, positionals } = parseArgs({
-    args: argv,
-    allowPositionals: true,
-    strict: true,
-    options: {
-      base: { type: "string" },
-      entry: { type: "string", multiple: true },
-      format: { type: "string" },
-      json: { type: "boolean" },
-      config: { type: "string" },
-      "no-cache": { type: "boolean" },
-      fix: { type: "boolean" },
-      "dry-run": { type: "boolean" },
-      verbose: { type: "boolean" },
-      only: { type: "string" },
-      themes: { type: "string" },
-      viewport: { type: "string", multiple: true },
-      "no-states": { type: "boolean" },
-      engine: { type: "string" },
-      matcher: { type: "string" },
-      concurrency: { type: "string" },
-      url: { type: "string" },
-      css: { type: "string" },
-      explain: { type: "boolean" },
-      "group-by": { type: "string" },
-      "no-split": { type: "boolean" },
-      "no-scope": { type: "boolean" },
-      confirm: { type: "boolean" },
-      report: { type: "string" },
-      tokens: { type: "string" },
-      property: { type: "string" },
-      visual: { type: "boolean" },
-      out: { type: "string" },
-      summary: { type: "string" },
-      help: { type: "boolean", short: "h" },
-      version: { type: "boolean", short: "v" },
-    },
-  });
+  const { values, positionals } = parse(argv);
   const flags: BrowserFlags = {
     only: values.only,
     themes: values.themes,
@@ -552,5 +606,5 @@ async function run(argv: string[], io: Io): Promise<number> {
     });
   }
 
-  throw new UsageError(`unknown command ${command} (run crassus --help)`);
+  throw new UsageError(`unknown command ${command} ${hint(command, COMMANDS)}`);
 }
